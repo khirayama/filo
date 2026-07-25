@@ -7,6 +7,12 @@
 .env
 .env.local
 .env.*.local
+.dev.vars
+.dev.vars.*
+*.pem
+*.p12
+*.jks
+*.keystore
 coverage/
 node_modules/
 .turbo/
@@ -14,6 +20,7 @@ apps/web/node_modules/
 apps/web/dist/
 apps/extension/dist/
 apps/android/.gradle/
+apps/android/.kotlin/
 apps/android/build/
 apps/android/local.properties
 apps/android/app/build/
@@ -25,4 +32,6 @@ apps/ios/build-release/
 apps/ios/DerivedData/
 apps/ios/*.xcodeproj
 apps/ios/**/GoogleService-Info.plist
+apps/ios/LocalSecrets.plist
+apps/ios/**/*.xcconfig
 supabase/.temp/
