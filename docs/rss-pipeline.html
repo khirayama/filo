@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Filo — RSS Pipeline Flow</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e4e7;
+    --muted: #8b8d98;
+    --accent: #6366f1;
+    --accent2: #8b5cf6;
+    --green: #22c55e;
+    --amber: #f59e0b;
+    --rose: #f43f5e;
+    --cyan: #06b6d4;
+    --blue: #3b82f6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 48px; }
+
+  /* Overview diagram */
+  .overview {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 56px;
+    overflow-x: auto;
+    padding: 24px 0;
+  }
+  .ov-node {
+    flex-shrink: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    text-align: center;
+    min-width: 130px;
+  }
+  .ov-node .label { font-size: 13px; font-weight: 600; }
+  .ov-node .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .ov-arrow {
+    flex-shrink: 0;
+    width: 48px;
+    height: 2px;
+    background: var(--border);
+    position: relative;
+  }
+  .ov-arrow::after {
+    content: '';
+    position: absolute;
+    right: 0; top: -4px;
+    border: 5px solid transparent;
+    border-left-color: var(--border);
+  }
+  .ov-arrow .arrow-label {
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .ov-node.trigger { border-color: var(--accent); }
+  .ov-node.fetch { border-color: var(--blue); }
+  .ov-node.ai { border-color: var(--accent2); }
+  .ov-node.store { border-color: var(--green); }
+  .ov-node.serve { border-color: var(--cyan); }
+  .icon { font-size: 22px; display: block; margin-bottom: 6px; }
+
+  /* Phase sections */
+  .phase {
+    margin-bottom: 48px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .phase-header {
+    padding: 20px 28px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .phase-num {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .phase-title { font-size: 18px; font-weight: 600; flex: 1; }
+  .phase-file { font-size: 12px; color: var(--muted); font-family: 'SF Mono', Menlo, monospace; }
+  .phase-body { padding: 24px 28px; }
+  .phase-body p { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
+  .phase-body h3 { font-size: 15px; font-weight: 600; margin: 20px 0 12px; }
+
+  /* Flow steps inside a phase */
+  .steps { list-style: none; }
+  .steps li {
+    position: relative;
+    padding: 12px 0 12px 32px;
+    font-size: 14px;
+  }
+  .steps li::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+  .steps li:first-child::before { top: 20px; }
+  .steps li:last-child::before { bottom: calc(100% - 20px); }
+  .steps li::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 16px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--bg);
+  }
+  .step-title { font-weight: 600; color: var(--text); }
+  .step-desc { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .step-detail {
+    margin-top: 8px;
+    padding: 10px 14px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: 'SF Mono', Menlo, monospace;
+    color: var(--muted);
+    overflow-x: auto;
+  }
+  .step-detail .kw { color: var(--accent); }
+  .step-detail .fn { color: var(--cyan); }
+  .step-detail .str { color: var(--green); }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 100px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .badge.manual { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge.queue { background: rgba(99,102,241,0.15); color: var(--accent); }
+  .badge.cron { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .badge.api { background: rgba(6,182,212,0.15); color: var(--cyan); }
+  .badge.ai { background: rgba(139,92,246,0.15); color: var(--accent2); }
+
+  /* Trigger table */
+  .trigger-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .trigger-table th, .trigger-table td {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .trigger-table th {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .trigger-table code, .phase-body code {
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12px;
+    background: rgba(0,0,0,0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  /* Error section */
+  .error-flow {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .error-card {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .error-card .ec-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .error-card .ec-desc { font-size: 12px; color: var(--muted); }
+  .error-card.warn { border-color: rgba(245,158,11,0.3); }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  @media (max-width: 768px) {
+    .overview { flex-direction: column; gap: 0; }
+    .ov-arrow { width: 2px; height: 32px; }
+    .ov-arrow::after {
+      right: auto; top: auto;
+      bottom: 0; left: -4px;
+      border: 5px solid transparent;
+      border-top-color: var(--border);
+    }
+    .ov-arrow .arrow-label {
+      top: 50%; left: 100%;
+      transform: translateX(8px) translateY(-50%);
+    }
+    .error-flow { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Filo RSS Pipeline</h1>
+<p class="subtitle">手動トリガー → RSS取得・パース → D1保存 → タイトル翻訳・本文抽出（すべて手動） → 配信 の全体フロー。cron による自動巡回は行わない。本文翻訳はアプリでは提供しない。</p>
+
+<!-- ====== Overview ====== -->
+<div class="overview">
+  <div class="ov-node trigger">
+    <span class="icon">👆</span>
+    <div class="label">Trigger</div>
+    <div class="sub">ユーザー操作のみ</div>
+  </div>
+  <div class="ov-arrow"><span class="arrow-label">Queue</span></div>
+  <div class="ov-node fetch">
+    <span class="icon">📡</span>
+    <div class="label">Fetch</div>
+    <div class="sub">RSS/Atom</div>
+  </div>
+  <div class="ov-arrow"><span class="arrow-label">Parse</span></div>
+  <div class="ov-node store">
+    <span class="icon">💾</span>
+    <div class="label">Store</div>
+    <div class="sub">D1 Database</div>
+  </div>
+  <div class="ov-arrow"><span class="arrow-label">Queue（手動）</span></div>
+  <div class="ov-node ai">
+    <span class="icon">🤖</span>
+    <div class="label">Process</div>
+    <div class="sub">タイトル翻訳 (AI) / 本文抽出</div>
+  </div>
+  <div class="ov-arrow"><span class="arrow-label">Ready</span></div>
+  <div class="ov-node serve">
+    <span class="icon">📱</span>
+    <div class="label">Serve</div>
+    <div class="sub">REST API</div>
+  </div>
+</div>
+
+<!-- ====== Phase 1: Trigger ====== -->
+<div class="phase">
+  <div class="phase-header">
+    <div class="phase-num" style="background:rgba(99,102,241,0.15);color:var(--accent);">1</div>
+    <div class="phase-title">トリガー <span class="badge manual">Manual</span></div>
+    <span class="phase-file">routes/subscriptions.ts · routes/status.ts</span>
+  </div>
+  <div class="phase-body">
+    <p>フィード取得はすべてユーザーの明示操作で開始され、Cloudflare Queue にジョブを投入する。cron はフィード取得・コンテンツ生成を行わず、失敗した account deletion job の再投入のみを担う。</p>
+    <table class="trigger-table">
+      <thead>
+        <tr><th>トリガー</th><th>reason</th><th>説明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="badge api">API</span> 新規購読</td>
+          <td><code>initial</code></td>
+          <td><code>POST /subscriptions</code> で新しいフィードを登録したとき</td>
+        </tr>
+        <tr>
+          <td><span class="badge api">API</span> 手動更新</td>
+          <td><code>refresh</code></td>
+          <td><code>POST /status/refresh</code>（全購読） / <code>POST /status/refresh/:feedId</code>（個別）</td>
+        </tr>
+        <tr>
+          <td><span class="badge api">API</span> 初回失敗リトライ</td>
+          <td><code>retry_initial</code></td>
+          <td><code>POST /subscriptions/:id/retry-initial-fetch</code> で初回取得失敗を再試行</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="step-detail">
+      <span class="kw">await</span> env.JOBS.<span class="fn">send</span>({ jobType: <span class="str">"fetch_feed"</span>, feedId, reason, attempt: 1 })
+    </div>
+  </div>
+</div>
+
+<!-- ====== Phase 2: Fetch & Parse ====== -->
+<div class="phase">
+  <div class="phase-header">
+    <div class="phase-num" style="background:rgba(59,130,246,0.15);color:var(--blue);">2</div>
+    <div class="phase-title">フィード取得 & パース <span class="badge queue">Queue</span></div>
+    <span class="phase-file">jobs/fetchFeed.ts · lib/feed.ts</span>
+  </div>
+  <div class="phase-body">
+    <p>Queue Consumer がジョブを受け取り、RSSフィードをHTTPで取得してパースする。</p>
+    <ol class="steps">
+      <li>
+        <div class="step-title">条件チェック</div>
+        <div class="step-desc">paused フィードは refresh をスキップ（retry_initial は許可。成功すると active に復帰）。</div>
+      </li>
+      <li>
+        <div class="step-title">HTTP取得（条件付きリクエスト）</div>
+        <div class="step-desc">ETag / If-Modified-Since ヘッダーで帯域を節約。304 Not Modified なら即完了し、next_fetch_after = +120分。</div>
+        <div class="step-detail">
+          headers: { <span class="str">"If-None-Match"</span>: etag, <span class="str">"If-Modified-Since"</span>: lastModified }
+        </div>
+      </li>
+      <li>
+        <div class="step-title">XML パース</div>
+        <div class="step-desc">RSS 2.0 / Atom / RDF を統一的にパースし、<code>ParsedFeed</code> 構造に変換。</div>
+      </li>
+      <li>
+        <div class="step-title">フィードメタデータ更新</div>
+        <div class="step-desc">title, site_url, description, language, favicon_url を feeds テーブルに反映。favicon 失敗は取得を止めない。</div>
+      </li>
+      <li>
+        <div class="step-title">記事の重複排除 & 保存</div>
+        <div class="step-desc">guid → canonical URL → title+date+author ハッシュ の優先順位で dedupe_key を生成。既存記事は更新、新規記事は INSERT（最大200件/フィード）。</div>
+        <div class="step-detail">
+          dedupe_key: <span class="fn">guid:</span>xxx | <span class="fn">url:</span>xxx | <span class="fn">hash:</span>sha256(title|date|author)
+        </div>
+      </li>
+      <li>
+        <div class="step-title">fetch_state 更新 & ログ記録</div>
+        <div class="step-desc">成功時: next_fetch_after = +30分、consecutive_failures = 0。feed_fetch_logs に結果を記録。翻訳ジョブの自動投入は行わない（rate limit 保護のため手動のみ）。</div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- ====== Phase 3: Title Translation (Manual) ====== -->
+<div class="phase">
+  <div class="phase-header">
+    <div class="phase-num" style="background:rgba(139,92,246,0.15);color:var(--accent2);">3</div>
+    <div class="phase-title">一覧表示用タイトル翻訳 <span class="badge manual">Manual</span> <span class="badge ai">AI</span></div>
+    <span class="phase-file">jobs/translateDrain.ts · lib/translate.ts</span>
+  </div>
+  <div class="phase-body">
+    <p>記事一覧で表示するタイトルを、ユーザーの手動操作で翻訳する。翻訳結果は記事補足データとして共有保存し、ユーザーごとに複製しない。プレビュー翻訳・要約は行わない。</p>
+    <ol class="steps">
+      <li>
+        <div class="step-title">トリガー: ステータス画面の手動ボタン</div>
+        <div class="step-desc"><code>POST /status/translate</code>（全購読） / <code>POST /status/translate/:feedId</code>（個別）。不足している (article, language) ペアを article_listing_translations に status=pending で一括投入し、error 行も pending に戻して再試行する。</div>
+      </li>
+      <li>
+        <div class="step-title">グローバル drain がバッチ翻訳</div>
+        <div class="step-desc">専用キュー filo-translate（max_concurrency=1）の drain が pending 行を feed 横断・同一原文言語で最大40件ずつまとめ、1リクエストで対象言語すべてを LM Studio に翻訳させる。id キー付き JSON で突き合わせ、429 は delaySeconds 付き再投入で待つ。</div>
+      </li>
+      <li>
+        <div class="step-title">翻訳結果を共有保存（表示可能性を検証）</div>
+        <div class="step-desc"><strong>最新の判定方針:</strong> 空出力・必要な翻訳先への完全 echo・明らかな別言語は修復後も失敗扱いにする。文字種混在や固有名詞由来の不確かさは警告として、非空かつ原文完全 echo でない結果を ready にする。警告は翻訳失敗数や error_message には反映しない。</div>
+        <div class="step-desc">検証（echo・言語違いの排除）を通った訳のみ ready に更新。失敗は attempt_count+1 で pending に留め、3回で error 確定。進捗・完了・失敗の表示はすべて翻訳行の集計（coverage）から導出する。</div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- ====== Phase 4: Content Extraction & Translation ====== -->
+<div class="phase">
+  <div class="phase-header">
+    <div class="phase-num" style="background:rgba(244,63,94,0.15);color:var(--rose);">4</div>
+    <div class="phase-title">本文抽出（リーディングパート用） <span class="badge manual">Manual</span></div>
+    <span class="phase-file">jobs/extractContent.ts · routes/content.ts</span>
+  </div>
+  <div class="phase-body">
+    <p>
+      本文はリーディングパート（音読キュー）のためだけに扱う。RSSリーダーパートの一覧・詳細では本文を扱わず、要約は生成しない。
+      本文翻訳もアプリでは提供せず、各プラットフォーム / ブラウザの翻訳機能に委ねる。翻訳して聴きたい場合は、翻訳機能を適用した後の可視コンテンツを音読キューに取り込む。
+    </p>
+    <ol class="steps">
+      <li>
+        <div class="step-title">トリガー: ユーザーリクエスト</div>
+        <div class="step-desc"><code>POST /articles/:id/content</code>。音読キュー追加時にも必要に応じて要求される。</div>
+      </li>
+      <li>
+        <div class="step-title">RSS本文を優先、なければ元ページから抽出</div>
+        <div class="step-desc">RSS content:encoded / summary から抽出し、足りなければ canonical_url の HTML を取得して本文抽出（nav / sidebar / footer 等のノイズを除去）。</div>
+      </li>
+      <li>
+        <div class="step-title">article_contents に共有保存</div>
+        <div class="step-desc">text / html / source_language を保存。失敗時は status=error を記録し再試行できる。</div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- ====== AI Models ====== -->
+<div class="phase">
+  <div class="phase-header">
+    <div class="phase-num" style="background:rgba(139,92,246,0.15);color:var(--accent2);">⚙</div>
+    <div class="phase-title">使用AIモデル</div>
+    <span class="phase-file">lib/translate.ts</span>
+  </div>
+  <div class="phase-body">
+    <p>
+      AI 処理はタイトル翻訳のみで、LM Studio の OpenAI 互換 API（デフォルト <code>http://localhost:1234/v1</code>）を利用する。モデルは <code>TRANSLATION_MODEL</code>（既定 <code>google/gemma-4-12b-qat</code>）で指定し、
+      サーバー環境変数 <code>TRANSLATION_MODEL</code> で切り替える（ユーザーによるモデル選択はない）。
+      id キー付き JSON 形式で応答させ、プロンプトに応答が混ざるモデル向けの救済パースを持つ。
+      ペーシングは実測トークン（usage.total_tokens）から計算し、<code>TRANSLATION_TOKENS_PER_MINUTE</code>（既定10,000）以下の持続レートに保つ。
+    </p>
+  </div>
+</div>
+
+<!-- ====== Phase 5: Error Handling & Recovery ====== -->
+<div class="phase">
+  <div class="phase-header">
+    <div class="phase-num" style="background:rgba(244,63,94,0.15);color:var(--rose);">5</div>
+    <div class="phase-title">エラーハンドリング & リカバリー</div>
+    <span class="phase-file">index.ts · jobs/fetchFeed.ts</span>
+  </div>
+  <div class="phase-body">
+    <p>失敗はステータスとして可視化し、ユーザーの手動操作で復旧する。cron が自動でコンテンツ処理を再開することはない。</p>
+    <div class="error-flow">
+      <div class="error-card warn">
+        <div class="ec-title">フィード取得失敗</div>
+        <div class="ec-desc">
+          指数バックオフ: 15分 → 60分 → 360分。<br>
+          3回連続失敗で feed.status = paused。<br>
+          <code>retry-initial-fetch</code> の成功で active に復帰。
+        </div>
+      </div>
+      <div class="error-card warn">
+        <div class="ec-title">翻訳 / 抽出失敗</div>
+        <div class="ec-desc">
+          status=error を記録し、ステータス画面から手動で再実行（<code>force</code>）。<br>
+          自動回収は行わない。
+        </div>
+      </div>
+      <div class="error-card">
+        <div class="ec-title">Queue / cron</div>
+        <div class="ec-desc">
+          Queue のジョブ失敗は 60秒後にリトライ。<br>
+          cron（毎時）は失敗した account deletion job の再投入のみ（最大5回）。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== Phase 6: Serve ====== -->
+<div class="phase">
+  <div class="phase-header">
+    <div class="phase-num" style="background:rgba(6,182,212,0.15);color:var(--cyan);">6</div>
+    <div class="phase-title">配信（API レスポンス）</div>
+    <span class="phase-file">routes/articles.ts · routes/content.ts · routes/playbackQueue.ts</span>
+  </div>
+  <div class="phase-body">
+    <p>ユーザーの言語設定に応じて翻訳済みデータを返す。</p>
+    <ol class="steps">
+      <li>
+        <div class="step-title">記事一覧</div>
+        <div class="step-desc">ソース言語がユーザーの <code>readableLanguages</code> に含まれなければ翻訳タイトルを使用。含まれる場合は原文表示を優先できる。</div>
+      </li>
+      <li>
+        <div class="step-title">本文コンテンツ</div>
+        <div class="step-desc"><code>GET /articles/:id/content</code> が状態（pending / ready / error）付きで返し、クライアントは pending をポーリングして完了を検知。</div>
+      </li>
+      <li>
+        <div class="step-title">読み上げキュー</div>
+        <div class="step-desc">playback-queue API がキュー・再生中記事・再生位置を保持し、iOS / Android / Web + Extension で共有。読み上げ開始時に既読化する。翻訳して聴く場合は、プラットフォーム / ブラウザの翻訳適用後の可視コンテンツをキュー追加時に取り込む。</div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- ====== Legend ====== -->
+<div style="margin-top:40px;padding:20px 24px;background:var(--surface);border:1px solid var(--border);border-radius:12px;">
+  <div style="font-size:13px;font-weight:600;margin-bottom:12px;">凡例</div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--green);"></div> Manual — ユーザーの明示操作で実行</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent);"></div> Queue — Cloudflare Queue 経由の非同期処理</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--amber);"></div> Cron — 復旧処理のみ（コンテンツ取得はしない）</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--cyan);"></div> API — REST APIエンドポイント</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent2);"></div> AI — LM Studio によるタイトル翻訳</div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

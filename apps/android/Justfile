@@ -1,0 +1,28 @@
+set shell := ["zsh", "-cu"]
+
+lint:
+  ./gradlew lintDebug
+
+build:
+  ./gradlew assembleDebug
+
+build-release:
+  ./gradlew assembleRelease
+
+run:
+  adb install -r app/build/outputs/apk/debug/app-debug.apk || { adb uninstall com.filo.app || true; adb install app/build/outputs/apk/debug/app-debug.apk; }
+  adb shell monkey -p com.filo.app -c android.intent.category.LAUNCHER 1
+
+run-clean:
+  adb uninstall com.filo.app || true
+  adb install app/build/outputs/apk/debug/app-debug.apk
+  adb shell monkey -p com.filo.app -c android.intent.category.LAUNCHER 1
+
+emulator-list:
+  emulator -list-avds
+
+emulator target='':
+  nohup emulator -avd {{target}} > emulator.log 2>&1 &
+
+screenshot target='current':
+  adb -s emulator-5554 exec-out screencap -p > android_{{target}}.png

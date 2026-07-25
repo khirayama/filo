@@ -1,0 +1,28 @@
+{
+  "name": "@filo/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run db:migrate:local && wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply filo-db --local",
+    "db:migrate:remote": "node scripts/ensure-remote-d1-config.mjs && wrangler d1 migrations apply filo-db --remote"
+  },
+  "dependencies": {
+    "@clerk/backend": "^2.6.2",
+    "@mozilla/readability": "^0.6.0",
+    "fast-xml-parser": "^5.2.5",
+    "hono": "^4.9.1",
+    "linkedom": "^0.18.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "@types/mozilla__readability": "^0.4.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.26.0"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Filo Reader",
+  "version": "0.1.0",
+  "description": "Extract article text and read aloud",
+  "permissions": ["activeTab", "cookies", "offscreen", "scripting", "storage"],
+  "host_permissions": [
+    "https://*.clerk.accounts.dev/*",
+    "http://localhost:8787/*",
+    "http://localhost:5173/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://*.clerk.accounts.dev"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

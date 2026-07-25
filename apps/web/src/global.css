@@ -1,0 +1,95 @@
+:root {
+  --fl-bg: #ffffff;
+  --fl-surface: #ffffff;
+  --fl-text: #222222;
+  --fl-border: #d7d7d7;
+  --fl-muted-border: #e0e0e0;
+  --fl-muted: #777777;
+  --fl-danger: #b3261e;
+  --fl-danger-bg: #ffebe9;
+  --fl-accent: #1a56db;
+  --fl-on-accent: #ffffff;
+  --fl-star: #e8a100;
+  --fl-ok: #2f6a3d;
+  --fl-ok-bg: #dafbe1;
+  --fl-ok-border: #4ac26b;
+  --fl-warn: #9a6700;
+  --fl-warn-bg: #fff8c5;
+  --fl-warn-border: #d4a72c;
+  --fl-hover: rgba(0, 0, 0, 0.03);
+  --fl-scrim: rgba(0, 0, 0, 0.3);
+  --fl-shadow: rgba(0, 0, 0, 0.12);
+  color-scheme: light;
+}
+
+/* Dark palette applies when the user chose "dark", or chose "system" and the
+   OS prefers dark. settings.theme is mirrored to data-theme by lib/theme.ts. */
+:root[data-theme="dark"] {
+  --fl-bg: #16181c;
+  --fl-surface: #1e2126;
+  --fl-text: #e4e4e4;
+  --fl-border: #464a52;
+  --fl-muted-border: #33373e;
+  --fl-muted: #9aa0a8;
+  --fl-danger: #ef7b74;
+  --fl-danger-bg: #3a1f1e;
+  --fl-accent: #6a9bff;
+  --fl-on-accent: #10233f;
+  --fl-star: #ffc94d;
+  --fl-ok: #6bcb8a;
+  --fl-ok-bg: #1c3324;
+  --fl-ok-border: #2f6a3d;
+  --fl-warn: #e3b341;
+  --fl-warn-bg: #38300f;
+  --fl-warn-border: #9a6700;
+  --fl-hover: rgba(255, 255, 255, 0.05);
+  --fl-scrim: rgba(0, 0, 0, 0.5);
+  --fl-shadow: rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --fl-bg: #16181c;
+    --fl-surface: #1e2126;
+    --fl-text: #e4e4e4;
+    --fl-border: #464a52;
+    --fl-muted-border: #33373e;
+    --fl-muted: #9aa0a8;
+    --fl-danger: #ef7b74;
+    --fl-danger-bg: #3a1f1e;
+    --fl-accent: #6a9bff;
+    --fl-on-accent: #10233f;
+    --fl-star: #ffc94d;
+    --fl-ok: #6bcb8a;
+    --fl-ok-bg: #1c3324;
+    --fl-ok-border: #2f6a3d;
+    --fl-warn: #e3b341;
+    --fl-warn-bg: #38300f;
+    --fl-warn-border: #9a6700;
+    --fl-hover: rgba(255, 255, 255, 0.05);
+    --fl-scrim: rgba(0, 0, 0, 0.5);
+    --fl-shadow: rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--fl-bg);
+  color: var(--fl-text);
+}
+
+input,
+select,
+textarea {
+  background: var(--fl-surface);
+  color: var(--fl-text);
+}
+
+@media (max-width: 1023px) {
+  main {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+}

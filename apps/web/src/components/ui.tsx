@@ -1,0 +1,323 @@
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { Icon, type IconName } from "./icons";
+import { useAppData } from "./AppDataContext";
+
+export { Icon, type IconName } from "./icons";
+
+// All colors resolve to CSS variables declared in global.css so that the
+// light/dark theme (settings.theme) applies to every inline style.
+export const palette = {
+  bg: "var(--fl-bg)",
+  surface: "var(--fl-surface)",
+  text: "var(--fl-text)",
+  border: "var(--fl-border)",
+  mutedBorder: "var(--fl-muted-border)",
+  muted: "var(--fl-muted)",
+  danger: "var(--fl-danger)",
+  dangerBg: "var(--fl-danger-bg)",
+  accent: "var(--fl-accent)",
+  onAccent: "var(--fl-on-accent)",
+  star: "var(--fl-star)",
+  ok: "var(--fl-ok)",
+  okBg: "var(--fl-ok-bg)",
+  okBorder: "var(--fl-ok-border)",
+  warn: "var(--fl-warn)",
+  warnBg: "var(--fl-warn-bg)",
+  warnBorder: "var(--fl-warn-border)",
+  hover: "var(--fl-hover)",
+  scrim: "var(--fl-scrim)",
+  shadow: "var(--fl-shadow)",
+};
+
+export const pageStyle: CSSProperties = {
+  color: palette.text,
+  fontFamily: "system-ui, sans-serif",
+  minHeight: "100vh",
+  padding: "24px",
+};
+
+export const shellStyle: CSSProperties = { margin: "0 auto", maxWidth: "720px" };
+
+export const sectionStyle: CSSProperties = {
+  border: `1px solid ${palette.border}`,
+  marginTop: "16px",
+  padding: "16px",
+  borderRadius: "6px",
+};
+
+export const menuStyle: CSSProperties = {
+  background: palette.surface,
+  border: `1px solid ${palette.border}`,
+  borderRadius: "6px",
+  boxShadow: `0 4px 16px ${palette.shadow}`,
+  display: "grid",
+  padding: "4px",
+  position: "absolute",
+  right: 0,
+  top: "calc(100% + 4px)",
+  zIndex: 10,
+};
+
+export function Button({
+  children,
+  onClick,
+  disabled,
+  kind = "secondary",
+  type = "button",
+  small,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  kind?: "primary" | "secondary" | "danger";
+  type?: "button" | "submit";
+  small?: boolean;
+}) {
+  const base: CSSProperties = {
+    border: `1px solid ${kind === "danger" ? palette.danger : palette.text}`,
+    background: kind === "primary" ? palette.text : "transparent",
+    color: kind === "primary" ? palette.bg : kind === "danger" ? palette.danger : palette.text,
+    padding: small ? "4px 10px" : "10px 14px",
+    borderRadius: "6px",
+    cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.5 : 1,
+    fontSize: small ? "13px" : "14px",
+  };
+  return (
+    <button type={type} onClick={onClick} disabled={disabled} style={base}>
+      {children}
+    </button>
+  );
+}
+
+export function InlineButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: "transparent",
+        border: "none",
+        color: "inherit",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        padding: 0,
+        textDecoration: "underline",
+        fontSize: "14px",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: active ? palette.text : "transparent",
+        border: `1px solid ${palette.border}`,
+        borderRadius: "999px",
+        color: active ? palette.bg : "inherit",
+        cursor: "pointer",
+        fontSize: "13px",
+        padding: "4px 12px",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+export function MenuItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: "transparent",
+        border: "none",
+        borderRadius: "4px",
+        color: danger ? palette.danger : "inherit",
+        cursor: "pointer",
+        fontSize: "14px",
+        padding: "8px 12px",
+        textAlign: "left",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = palette.mutedBorder;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+export function Spinner({ label = "読み込み中…" }: { label?: string }) {
+  const { t } = useAppData();
+  return (
+    <p role="status" style={{ color: palette.muted }}>
+      {label === "読み込み中…" ? t(label) : label}
+    </p>
+  );
+}
+
+export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const { t } = useAppData();
+  return (
+    <div
+      role="alert"
+      style={{
+        border: `1px solid ${palette.danger}`,
+        borderRadius: "6px",
+        color: palette.danger,
+        marginTop: "16px",
+        padding: "12px 16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+      }}
+    >
+      <span>{message}</span>
+      {onRetry ? (
+        <Button small onClick={onRetry}>
+          {t("再試行")}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+export function EmptyState({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        border: `1px dashed ${palette.border}`,
+        borderRadius: "6px",
+        color: palette.muted,
+        marginTop: "16px",
+        padding: "32px 16px",
+        textAlign: "center",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function Badge({ children, tone = "muted" }: { children: ReactNode; tone?: "muted" | "warn" | "danger" | "ok" }) {
+  const colors: Record<string, string> = {
+    muted: palette.muted,
+    warn: palette.warn,
+    danger: palette.danger,
+    ok: palette.ok,
+  };
+  return (
+    <span
+      style={{
+        border: `1px solid ${colors[tone]}`,
+        borderRadius: "999px",
+        color: colors[tone],
+        fontSize: "12px",
+        padding: "1px 8px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function IconButton({
+  icon,
+  label,
+  onClick,
+  active,
+  disabled,
+  size = 18,
+  filled,
+  color,
+}: {
+  icon: IconName;
+  label: string;
+  onClick?: (e: ReactMouseEvent) => void;
+  active?: boolean;
+  disabled?: boolean;
+  size?: number;
+  filled?: boolean;
+  color?: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick?.(e);
+      }}
+      disabled={disabled}
+      style={{
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        borderRadius: "50%",
+        color: color ?? (active ? palette.text : palette.muted),
+        cursor: disabled ? "default" : "pointer",
+        display: "inline-flex",
+        height: `${size + 14}px`,
+        justifyContent: "center",
+        opacity: disabled ? 0.4 : 1,
+        padding: 0,
+        width: `${size + 14}px`,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = palette.mutedBorder;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+      }}
+    >
+      <Icon name={icon} size={size} filled={filled ?? active} />
+    </button>
+  );
+}
+
+function relativeTime(iso: string | null, labels: { now: string; m: string; h: string; d: string }, dateFormat: Intl.DateTimeFormatOptions): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
+  if (minutes < 1) return labels.now;
+  if (minutes < 60) return `${minutes}${labels.m}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}${labels.h}`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}${labels.d}`;
+  return date.toLocaleDateString("ja-JP", dateFormat);
+}
+
+export function formatTime(iso: string | null): string {
+  return relativeTime(iso, { now: "たった今", m: "分前", h: "時間前", d: "日前" }, { year: "numeric", month: "short", day: "numeric" });
+}
+
+export function formatTimeCompact(iso: string | null): string {
+  return relativeTime(iso, { now: "now", m: "m", h: "h", d: "d" }, { month: "numeric", day: "numeric" });
+}

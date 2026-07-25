@@ -1,0 +1,8 @@
+build
+build-release
+DerivedData
+*.xcodeproj
+.DS_Store
+*.log
+**/GoogleService-Info.plist
+LocalSecrets.plist

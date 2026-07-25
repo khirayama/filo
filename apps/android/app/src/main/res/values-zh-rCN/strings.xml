@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Filo</string>
+    <string name="language_japanese">日语</string>
+    <string name="language_english">英语</string>
+    <string name="language_chinese">简体中文</string>
+    <string name="language_korean">韩语</string>
+    <string name="language_spanish">西班牙语</string>
+    <string name="settings">设置</string><string name="display">显示</string><string name="theme">主题</string><string name="system">跟随系统</string><string name="light">浅色</string><string name="dark">深色</string><string name="language">语言</string><string name="readable_languages">按原文阅读的语言</string><string name="article_order">文章排序</string><string name="published_newest">按发布时间从新到旧</string><string name="fetched_newest">按获取时间从新到旧</string><string name="display_language_help">切换语言后，标题翻译将使用该语言。</string><string name="original_language_help">所选语言的文章将以原文显示。</string><string name="browser_links">始终在浏览器中打开链接</string><string name="opml">OPML</string><string name="import_opml">导入</string><string name="export_opml">导出</string><string name="importing">导入中…</string><string name="read_history">已读记录</string><string name="session">会话</string><string name="sign_out">退出登录</string><string name="dangerous_actions">危险操作</string><string name="delete_account">删除账户</string><string name="delete_account_confirm">确定删除账户吗？</string><string name="irreversible">此操作无法撤销。</string><string name="cancel">取消</string><string name="delete">删除</string><string name="back">返回</string>
+</resources>
