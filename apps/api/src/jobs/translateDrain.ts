@@ -137,12 +137,8 @@ function statementsForOutcome(
     const got = outcome.byId?.get(item.articleId);
     if (got?.sourceLang) {
       statements.push(
-        env.DB.prepare(
-          `INSERT INTO article_contents (article_id, source_language, status, created_at, updated_at)
-           VALUES (?, ?, 'pending', ?, ?)
-           ON CONFLICT (article_id) DO UPDATE SET
-             source_language = excluded.source_language, updated_at = excluded.updated_at`,
-        ).bind(item.articleId, got.sourceLang, now, now),
+        env.DB.prepare("UPDATE articles SET source_language = ?, updated_at = ? WHERE id = ?")
+          .bind(got.sourceLang, now, item.articleId),
       );
     }
     for (const { lang, attempts } of item.langs) {

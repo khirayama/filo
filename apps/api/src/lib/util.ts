@@ -12,10 +12,6 @@ export function toIso(value: string | null | undefined): string | null {
   return `${value.replace(" ", "T")}Z`;
 }
 
-export function boolToInt(value: boolean): number {
-  return value ? 1 : 0;
-}
-
 export function intToBool(value: number | null | undefined): boolean {
   return value === 1;
 }

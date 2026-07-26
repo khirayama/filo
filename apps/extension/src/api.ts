@@ -63,7 +63,7 @@ export interface ServerQueueItem {
   article: {
     id: number;
     title: string;
-    originalTitle: string;
+    translatedTitle: string | null;
     sourceLanguage: string | null;
     canonicalUrl: string | null;
     publishedAt: string | null;

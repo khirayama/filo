@@ -16,7 +16,7 @@ function numberOrDefault(value: unknown, fallback: number): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-export function normalizeStoredSettings(raw: Partial<TtsSettings> | null | undefined): TtsSettings {
+function normalizeStoredSettings(raw: Partial<TtsSettings> | null | undefined): TtsSettings {
   return {
     rate: clamp(numberOrDefault(raw?.rate, DEFAULT_SETTINGS.rate), RATE_RANGE.min, RATE_RANGE.max),
     pitch: clamp(numberOrDefault(raw?.pitch, DEFAULT_SETTINGS.pitch), PITCH_RANGE.min, PITCH_RANGE.max),

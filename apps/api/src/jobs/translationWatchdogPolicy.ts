@@ -13,7 +13,7 @@ export const TICK_MS = 60_000;
 // local `wrangler dev` restart clearing the in-memory queue) and the chain is
 // dead. Kept comfortably above the drain's no-progress backoff (~60s) so a
 // drain that is merely pacing itself is never mistaken for a dead one.
-export const STALL_MS = 180_000;
+const STALL_MS = 180_000;
 
 export interface WatchdogState {
   pending: number;

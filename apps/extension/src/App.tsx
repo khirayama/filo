@@ -190,12 +190,15 @@ export function App() {
         const speech = await fetchSpeechText(token, serverItem.articleId);
         if (!speech || !speech.text.trim()) continue;
         const bodyChunks = splitIntoChunks(cleanTextForSpeech(speech.text));
+        // `title` is the original; `translatedTitle` is set only when the
+        // server decided the user needs it.
+        const title = serverItem.article.translatedTitle ?? serverItem.article.title;
         items.push({
           articleId: serverItem.articleId,
-          title: serverItem.article.title,
+          title,
           url: serverItem.article.canonicalUrl,
           lang: speech.lang,
-          chunks: [serverItem.article.title, ...bodyChunks],
+          chunks: [title, ...bodyChunks],
           createdAt: serverItem.createdAt ?? new Date().toISOString(),
         });
       }

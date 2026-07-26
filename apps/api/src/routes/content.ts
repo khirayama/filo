@@ -6,9 +6,9 @@ import { parseId } from "../lib/util";
 interface ContentRow {
   text: string | null;
   html: string | null;
-  source_language: string | null;
   status: string;
   error_message: string | null;
+  source_language: string | null;
 }
 
 export const contentRoutes = new Hono<AppContext>()
@@ -55,7 +55,10 @@ export const contentRoutes = new Hono<AppContext>()
     await requireArticleAccess(c.env.DB, user.id, articleId);
 
     const content = await c.env.DB.prepare(
-      "SELECT text, html, source_language, status, error_message FROM article_contents WHERE article_id = ?",
+      `SELECT ac.text, ac.html, ac.status, ac.error_message, a.source_language
+       FROM article_contents ac
+       JOIN articles a ON a.id = ac.article_id
+       WHERE ac.article_id = ?`,
     )
       .bind(articleId)
       .first<ContentRow>();

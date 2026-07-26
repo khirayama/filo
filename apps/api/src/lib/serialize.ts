@@ -33,7 +33,7 @@ export const SUBSCRIPTION_SELECT = `
 
 const STALE_THRESHOLD_MS = 72 * 60 * 60 * 1000;
 
-export function deriveFeedHealthStatus(row: SubscriptionRow): "healthy" | "stale" | "paused" {
+function deriveFeedHealthStatus(row: SubscriptionRow): "healthy" | "stale" | "paused" {
   if (row.feed_status === "paused") return "paused";
   const lastSuccess = toIso(row.last_success_fetched_at);
   if (!lastSuccess) return "healthy"; // new feeds are not flagged while initial fetch runs

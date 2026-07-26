@@ -32,13 +32,12 @@ export const playbackQueueRoutes = new Hono<AppContext>()
     const { results: items } = await c.env.DB.prepare(
       `SELECT
         pqi.article_id, pqi.sort_order, pqi.created_at,
-        a.title, a.canonical_url, ac.source_language, a.published_at,
+        a.title, a.canonical_url, a.source_language, a.published_at,
         f.id AS feed_id, f.title AS feed_title, f.favicon_url AS feed_favicon_url,
         alt.title AS translated_title
       FROM playback_queue_items pqi
       JOIN articles a ON a.id = pqi.article_id
       JOIN feeds f ON f.id = a.feed_id
-      LEFT JOIN article_contents ac ON ac.article_id = a.id
       LEFT JOIN article_listing_translations alt ON alt.article_id = a.id AND alt.language = ? AND alt.status = 'ready'
       WHERE pqi.user_id = ?
       ORDER BY pqi.sort_order ASC, pqi.article_id ASC`
@@ -63,8 +62,10 @@ export const playbackQueueRoutes = new Hono<AppContext>()
             sortOrder: row.sort_order,
             article: {
               id: row.article_id,
-              title: (needsTranslation && row.translated_title) ? row.translated_title : row.title,
-              originalTitle: row.title,
+              // Same shape as the article list: `title` is always the original
+              // and `translatedTitle` is set only when the user needs it.
+              title: row.title,
+              translatedTitle: needsTranslation ? row.translated_title : null,
               sourceLanguage,
               canonicalUrl: row.canonical_url,
               publishedAt: toIso(row.published_at),

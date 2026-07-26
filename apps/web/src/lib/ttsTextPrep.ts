@@ -1,4 +1,5 @@
-// Shared TTS text preparation, kept in sync with extension/src/ttsTextPrep.ts.
+// TTS text preparation. Duplicated verbatim in apps/extension/src/ttsTextPrep.ts:
+// the two apps build independently, so any change here must be made there too.
 const URL_RE = /https?:\/\/[^\s)}\]>]+/g;
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 const FENCED_CODE_RE = /```[\s\S]*?```/g;

@@ -209,7 +209,7 @@ describe("canonicalizeUrl", () => {
     );
   });
 
-  it("preserves trailing slashes for feed endpoints and recognises the legacy form", () => {
+  it("preserves trailing slashes for feed endpoints and recognises both slash forms", () => {
     expect(canonicalizeFeedUrl("https://Example.com:443/Path/?utm_source=x&a=1&fbclid=y")).toBe(
       "https://example.com/Path/?a=1"
     );

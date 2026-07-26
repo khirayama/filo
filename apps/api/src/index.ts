@@ -33,11 +33,6 @@ function resolveCorsOrigin(origin: string | undefined): string | undefined {
   return undefined;
 }
 
-function isLocalDevelopmentRequest(url: string): boolean {
-  const hostname = new URL(url).hostname;
-  return hostname === "localhost" || hostname === "127.0.0.1";
-}
-
 app.use(
   "*",
   cors({
@@ -47,17 +42,6 @@ app.use(
     exposeHeaders: ["X-Request-Id"],
   }),
 );
-
-app.use("*", async (c, next) => {
-  if (c.req.method === "OPTIONS" && isLocalDevelopmentRequest(c.req.url)) {
-    console.info("cors preflight", {
-      origin: c.req.header("Origin") ?? null,
-      requestHeaders: c.req.header("Access-Control-Request-Headers") ?? null,
-      requestMethod: c.req.header("Access-Control-Request-Method") ?? null,
-    });
-  }
-  await next();
-});
 
 app.use("*", async (c, next) => {
   const requestId = c.req.header("X-Request-Id") ?? crypto.randomUUID();

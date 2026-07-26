@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { faviconUrlFor, resolveCanonicalFeedUrl } from "../lib/discovery";
 import { dedupeKeyFor, parseFeed, type ParsedFeed } from "../lib/feed";
 import { settleFetchJobs } from "../lib/feedJobs";
+import { CADENCE_SAMPLE_SIZE, refreshIntervalMinutes } from "../lib/fetchSchedule";
 import {
   alternateTrailingSlashUrl,
   canonicalizeFeedUrl,
@@ -24,7 +25,26 @@ interface FetchStateRow {
   consecutive_failures: number;
 }
 
-const ERROR_BACKOFF_MINUTES = [15, 60, 360];
+// Kept inside the same 1h..1d window as the cadence-derived interval.
+const ERROR_BACKOFF_MINUTES = [60, 360, 60 * 24];
+// Used until a feed has published enough dated articles to show a cadence.
+const SUCCESS_FALLBACK_MINUTES = 60;
+const NOT_MODIFIED_FALLBACK_MINUTES = 120;
+
+// Cooldown until this feed is worth fetching again, from how often it publishes.
+async function nextFetchInterval(env: Env, feedId: number, fallbackMinutes: number): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT published_at FROM articles
+     WHERE feed_id = ? AND published_at IS NOT NULL
+     ORDER BY published_at DESC LIMIT ?`
+  )
+    .bind(feedId, CADENCE_SAMPLE_SIZE)
+    .all<{ published_at: string }>();
+  return refreshIntervalMinutes(
+    results.map((row) => row.published_at),
+    fallbackMinutes
+  );
+}
 
 interface FetchedFeedDocument {
   response: Response;
@@ -194,6 +214,7 @@ export async function runFetchFeed(
     const now = nowIso();
 
     if (response.status === 304) {
+      const interval = await nextFetchInterval(env, feedId, NOT_MODIFIED_FALLBACK_MINUTES);
       await env.DB.prepare(
         `INSERT INTO feed_fetch_states (feed_id, last_fetched_at, last_success_fetched_at, last_result, next_fetch_after, consecutive_failures, updated_at)
          VALUES (?, ?, ?, 'not_modified', ?, 0, ?)
@@ -202,7 +223,7 @@ export async function runFetchFeed(
            last_result = 'not_modified', last_error = NULL,
            next_fetch_after = excluded.next_fetch_after, consecutive_failures = 0, updated_at = excluded.updated_at`
       )
-        .bind(feedId, now, now, isoOffset(120), now)
+        .bind(feedId, now, now, isoOffset(interval), now)
         .run();
       await writeLog(env, feedId, startedAt, "not_modified", 0, null);
       // a 304 means the feed was fetched successfully before; waiting subscriptions are ready
@@ -299,6 +320,8 @@ export async function runFetchFeed(
 
     const etag = response.headers.get("ETag");
     const lastModified = response.headers.get("Last-Modified");
+    // after the upserts above, so this run's articles count towards the cadence
+    const interval = await nextFetchInterval(env, feedId, SUCCESS_FALLBACK_MINUTES);
     await env.DB.prepare(
       `INSERT INTO feed_fetch_states (feed_id, last_fetched_at, last_success_fetched_at, last_result, http_etag, http_last_modified, next_fetch_after, consecutive_failures, updated_at)
        VALUES (?, ?, ?, 'success', ?, ?, ?, 0, ?)
@@ -308,14 +331,15 @@ export async function runFetchFeed(
          http_last_modified = excluded.http_last_modified, next_fetch_after = excluded.next_fetch_after,
          consecutive_failures = 0, updated_at = excluded.updated_at`
     )
-      .bind(feedId, now, now, etag, lastModified, isoOffset(30), now)
+      .bind(feedId, now, now, etag, lastModified, isoOffset(interval), now)
       .run();
     await writeLog(env, feedId, startedAt, "success", newArticleIds.length, null);
     await markWaitingSubscriptions(env, feedId, "ready", null);
     await settleFetchJobs(env.DB, feedId, "completed", { finishedAt: now });
 
-    // Title translation is triggered manually via the status page or subscriptions page.
-    // Automatic per-feed translation was removed to avoid exhausting API rate limits.
+    // Fetching never enqueues title translation: translation is user-triggered
+    // only (status page or subscriptions page), because it draws on a serialized
+    // provider budget that a per-fetch trigger would exhaust.
 
     // user-driven one-shot recovery reactivates a paused feed on success
     if (feed.status === "paused" && reason === "retry_initial") {
@@ -332,7 +356,7 @@ export async function runFetchFeed(
     const message = error instanceof Error ? error.message : "unknown fetch error";
     const now = nowIso();
     const failures = (state?.consecutive_failures ?? 0) + 1;
-    const backoff = ERROR_BACKOFF_MINUTES[Math.min(failures, ERROR_BACKOFF_MINUTES.length) - 1] ?? 360;
+    const backoff = ERROR_BACKOFF_MINUTES[Math.min(failures, ERROR_BACKOFF_MINUTES.length) - 1] ?? 60 * 24;
 
     await env.DB.prepare(
       `INSERT INTO feed_fetch_states (feed_id, last_fetched_at, last_result, last_error, next_fetch_after, consecutive_failures, updated_at)

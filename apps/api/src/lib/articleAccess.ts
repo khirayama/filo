@@ -10,6 +10,7 @@ export interface ArticleRow {
   author: string | null;
   rss_summary: string | null;
   rss_content_html: string | null;
+  source_language: string | null;
   published_at: string | null;
   fetched_at: string;
 }

@@ -231,7 +231,7 @@ final class TTSPlayerManager: NSObject, ObservableObject {
         // サーバーにあってローカルにない記事は本文を取得して追加する
         for entry in data.items where !queue.contains(where: { $0.articleId == entry.articleId }) {
             guard let speech = await Self.fetchSpeechText(articleId: entry.articleId) else { continue }
-            var item = QueueItem(url: entry.article.canonicalUrl ?? "", title: entry.article.title)
+            var item = QueueItem(url: entry.article.canonicalUrl ?? "", title: entry.article.displayTitle)
             item.articleId = entry.articleId
             item.lang = speech.lang
             item.chunks = Self.splitIntoChunks(Self.cleanTextForSpeech(speech.text))

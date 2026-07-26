@@ -27,7 +27,7 @@ function isBlockedHost(hostname: string): boolean {
   return false;
 }
 
-export function assertSafeUrl(rawUrl: string): URL {
+function assertSafeUrl(rawUrl: string): URL {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -117,7 +117,7 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}):
   throw new ApiError(400, "feed_unreachable", "Could not reach URL");
 }
 
-export const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 
 // Read a response body with a byte cap so oversized remote documents cannot
 // exhaust Worker memory. Bodies are decoded as UTF-8, same as Response.text().
@@ -189,8 +189,8 @@ export function alternateTrailingSlashUrl(rawUrl: string): string | null {
   return url.toString();
 }
 
-// During the transition from the old slash-stripping normalization, recognise
-// both forms so a pre-existing feed is reused rather than duplicated.
+// A publisher's feed may be stored under either slash form, so both are
+// recognised as the same feed and an existing row is reused, not duplicated.
 export function feedUrlAliases(rawUrl: string): [string, string] {
   const canonical = canonicalizeFeedUrl(rawUrl);
   const alternate = alternateTrailingSlashUrl(canonical);

@@ -85,7 +85,6 @@ export type ContentStatus = "not_requested" | "pending" | "ready" | "error";
 export interface ArticleDetail {
   id: number;
   title: string;
-  originalTitle: string;
   translatedTitle: string | null;
   titleTranslationPending: boolean;
   sourceLanguage: string | null;
@@ -201,7 +200,7 @@ export interface StatusOverview {
 export interface PlaybackQueueArticle {
   id: number;
   title: string;
-  originalTitle: string;
+  translatedTitle: string | null;
   sourceLanguage: string | null;
   canonicalUrl: string | null;
   publishedAt: string | null;
@@ -236,4 +235,10 @@ export interface ArticleListFilters {
   sort?: ArticleSortOrder;
   cursor?: string;
   limit?: number;
+}
+
+// `title` is always the original and `translatedTitle` is set only when the
+// server decided the user needs it, so this is the title to show by default.
+export function displayTitle(article: { title: string; translatedTitle: string | null }): string {
+  return article.translatedTitle ?? article.title;
 }

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { OpsContext } from "../lib/auth";
 import { errors } from "../lib/errors";
 import { enqueuePendingTranslations } from "../lib/translate";
@@ -69,6 +69,20 @@ async function enqueueTranslations(c: { env: OpsContext["Bindings"] }, feedIds: 
   return enqueued;
 }
 
+// Resolve a :feedId path param, rejecting any feed the current user does not
+// subscribe to. Every per-feed operation below is scoped this way.
+async function subscribedFeedId(c: Context<OpsContext>): Promise<{ userId: number; feedId: number }> {
+  const user = c.get("user");
+  if (!user) throw errors.unauthorized();
+  const feedId = parseId(c.req.param("feedId") ?? "");
+  const subscribed = await c.env.DB
+    .prepare("SELECT id FROM subscriptions WHERE user_id = ? AND feed_id = ?")
+    .bind(user.id, feedId)
+    .first();
+  if (!subscribed) throw errors.notFound("feed_not_found", "Feed not found in your subscriptions");
+  return { userId: user.id, feedId };
+}
+
 // Discard queued / in-flight / failed translation rows for the given feeds so
 // the queue empties. Completed (ready) rows are kept. The drain and watchdog
 // wind down on their own once nothing is pending.
@@ -130,7 +144,7 @@ export const statusRoutes = new Hono<OpsContext>()
        FROM subscriptions s
        JOIN feeds f ON f.id = s.feed_id
        LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
-       LEFT JOIN feed_jobs fj ON fj.feed_id = f.id AND fj.user_id = s.user_id AND fj.kind = 'fetch'
+       LEFT JOIN feed_jobs fj ON fj.feed_id = f.id AND fj.user_id = s.user_id
        WHERE s.user_id = ?
        ORDER BY
          CASE WHEN COALESCE(fs.consecutive_failures, 0) > 0 THEN 0 ELSE 1 END,
@@ -205,35 +219,30 @@ export const statusRoutes = new Hono<OpsContext>()
     const user = c.get("user");
     const now = nowIso();
 
-    let sql: string;
-    let binds: unknown[];
-
+    // Two independent axes: a user request is scoped to that user's
+    // subscriptions (system/cron auth covers every feed), and a non-forced
+    // request additionally honours the per-feed cooldown.
+    const joins: string[] = [];
+    const conditions = ["f.status = 'active'"];
+    const binds: unknown[] = [];
     if (user) {
-      sql = force
-        ? `SELECT f.id FROM feeds f
-           JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?
-           WHERE f.status = 'active' LIMIT 200`
-        : `SELECT f.id FROM feeds f
-           JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?
-           LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
-           WHERE f.status = 'active' AND (fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?)
-           LIMIT 200`;
-      binds = force ? [user.id] : [user.id, now];
-    } else {
-      sql = force
-        ? `SELECT f.id FROM feeds f WHERE f.status = 'active' LIMIT 200`
-        : `SELECT f.id FROM feeds f
-           LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
-           WHERE f.status = 'active' AND (fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?)
-           LIMIT 200`;
-      binds = force ? [] : [now];
+      joins.push("JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?");
+      binds.push(user.id);
+    }
+    if (!force) {
+      joins.push("LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id");
+      conditions.push("(fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?)");
+      binds.push(now);
     }
 
-    const { results } = await c.env.DB.prepare(sql).bind(...binds).all<{ id: number }>();
+    const { results } = await c.env.DB
+      .prepare(`SELECT f.id FROM feeds f ${joins.join(" ")} WHERE ${conditions.join(" AND ")} LIMIT 200`)
+      .bind(...binds)
+      .all<{ id: number }>();
 
     for (const row of results) {
       if (user) {
-        await upsertFeedJob(c.env.DB, user.id, row.id, "fetch", "pending");
+        await upsertFeedJob(c.env.DB, user.id, row.id, "pending");
       }
       await c.env.JOBS.send({ jobType: "fetch_feed", feedId: row.id, reason: "refresh", attempt: 1 });
     }
@@ -242,30 +251,19 @@ export const statusRoutes = new Hono<OpsContext>()
     // clients can explain a no-op refresh instead of failing silently
     let skipped = 0;
     if (!force) {
-      const activeSql = user
-        ? `SELECT COUNT(*) AS n FROM feeds f
-           JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?
-           WHERE f.status = 'active'`
-        : "SELECT COUNT(*) AS n FROM feeds f WHERE f.status = 'active'";
-      const active = user
-        ? await c.env.DB.prepare(activeSql).bind(user.id).first<{ n: number }>()
-        : await c.env.DB.prepare(activeSql).first<{ n: number }>();
+      const scope = user ? "JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?" : "";
+      const active = await c.env.DB
+        .prepare(`SELECT COUNT(*) AS n FROM feeds f ${scope} WHERE f.status = 'active'`)
+        .bind(...(user ? [user.id] : []))
+        .first<{ n: number }>();
       skipped = Math.max((active?.n ?? 0) - results.length, 0);
     }
 
     return c.json({ data: { accepted: true, enqueued: results.length, skipped, queuedAt: now } }, 202);
   })
   .post("/refresh/:feedId", async (c) => {
-    const user = c.get("user");
-    if (!user) throw errors.unauthorized();
-    const feedId = parseId(c.req.param("feedId"));
-    const sub = await c.env.DB.prepare(
-      "SELECT id FROM subscriptions WHERE user_id = ? AND feed_id = ?",
-    )
-      .bind(user.id, feedId)
-      .first();
-    if (!sub) throw errors.notFound("feed_not_found", "Feed not found in your subscriptions");
-    await upsertFeedJob(c.env.DB, user.id, feedId, "fetch", "pending");
+    const { userId, feedId } = await subscribedFeedId(c);
+    await upsertFeedJob(c.env.DB, userId, feedId, "pending");
     await c.env.JOBS.send({ jobType: "fetch_feed", feedId, reason: "refresh", attempt: 1 });
     return c.json({ data: { accepted: true, enqueued: 1, skipped: 0, queuedAt: nowIso() } }, 202);
   })
@@ -293,28 +291,12 @@ export const statusRoutes = new Hono<OpsContext>()
     return c.json({ data: { accepted: true, removed, discardedAt: nowIso() } }, 200);
   })
   .post("/translate/:feedId/discard", async (c) => {
-    const user = c.get("user");
-    if (!user) throw errors.unauthorized();
-    const feedId = parseId(c.req.param("feedId"));
-    const sub = await c.env.DB.prepare(
-      "SELECT id FROM subscriptions WHERE user_id = ? AND feed_id = ?",
-    )
-      .bind(user.id, feedId)
-      .first();
-    if (!sub) throw errors.notFound("feed_not_found", "Feed not found in your subscriptions");
+    const { feedId } = await subscribedFeedId(c);
     const removed = await discardTranslations(c.env, [feedId]);
     return c.json({ data: { accepted: true, removed, discardedAt: nowIso() } }, 200);
   })
   .post("/translate/:feedId", async (c) => {
-    const user = c.get("user");
-    if (!user) throw errors.unauthorized();
-    const feedId = parseId(c.req.param("feedId"));
-    const sub = await c.env.DB.prepare(
-      "SELECT id FROM subscriptions WHERE user_id = ? AND feed_id = ?",
-    )
-      .bind(user.id, feedId)
-      .first();
-    if (!sub) throw errors.notFound("feed_not_found", "Feed not found in your subscriptions");
+    const { feedId } = await subscribedFeedId(c);
     const enqueued = await enqueueTranslations(c, [feedId]);
     return c.json({ data: { accepted: true, enqueued, queuedAt: nowIso() } }, 202);
   });

@@ -60,11 +60,6 @@ interface RepairCandidate {
   candidate: string;
 }
 
-interface RepairState {
-  baseById: Map<number, TranslationResult>;
-  candidates: RepairCandidate[];
-}
-
 type ChatMessageContent = string | Array<{ type?: string; text?: string }> | undefined;
 
 function extractMessageText(content: ChatMessageContent): string | null {
@@ -239,9 +234,9 @@ export function assessTranslation(
   return { displayable: true, repairable: false, severity: "none", reason: null };
 }
 
-// Compatibility helper for callers and tests that only need the displayability
-// decision. Warning-level results intentionally return true.
-export function isValidTranslation(
+// Whether one output can be shown to the user at all. Warning-level results
+// intentionally return true — see assessTranslation.
+export function isDisplayableTranslation(
   result: string,
   sourceTitle: string,
   targetLang: SupportedLanguage,
@@ -348,38 +343,15 @@ function parseGroupedLines(
   return byId;
 }
 
-// Translate a batch of titles into the given target languages in one request.
-// Requests are the scarce resource (monthly cap), so an obvious wrong-script
-// content failure is retried at most once; HTTP errors and 429s are not retried
-// here at all.
-export async function callTranslationApi(
-  env: Env,
-  items: TranslationRequestItem[],
-  targetLangs: SupportedLanguage[],
-): Promise<TranslationCallOutcome> {
-  const fail = (reason: string): TranslationCallOutcome => ({
-    byId: null,
-    failureReason: reason.slice(0, 200),
-    rateLimited: false,
-    retryAfterSeconds: null,
-    tokensUsed: 0,
-  });
-  // LM Studio does not require authentication by default. Keep the key
-  // optional so the same worker works with both local and auth-enabled
-  // OpenAI-compatible servers.
-
+// The batch prompt. The output format is chosen so generation — the whole cost
+// of a request on a local model — stays minimal: the id is written once per
+// title instead of once per language, and the title's own language is omitted
+// rather than echoed back verbatim. The worked example at the end is what makes
+// the model comply; without it these same instructions yield uppercase language
+// codes and echoed titles.
+function systemPrompt(targetLangs: SupportedLanguage[]): string {
   const targetNames = targetLangs.map((lang) => LANG_NAMES[lang] ?? lang);
-  const baseUrl = (env.LM_STUDIO_API_URL ?? DEFAULT_API_URL).replace(/\/+$/, "");
-  const model = env.TRANSLATION_MODEL ?? DEFAULT_MODEL;
-
-  // Generation is the whole cost of a request on a local model, so the output
-  // format is chosen to emit as few tokens as possible: the id is written once
-  // per title instead of once per language, and the title's own language is
-  // omitted rather than echoed back verbatim. Measured against the previous
-  // JSON object format, this is ~25% fewer completion tokens for the same
-  // translations. The worked example is what makes the model comply — without
-  // it the same instructions produced uppercase language codes and echoes.
-  const system = [
+  return [
     "You translate article titles into several languages.",
     "Input: one title per line, formatted as the id, a tab, then the title.",
     "For each input title output a header line: `#`, the id, a tab, and the lowercase ISO 639-1 code of the language the title itself is written in. If the title contains multiple languages or writing systems, use `mixed`; if the source language cannot be determined, use `und`. For a normal single-language title, follow the header with one line per requested target language other than the title's own language. For `mixed` or `und`, output one line for every requested target language.",
@@ -395,236 +367,336 @@ export async function callTranslationApi(
     "ja\tAppleが新しいMacを発表",
     "en\tApple announces a new Mac",
   ].join("\n");
-  const prompt = [
-    `Target languages: ${targetLangs.join(" ")}`,
-    ...items.map((item) => `${item.id}\t${flattenTitle(item.text)}`),
-  ].join("\n");
+}
 
+function titleLines(items: TranslationRequestItem[]): string[] {
+  return items.map((item) => `${item.id}\t${flattenTitle(item.text)}`);
+}
+
+function batchPrompt(items: TranslationRequestItem[], targetLangs: SupportedLanguage[]): string {
+  return [`Target languages: ${targetLangs.join(" ")}`, ...titleLines(items)].join("\n");
+}
+
+function completionTokenBudget(items: TranslationRequestItem[], targetLangs: SupportedLanguage[]): number {
   const inputChars = items.reduce((sum, item) => sum + item.text.length, 0);
-  const maxTokens = Math.min(MAX_COMPLETION_TOKENS, Math.max(512, Math.ceil(inputChars * targetLangs.length * 2) + 512));
-  const promptChars = system.length + prompt.length;
+  return Math.min(MAX_COMPLETION_TOKENS, Math.max(512, Math.ceil(inputChars * targetLangs.length * 2) + 512));
+}
 
+interface ModelRequest {
+  system: string;
+  prompt: string;
+  maxTokens: number;
+  // What the answer is parsed against — narrowed to the affected pairs on a repair.
+  items: TranslationRequestItem[];
+  targetLangs: SupportedLanguage[];
+}
+
+// One round trip to the model. `failed` carries whether asking again could
+// plausibly help: a malformed or empty answer is worth one more request, an
+// HTTP error is not.
+type ModelResponse =
+  | { kind: "parsed"; byId: Map<number, TranslationResult>; complete: boolean; tokensUsed: number }
+  | { kind: "rate_limited"; retryAfterSeconds: number }
+  | { kind: "failed"; reason: string; retryable: boolean; tokensUsed: number };
+
+async function requestTranslations(env: Env, request: ModelRequest): Promise<ModelResponse> {
+  const baseUrl = (env.LM_STUDIO_API_URL ?? DEFAULT_API_URL).replace(/\/+$/, "");
+  const body = {
+    model: env.TRANSLATION_MODEL ?? DEFAULT_MODEL,
+    messages: [
+      { role: "system", content: request.system },
+      { role: "user", content: request.prompt },
+    ],
+    temperature: 0,
+    max_tokens: request.maxTokens,
+    // Reasoning is disabled: translation needs a direct answer, and on a 12B
+    // model the chain-of-thought is by far the largest share of generated
+    // tokens (measured ~430 reasoning tokens vs ~20 answer tokens for a
+    // single title). LM Studio accepts the OpenAI reasoning-effort enum;
+    // "none" turns it off for models that support the parameter.
+    reasoning_effort: "none",
+    // The output shape is prompted, not enforced with response_format. Strict
+    // json_schema decoding on the local Gemma engine is markedly slower
+    // (constrained sampling) and intermittently aborts the request with a
+    // "peg-gemma4 format" engine error, failing the whole batch. The line
+    // parser tolerates prose and truncation, so plain text output is both
+    // faster and more robust. Vision is off (text-only content); tools are off
+    // (field omitted).
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // LM Studio needs no authentication by default. The key stays optional
+        // so the same worker serves local and auth-enabled OpenAI-compatible
+        // servers alike.
+        ...(env.LM_STUDIO_API_KEY ? { Authorization: `Bearer ${env.LM_STUDIO_API_KEY}` } : {}),
+      },
+      body: JSON.stringify(body),
+      // A full batch normally takes tens of seconds, but the same request was
+      // measured at 108s when the machine was thermally throttled or contending
+      // for the GPU. Aborting there would throw away a nearly complete
+      // generation and then pay for it again on retry, so the timeout is set
+      // well clear of the observed worst case.
+      signal: AbortSignal.timeout(240_000),
+    });
+  } catch (error) {
+    const reason = `request failed: ${error instanceof Error ? error.message : String(error)}`;
+    console.log(`[translate] API exception: ${reason}`);
+    return { kind: "failed", reason, retryable: true, tokensUsed: 0 };
+  }
+
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get("retry-after") || "60");
+    console.log(`[translate] 429 rate limited, retry-after=${retryAfter}s`);
+    return { kind: "rate_limited", retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : 60 };
+  }
+  if (!res.ok) {
+    const detail = await readErrorDetail(res);
+    console.log(`[translate] API error ${res.status}: ${detail}`);
+    return { kind: "failed", reason: `API error ${res.status}: ${detail}`, retryable: false, tokensUsed: 0 };
+  }
+
+  const data = (await res.json()) as ChatCompletionResponse;
+  const choice = data.choices?.[0];
+  const finishReason = choice?.finish_reason ?? null;
+  const raw = extractMessageText(choice?.message?.content);
+  const tokensUsed = data.usage?.total_tokens
+    ?? estimateTokens(request.system.length + request.prompt.length + (raw?.length ?? 0));
+
+  if (!raw) {
+    console.log("[translate] API returned empty result");
+    return { kind: "failed", reason: "model returned an empty completion", retryable: true, tokensUsed };
+  }
+
+  // A completion cut off by the token limit ends mid-line, and half a
+  // translation still parses as a short but plausible one. Drop the trailing
+  // line so a truncated title is left pending for the next drain instead of
+  // being stored as a mangled translation.
+  const usable = finishReason === "length" ? raw.slice(0, raw.lastIndexOf("\n") + 1) : raw;
+  const byId = parseGroupedLines(usable, request.items, request.targetLangs);
+  if (byId.size === 0) {
+    console.log(`[translate] failed to parse batch response (finish_reason=${finishReason ?? "unknown"})`);
+    return {
+      kind: "failed",
+      reason: finishReason === "length"
+        ? "model response was truncated before any complete entry"
+        : "model response did not follow the output format",
+      retryable: true,
+      tokensUsed,
+    };
+  }
+
+  const complete = byId.size >= request.items.length;
+  if (!complete) {
+    console.log(`[translate] recovered a partial batch response (entries=${byId.size}/${request.items.length})`);
+  }
+  return { kind: "parsed", byId, complete, tokensUsed };
+}
+
+async function readErrorDetail(res: Response): Promise<string> {
+  const body = await res.text().catch(() => "");
+  try {
+    return (JSON.parse(body) as { error?: { message?: string } }).error?.message ?? body;
+  } catch {
+    return body.slice(0, 200);
+  }
+}
+
+const FORMAT_RETRY_INSTRUCTION =
+  "The previous response did not follow the output format. Emit only `#<id><tab><language code>` header lines followed by `<language code><tab><translation>` lines; no JSON, markdown, or commentary.";
+
+// Two requests at most to get one parseable answer for the batch: an answer
+// that ignores the output format buys a single retry with a sharper
+// instruction, and nothing more — requests are the scarce resource.
+const FORMAT_ATTEMPTS = 2;
+// Focused repairs of suspect pairs, after a parseable answer is in hand. Two,
+// because the first repair can repeat the same quoted source-language fragment.
+const REPAIR_ROUNDS = 2;
+
+// Pairs whose output is worth one focused re-request. Assessed against the
+// accumulated result, so a pair already fixed by an earlier round drops out.
+function repairCandidates(
+  byId: Map<number, TranslationResult>,
+  items: TranslationRequestItem[],
+  targetLangs: SupportedLanguage[],
+): RepairCandidate[] {
+  return items.flatMap((item) => {
+    const result = byId.get(item.id);
+    if (!result) return [];
+    return targetLangs.flatMap((language) => {
+      const candidate = result.translations[language];
+      if (typeof candidate !== "string") return [];
+      const assessment = assessTranslation(candidate, item.text, language, result.sourceLang);
+      return assessment.repairable ? [{ id: item.id, language, candidate }] : [];
+    });
+  });
+}
+
+function repairRuleFor(language: SupportedLanguage): string {
+  switch (language) {
+    case "ja":
+      return "Japanese must not contain Korean, Cyrillic, or Arabic text";
+    case "zh":
+      return "Chinese must not contain Japanese kana or Korean text";
+    case "ko":
+      return "Korean must not contain any Hiragana or Katakana; translate ordinary Japanese words and product nouns instead of copying their kana (for example, 段ボール means 골판지)";
+    case "en":
+      return "English must not contain Chinese, Japanese, or Korean text";
+    case "es":
+      return "Spanish must not contain Chinese, Japanese, or Korean text";
+  }
+}
+
+// Ask again for the affected pairs only. The bad candidate is never repeated
+// back to the model, but its incompatible script fragments are listed
+// explicitly so it knows exactly what has to be translated.
+function repairRequest(
+  system: string,
+  maxTokens: number,
+  items: TranslationRequestItem[],
+  targetLangs: SupportedLanguage[],
+  candidates: RepairCandidate[],
+  isRetryOfRepair: boolean,
+): ModelRequest {
+  const languages = [...new Set(candidates.map((candidate) => candidate.language))];
+  const fragments = [...new Set(candidates.flatMap((candidate) =>
+    forbiddenScriptFragments(candidate.candidate, candidate.language),
+  ))];
+  const quotedFragments = fragments.map((fragment) => JSON.stringify(fragment)).join(", ");
+  const affectedIds = new Set(candidates.map((candidate) => candidate.id));
+  const affectedItems = items.filter((item) => affectedIds.has(item.id));
+  const affectedLangs = targetLangs.filter((lang) => languages.includes(lang));
+
+  const instruction = [
+    isRetryOfRepair
+      ? "The previous repair was rejected again by a strict writing-system validator. Generate a fresh translation; do not repeat the previous repair."
+      : "The previous completion was rejected by a strict writing-system validator.",
+    "Regenerate these affected translations only, from the original titles; do not copy any previous translation.",
+    fragments.length > 0
+      ? `These exact source-script fragments are forbidden in the repaired output: ${quotedFragments}. Translate their meaning into the target language, even when they occur inside quotation marks.`
+      : "Do not copy incompatible source-script fragments, even when they occur inside quotation marks.",
+    languages.map(repairRuleFor).join(". "),
+  ].join(" ");
+
+  return {
+    system: `${system} ${instruction}`,
+    prompt: [
+      `Target languages: ${affectedLangs.join(" ")}`,
+      "Regenerate these affected translations only, naturally from the original titles, keeping the output format unchanged.",
+      fragments.length > 0 ? `Forbidden source-script fragments: ${quotedFragments}` : "",
+      ...candidates.map((candidate) => `- id ${candidate.id}, target ${candidate.language}`),
+      "",
+      ...titleLines(affectedItems),
+    ].join("\n"),
+    maxTokens,
+    items: affectedItems,
+    targetLangs: affectedLangs,
+  };
+}
+
+// Adopt a repaired pair only when the new value is displayable. The first
+// answer stays authoritative for every pair that was not repaired.
+function applyRepairs(
+  base: Map<number, TranslationResult>,
+  repaired: Map<number, TranslationResult>,
+  candidates: RepairCandidate[],
+  items: TranslationRequestItem[],
+): void {
+  for (const candidate of candidates) {
+    const value = repaired.get(candidate.id)?.translations[candidate.language];
+    const item = items.find((entry) => entry.id === candidate.id);
+    const target = base.get(candidate.id);
+    if (!value || !item || !target) continue;
+    const sourceLang = repaired.get(candidate.id)?.sourceLang;
+    if (isDisplayableTranslation(value, item.text, candidate.language, sourceLang)) {
+      target.translations[candidate.language] = value;
+    }
+  }
+}
+
+// Translate a batch of titles into the given target languages.
+//
+// Two phases, each with its own small request budget: first get one parseable
+// answer for the batch, then re-request only the pairs that come back in an
+// incompatible writing system. Once an answer is in hand it is never thrown
+// away — a failing repair leaves the original result standing, because its
+// generation has already been paid for.
+export async function callTranslationApi(
+  env: Env,
+  items: TranslationRequestItem[],
+  targetLangs: SupportedLanguage[],
+): Promise<TranslationCallOutcome> {
+  const system = systemPrompt(targetLangs);
+  const prompt = batchPrompt(items, targetLangs);
+  const maxTokens = completionTokenBudget(items, targetLangs);
+
+  let tokensUsed = 0;
+  let base: { byId: Map<number, TranslationResult>; complete: boolean } | null = null;
   let lastReason = "exhausted retries";
-  let retryPrompt = prompt;
-  let retryInstruction = "";
-  let requestItems = items;
-  let requestTargetLangs = targetLangs;
-  let repairState: RepairState | null = null;
-  const preserveValidRepairResults = (tokensUsed: number): TranslationCallOutcome | null => repairState
-    ? {
-      byId: repairState.baseById,
-      failureReason: null,
+
+  for (let attempt = 0; attempt < FORMAT_ATTEMPTS && !base; attempt++) {
+    const retrying = attempt > 0;
+    const response = await requestTranslations(env, {
+      system: retrying ? `${system} ${FORMAT_RETRY_INSTRUCTION}` : system,
+      prompt: retrying ? `${FORMAT_RETRY_INSTRUCTION}\n${prompt}` : prompt,
+      maxTokens,
+      items,
+      targetLangs,
+    });
+    if (response.kind === "rate_limited") {
+      return {
+        byId: null,
+        failureReason: "rate limited",
+        rateLimited: true,
+        retryAfterSeconds: response.retryAfterSeconds,
+        tokensUsed,
+      };
+    }
+    tokensUsed += response.tokensUsed;
+    if (response.kind === "failed") {
+      lastReason = response.reason;
+      if (!response.retryable) break;
+      continue;
+    }
+    base = { byId: response.byId, complete: response.complete };
+  }
+
+  if (!base) {
+    return {
+      byId: null,
+      failureReason: lastReason.slice(0, 200),
       rateLimited: false,
       retryAfterSeconds: null,
       tokensUsed,
-    }
-    : null;
-  const mergeValidRepairResults = (byId: Map<number, TranslationResult>): void => {
-    if (!repairState) return;
-    for (const candidate of repairState.candidates) {
-      const repaired = byId.get(candidate.id)?.translations[candidate.language];
-      const item = items.find((entry) => entry.id === candidate.id);
-      const sourceLang = byId.get(candidate.id)?.sourceLang;
-      if (repaired && item && isValidTranslation(repaired, item.text, candidate.language, sourceLang)) {
-        repairState.baseById.get(candidate.id)!.translations[candidate.language] = repaired;
-      }
-    }
-  };
-  // Ordinary formatting failures get two requests. A mixed-script repair may
-  // use one additional focused request because the first repair can repeat
-  // the same quoted source-language fragment.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt >= 2 && !repairState) break;
-    const body = {
-      model,
-      messages: [
-        {
-          role: "system",
-          content: `${system}${retryInstruction ? ` ${retryInstruction}` : ""}`,
-        },
-        { role: "user", content: retryPrompt },
-      ],
-      temperature: 0,
-      max_tokens: maxTokens,
-      // Reasoning is disabled: translation needs a direct answer, and on a 12B
-      // model the chain-of-thought is by far the largest share of generated
-      // tokens (measured ~430 reasoning tokens vs ~20 answer tokens for a
-      // single title). LM Studio accepts the OpenAI reasoning-effort enum;
-      // "none" turns it off for models that support the parameter.
-      reasoning_effort: "none",
-      // The output shape is prompted, not enforced with response_format.
-      // Strict json_schema decoding on the local Gemma engine is markedly
-      // slower (constrained sampling) and intermittently aborts the request
-      // with a "peg-gemma4 format" engine error, failing the whole batch. The
-      // line parser above already tolerates prose and truncation, so plain
-      // text output is both faster and more robust. Vision is off (text-only
-      // content); tools are off (field omitted).
     };
-    try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(env.LM_STUDIO_API_KEY ? { Authorization: `Bearer ${env.LM_STUDIO_API_KEY}` } : {}),
-        },
-        body: JSON.stringify(body),
-        // A full batch normally takes tens of seconds, but the same request
-        // was measured at 108s when the machine was thermally throttled or
-        // contending for the GPU. Aborting there would throw away a nearly
-        // complete generation and then pay for it again on retry, so the
-        // timeout is set well clear of the observed worst case.
-        signal: AbortSignal.timeout(240_000),
-      });
-      if (res.status === 429) {
-        const retryAfter = Number(res.headers.get("retry-after") || "60");
-        console.log(`[translate] 429 rate limited, retry-after=${retryAfter}s`);
-        return {
-          byId: null,
-          failureReason: "rate limited",
-          rateLimited: true,
-          retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : 60,
-          tokensUsed: 0,
-        };
-      }
-      if (!res.ok) {
-        const errorBody = await res.text().catch(() => "");
-        let errorDetail = "";
-        try {
-          const parsed = JSON.parse(errorBody) as { error?: { message?: string } };
-          errorDetail = parsed.error?.message ?? errorBody;
-        } catch {
-          errorDetail = errorBody.slice(0, 200);
-        }
-        console.log(`[translate] API error ${res.status}: ${errorDetail}`);
-        const preserved = preserveValidRepairResults(0);
-        if (preserved) return preserved;
-        return fail(`API error ${res.status}: ${errorDetail}`);
-      }
-      const data = (await res.json()) as ChatCompletionResponse;
-      const responseChoice = data.choices?.[0];
-      const finishReason = responseChoice?.finish_reason ?? null;
-      const raw = extractMessageText(responseChoice?.message?.content);
-      const tokensUsed = data.usage?.total_tokens ?? estimateTokens(promptChars + (raw?.length ?? 0));
-      if (!raw) {
-        console.log(`[translate] API returned empty result (attempt ${attempt + 1})`);
-        const preserved = preserveValidRepairResults(tokensUsed);
-        if (preserved) return preserved;
-        lastReason = "model returned an empty completion";
-        continue;
-      }
-      // A completion cut off by the token limit ends mid-line, and half a
-      // translation still parses as a short but plausible one. Drop the
-      // trailing line so a truncated title is left pending for the next drain
-      // instead of being stored as a mangled translation.
-      const usable = finishReason === "length" ? raw.slice(0, raw.lastIndexOf("\n") + 1) : raw;
-      const byId = parseGroupedLines(usable, requestItems, requestTargetLangs);
-      if (byId.size === 0) {
-        console.log(`[translate] failed to parse batch response (attempt ${attempt + 1}, finish_reason=${finishReason ?? "unknown"})`);
-        const preserved = preserveValidRepairResults(tokensUsed);
-        if (preserved) return preserved;
-        lastReason = finishReason === "length"
-          ? "model response was truncated before any complete entry"
-          : "model response did not follow the output format";
-        if (attempt === 0) {
-          retryInstruction = "The previous response did not follow the output format. Emit only `#<id><tab><language code>` header lines followed by `<language code><tab><translation>` lines; no JSON, markdown, or commentary.";
-          retryPrompt = [retryInstruction, prompt].join("\n");
-        }
-        continue;
-      }
-      const partial = byId.size < requestItems.length;
-      if (partial) {
-        console.log(`[translate] recovered a partial batch response (entries=${byId.size}/${requestItems.length})`);
-      }
-      const repairCandidates: RepairCandidate[] = requestItems.flatMap((item) =>
-        targetLangs.flatMap((lang) => {
-          const value = byId.get(item.id)?.translations[lang];
-          const sourceLang = byId.get(item.id)?.sourceLang;
-          const assessment = typeof value === "string"
-            ? assessTranslation(value, item.text, lang, sourceLang)
-            : null;
-          return typeof value === "string"
-            && assessment?.repairable === true
-            ? [{ id: item.id, language: lang, candidate: value }]
-            : [];
-        }),
-      );
-      if (repairCandidates.length > 0 && attempt < 2) {
-        console.log("[translate] retrying wrong-script translation output");
-        mergeValidRepairResults(byId);
-        lastReason = "model returned mixed-script translation output";
-        const repairLanguages = [...new Set(repairCandidates.map((candidate) => candidate.language))];
-        const forbiddenFragments = [...new Set(repairCandidates.flatMap((candidate) =>
-          forbiddenScriptFragments(candidate.candidate, candidate.language),
-        ))];
-        const repairRules = repairLanguages.map((language) => {
-          switch (language) {
-            case "ja":
-              return "Japanese must not contain Korean, Cyrillic, or Arabic text";
-            case "zh":
-              return "Chinese must not contain Japanese kana or Korean text";
-            case "ko":
-              return "Korean must not contain any Hiragana or Katakana; translate ordinary Japanese words and product nouns instead of copying their kana (for example, 段ボール means 골판지)";
-            case "en":
-              return "English must not contain Chinese, Japanese, or Korean text";
-            case "es":
-              return "Spanish must not contain Chinese, Japanese, or Korean text";
-          }
-        }).join(". ");
-        retryInstruction = [
-          repairState
-            ? "The previous repair was rejected again by a strict writing-system validator. Generate a fresh translation; do not repeat the previous repair."
-            : "The previous completion was rejected by a strict writing-system validator.",
-          "Regenerate these affected translations only, from the original titles; do not copy any previous translation.",
-          forbiddenFragments.length > 0
-            ? `These exact source-script fragments are forbidden in the repaired output: ${forbiddenFragments.map((fragment) => JSON.stringify(fragment)).join(", ")}. Translate their meaning into the target language, even when they occur inside quotation marks.`
-            : "Do not copy incompatible source-script fragments, even when they occur inside quotation marks.",
-          repairRules,
-        ].join(" ");
-        // Only the affected pairs are sent on repair. The full bad candidate
-        // is not repeated, but its incompatible script fragments are listed
-        // explicitly so the model knows exactly what must be translated.
-        const repairIds = new Set(repairCandidates.map((candidate) => candidate.id));
-        requestItems = items.filter((item) => repairIds.has(item.id));
-        requestTargetLangs = targetLangs.filter((lang) => repairLanguages.includes(lang));
-        retryPrompt = [
-          `Target languages: ${requestTargetLangs.join(" ")}`,
-          "Regenerate these affected translations only, naturally from the original titles, keeping the output format unchanged.",
-          forbiddenFragments.length > 0
-            ? `Forbidden source-script fragments: ${forbiddenFragments.map((fragment) => JSON.stringify(fragment)).join(", ")}`
-            : "",
-          ...repairCandidates.map((candidate) => `- id ${candidate.id}, target ${candidate.language}`),
-          "",
-          ...requestItems.map((item) => `${item.id}\t${flattenTitle(item.text)}`),
-        ].join("\n");
-        if (repairState) {
-          repairState.candidates = repairCandidates;
-        } else {
-          repairState = { baseById: byId, candidates: repairCandidates };
-        }
-        continue;
-      }
-      if (repairState) {
-        // Merge only the pairs that were explicitly repaired. The first
-        // response remains authoritative for all other target languages.
-        mergeValidRepairResults(byId);
-        return preserveValidRepairResults(tokensUsed)!;
-      }
-      return {
-        byId,
-        failureReason: partial ? "model response was incomplete; recovered complete entries" : null,
-        rateLimited: false,
-        retryAfterSeconds: null,
-        tokensUsed,
-      };
-    } catch (e) {
-      console.log(`[translate] API exception (attempt ${attempt + 1}): ${e}`);
-      const preserved = preserveValidRepairResults(0);
-      if (preserved) return preserved;
-      lastReason = `request failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200);
-      continue;
-    }
   }
-  return fail(lastReason);
+
+  for (let round = 0; round < REPAIR_ROUNDS; round++) {
+    const candidates = repairCandidates(base.byId, items, targetLangs);
+    if (candidates.length === 0) break;
+    console.log("[translate] retrying wrong-script translation output");
+    const response = await requestTranslations(
+      env,
+      repairRequest(system, maxTokens, items, targetLangs, candidates, round > 0),
+    );
+    // Anything other than a usable answer ends the repair phase; the result
+    // gathered so far is kept rather than discarded.
+    if (response.kind !== "parsed") break;
+    tokensUsed += response.tokensUsed;
+    applyRepairs(base.byId, response.byId, candidates, items);
+  }
+
+  return {
+    byId: base.byId,
+    failureReason: base.complete ? null : "model response was incomplete; recovered complete entries",
+    rateLimited: false,
+    retryAfterSeconds: null,
+    tokensUsed,
+  };
 }
 
 // Milliseconds to wait after a request so the sustained token rate stays under

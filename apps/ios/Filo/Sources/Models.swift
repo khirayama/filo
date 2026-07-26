@@ -246,11 +246,15 @@ struct PlaybackQueueArticle: Codable, Hashable {
 
     let id: Int
     let title: String
-    let originalTitle: String
+    let translatedTitle: String?
     let sourceLanguage: String?
     let canonicalUrl: String?
     let publishedAt: String?
     let feed: Feed
+
+    // Same rule as Article: the server sets translatedTitle only when the
+    // original is in a language the user does not read.
+    var displayTitle: String { translatedTitle ?? title }
 }
 
 struct PlaybackQueueEntry: Codable, Hashable {

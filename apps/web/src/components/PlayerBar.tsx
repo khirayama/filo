@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { displayTitle } from "../api/types";
 import { RATE_OPTIONS, defaultVoiceFor, usePlayer, voiceLangKey } from "./PlayerContext";
 import { IconButton, palette } from "./ui";
 import { useAppData } from "./AppDataContext";
 
-export const PLAYER_BAR_HEIGHT = 56;
+const PLAYER_BAR_HEIGHT = 56;
 
 // 画面下部に常駐する読み上げプレイヤー。キューが空のときは表示しない。
 export function PlayerBar() {
@@ -116,7 +117,7 @@ export function PlayerBar() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {item.article.title}
+                      {displayTitle(item.article)}
                     </span>
                     <span style={{ color: palette.muted, display: "block", fontSize: "11px" }}>
                       {item.article.feed.title}
@@ -211,7 +212,7 @@ export function PlayerBar() {
               }}
             >
               {isLoading ? `${t("読み込み中…")} ` : null}
-              {currentItem.article.title}
+              {displayTitle(currentItem.article)}
             </a>
           ) : (
             <span style={{ color: palette.muted, fontSize: "13px" }}>{t("読み上げキュー")}: {queue.length}</span>

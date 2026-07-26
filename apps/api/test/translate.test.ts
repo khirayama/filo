@@ -2,21 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import { runTranslateDrain } from "../src/jobs/translateDrain";
 import { matchesTargetLanguage, normalizeSourceLanguage, SUPPORTED_LANGUAGES } from "../src/lib/languages";
-import { enqueuePendingTranslations, isValidTranslation } from "../src/lib/translate";
+import { enqueuePendingTranslations, isDisplayableTranslation } from "../src/lib/translate";
 
 interface FakeArticle {
   id: number;
   feed_id: number;
   title: string | null;
+  // What the fake model reports as the title's language. The drain writes it
+  // back to `source_language`, which starts out unknown like in production.
   seed_source_language: string | null;
-  rss_summary?: string | null;
-  rss_content_html?: string | null;
-}
-
-interface FakeFeed {
-  id: number;
-  language: string | null;
-  description?: string | null;
+  source_language?: string | null;
 }
 
 interface FakeTranslation {
@@ -34,15 +29,17 @@ interface FakeTranslation {
 // state a real D1 would, so tests can assert on end-state rather than on the
 // exact statement sequence.
 class FakeDb {
-  public contents = new Map<number, string>();
   constructor(
     public articles: FakeArticle[],
-    public feeds: FakeFeed[] = [{ id: 7, language: null }],
     public translations: FakeTranslation[] = [],
   ) {}
 
   translation(articleId: number, language: string): FakeTranslation | undefined {
     return this.translations.find((row) => row.article_id === articleId && row.language === language);
+  }
+
+  sourceLanguage(articleId: number): string | null | undefined {
+    return this.articles.find((a) => a.id === articleId)?.source_language;
   }
 
   prepare(sql: string) {
@@ -120,9 +117,10 @@ class FakeDb {
       if (row) row.processing_at = processingAt;
       return { meta: { changes: 1 } };
     }
-    if (sql.includes("INSERT INTO article_contents")) {
-      const [articleId, sourceLang] = values as [number, string];
-      this.contents.set(articleId, sourceLang);
+    if (sql.includes("UPDATE articles SET source_language = ?")) {
+      const [sourceLang, , articleId] = values as [string, string, number];
+      const article = this.articles.find((a) => a.id === articleId);
+      if (article) article.source_language = sourceLang;
       return { meta: { changes: 1 } };
     }
     if (sql.includes("SET status = 'pending', attempt_count = 0")) {
@@ -235,23 +233,23 @@ describe("supported target languages", () => {
   });
 });
 
-describe("isValidTranslation", () => {
+describe("isDisplayableTranslation", () => {
   it("rejects an echo of the source title", () => {
-    expect(isValidTranslation("こんにちは世界", "こんにちは世界", "en")).toBe(false);
+    expect(isDisplayableTranslation("こんにちは世界", "こんにちは世界", "en")).toBe(false);
   });
 
   it("displays output that came back in the wrong language", () => {
     // A language judgement never discards a non-echo: it only asks for one
     // repair. Whatever survives the repair is shown rather than dropped.
-    expect(isValidTranslation("女性の吐き気の原因となっていた胃石", "元タイトル", "en")).toBe(true);
-    expect(isValidTranslation("The gallstone was dissolved", "元タイトル", "ja")).toBe(true);
+    expect(isDisplayableTranslation("女性の吐き気の原因となっていた胃石", "元タイトル", "en")).toBe(true);
+    expect(isDisplayableTranslation("The gallstone was dissolved", "元タイトル", "ja")).toBe(true);
   });
 
   it("displays a correct translation left mostly in product names and digits", () => {
     // JSer.info titles are almost entirely ASCII, so a correct translation can
-    // leave a single character of the target script behind. This was the shape
-    // that the old strict check discarded.
-    expect(isValidTranslation(
+    // leave a single character of the target script behind. A strict
+    // target-script check would discard exactly this shape.
+    expect(isDisplayableTranslation(
       "2026-07-05의 JS: Deno 2.9, Vite 8.1, ES2026",
       "2026-07-05のJS: Deno 2.9, Vite 8.1, ES2026",
       "ko",
@@ -260,23 +258,23 @@ describe("isValidTranslation", () => {
   });
 
   it("accepts output in the target language", () => {
-    expect(isValidTranslation("The gallstone was dissolved by diet cola", "胃石をダイエットコーラで溶かした", "en")).toBe(true);
-    expect(isValidTranslation("胃石をダイエットコーラで溶かした事例", "The gallstone case", "ja")).toBe(true);
+    expect(isDisplayableTranslation("The gallstone was dissolved by diet cola", "胃石をダイエットコーラで溶かした", "en")).toBe(true);
+    expect(isDisplayableTranslation("胃石をダイエットコーラで溶かした事例", "The gallstone case", "ja")).toBe(true);
   });
 
   it("displays output that came back in an unrequested language", () => {
     // Korean text where English was requested: still a translation, still shown.
-    expect(isValidTranslation("여성의 메스꺼움의 원인", "女性の吐き気の原因", "en")).toBe(true);
+    expect(isDisplayableTranslation("여성의 메스꺼움의 원인", "女性の吐き気の原因", "en")).toBe(true);
   });
 
   it("accepts output with no detectable language (numbers, proper nouns)", () => {
-    expect(isValidTranslation("PhotoshopVIP 2026", "PhotoshopVIP 2026 特集", "en")).toBe(true);
+    expect(isDisplayableTranslation("PhotoshopVIP 2026", "PhotoshopVIP 2026 特集", "en")).toBe(true);
   });
 
   it("accepts a usable translation when the script heuristic is uncertain", () => {
     // A Chinese translation may intentionally retain one Japanese place-name
     // character. This is a warning-level signal, not a display-blocking error.
-    expect(isValidTranslation(
+    expect(isDisplayableTranslation(
       "白驹池｜北八ヶ岳森林中的美丽苔藓与红叶",
       "白駒池 | 北八ヶ岳森林中美丽的苔藓与红叶！",
       "zh",
@@ -285,8 +283,9 @@ describe("isValidTranslation", () => {
   });
 
   it("accepts English translations that trigram detectors misread", () => {
-    // Plausible outputs for production titles that were rejected as
-    // "wrong-language" because franc labeled them bug/nob/fra/sco/dan/nld.
+    // Plausible English outputs for production titles. A trigram language
+    // detector reads these as Luxembourgish/Norwegian/French/Scots/Danish/Dutch,
+    // so they must not be judged on a detector's verdict.
     const outputs = [
       '"Apple AirTag 4-pack" now 23% off at 13,120 yen',
       '"UGREEN 16-Port Switching Hub" on sale for 5,824 yen',
@@ -301,16 +300,16 @@ describe("isValidTranslation", () => {
       "Imaizumi opens 'Hibi no Udon Sanzo', a udon izakaya restaurant",
     ];
     for (const output of outputs) {
-      expect(isValidTranslation(output, "元の日本語タイトル", "en"), output).toBe(true);
+      expect(isDisplayableTranslation(output, "元の日本語タイトル", "en"), output).toBe(true);
     }
   });
 
   it("accepts an echo when the title is already in the target language", () => {
     // A Japanese-language article can carry an English title; translating it
     // ja→en correctly returns the title unchanged.
-    expect(isValidTranslation("Tuna", "Tuna", "en")).toBe(true);
-    expect(isValidTranslation("On Being Playful", "On Being Playful", "en")).toBe(true);
-    expect(isValidTranslation(
+    expect(isDisplayableTranslation("Tuna", "Tuna", "en")).toBe(true);
+    expect(isDisplayableTranslation("On Being Playful", "On Being Playful", "en")).toBe(true);
+    expect(isDisplayableTranslation(
       "How to Write an Effective Software Design Document",
       "How to Write an Effective Software Design Document",
       "en",
@@ -318,12 +317,12 @@ describe("isValidTranslation", () => {
   });
 
   it("accepts unchanged named entities and rejects plain echoes", () => {
-    expect(isValidTranslation("Google I/O 2026", "Google I/O 2026", "ja")).toBe(true);
-    expect(isValidTranslation("iPhone", "iPhone", "ja")).toBe(true);
-    expect(isValidTranslation("eBay", "eBay", "ja")).toBe(true);
-    expect(isValidTranslation("C++", "C++", "ja")).toBe(true);
-    expect(isValidTranslation("macOS", "macOS", "ja")).toBe(true);
-    expect(isValidTranslation("Hello", "Hello", "ja")).toBe(false);
+    expect(isDisplayableTranslation("Google I/O 2026", "Google I/O 2026", "ja")).toBe(true);
+    expect(isDisplayableTranslation("iPhone", "iPhone", "ja")).toBe(true);
+    expect(isDisplayableTranslation("eBay", "eBay", "ja")).toBe(true);
+    expect(isDisplayableTranslation("C++", "C++", "ja")).toBe(true);
+    expect(isDisplayableTranslation("macOS", "macOS", "ja")).toBe(true);
+    expect(isDisplayableTranslation("Hello", "Hello", "ja")).toBe(false);
   });
 });
 
@@ -337,7 +336,6 @@ describe("enqueuePendingTranslations", () => {
         { id: 4, feed_id: 7, title: "No source", seed_source_language: null },
         { id: 5, feed_id: 8, title: "Other feed", seed_source_language: "en" },
       ],
-      [{ id: 7, language: null }, { id: 8, language: null }],
       [
         { article_id: 1, language: "ja", status: "error", title: null, attempt_count: 3, error_message: "boom" },
         { article_id: 2, language: "ja", status: "ready", title: "既訳", attempt_count: 0, error_message: null },
@@ -423,8 +421,8 @@ describe("runTranslateDrain", () => {
     });
   }
 
-  function pendingDb(articles: FakeArticle[], feeds?: FakeFeed[]): FakeDb {
-    const db = new FakeDb(articles, feeds ?? [{ id: 7, language: null }, { id: 8, language: null }]);
+  function pendingDb(articles: FakeArticle[]): FakeDb {
+    const db = new FakeDb(articles);
     for (const article of articles) {
       const languages = article.seed_source_language === "zh"
         ? ["ja", "en"]
@@ -485,7 +483,7 @@ describe("runTranslateDrain", () => {
     const result = await runTranslateDrain(makeEnv(db));
 
     expect(result).toEqual({ translated: 2, failed: 0, remaining: 0, rateLimited: false });
-    expect(db.contents.get(1)).toBe("en");
+    expect(db.sourceLanguage(1)).toBe("en");
     // same source language ⇒ one cross-feed request
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(db.translation(1, "ja")).toMatchObject({ status: "ready", title: "翻訳された題名" });
@@ -570,7 +568,7 @@ describe("runTranslateDrain", () => {
     expect(result).toMatchObject({ translated: 1, failed: 0, remaining: 0 });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(db.translation(1, "en")).toMatchObject({ status: "ready", title: "On Being Playful" });
-    expect(db.contents.get(1)).toBe("en");
+    expect(db.sourceLanguage(1)).toBe("en");
   });
 
   it("ignores prose around the translation lines", async () => {
@@ -716,7 +714,6 @@ describe("runTranslateDrain", () => {
   it("repairs a Korean translation that contains a stray Japanese fragment", async () => {
     const db = new FakeDb(
       [{ id: 1, feed_id: 7, title: "段ボールストッカー", seed_source_language: "ja" }],
-      [{ id: 7, language: null }],
       [{
         article_id: 1,
         language: "ko",
@@ -755,7 +752,6 @@ describe("runTranslateDrain", () => {
         title: "家事問屋の下ごしらえボウルで「玉子焼き」が劇的に上達。お弁当作りの救世主、7月31日まで参加者募集中",
         seed_source_language: "ja",
       }],
-      [{ id: 7, language: null }],
       [{
         article_id: 1,
         language: "zh",
@@ -795,7 +791,6 @@ describe("runTranslateDrain", () => {
     const title = "白駒池 | 北八ヶ岳森林中美丽的苔藓与红叶！享受徒步与山小屋之旅";
     const db = new FakeDb(
       [{ id: 1, feed_id: 7, title, seed_source_language: null }],
-      [{ id: 7, language: null }],
       [{
         article_id: 1,
         language: "zh",
@@ -897,7 +892,7 @@ describe("runTranslateDrain", () => {
       title: `Article title number ${i + 1}`,
       seed_source_language: "en",
     }));
-    const db = pendingDb(articles, [{ id: 7, language: null }]);
+    const db = pendingDb(articles);
     const fetchSpy = mockTranslator(() => VALID.ja!);
     vi.stubGlobal("fetch", fetchSpy);
 

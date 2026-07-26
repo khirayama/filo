@@ -48,9 +48,8 @@ export const articleRoutes = new Hono<AppContext>()
     if (!url) throw errors.validation("url is required");
 
     const article = await c.env.DB.prepare(
-      `SELECT a.id, a.title, a.canonical_url, ac.source_language
+      `SELECT a.id, a.title, a.canonical_url, a.source_language
        FROM articles a
-       LEFT JOIN article_contents ac ON ac.article_id = a.id
        WHERE a.canonical_url = ?
        AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = ? AND s.feed_id = a.feed_id)
        LIMIT 1`
@@ -168,8 +167,7 @@ export const articleRoutes = new Hono<AppContext>()
     const sql = `
       SELECT
         a.id, a.title, a.canonical_url, a.rss_summary, a.rss_content_html,
-        a.published_at, a.fetched_at,
-        ac.source_language,
+        a.published_at, a.fetched_at, a.source_language,
         f.id AS feed_id, f.title AS feed_title, f.favicon_url AS feed_favicon_url,
         (${EFFECTIVE_IS_READ}) AS is_read,
         CASE WHEN rli.user_id IS NULL THEN 0 ELSE 1 END AS in_reading_list,
@@ -178,7 +176,6 @@ export const articleRoutes = new Hono<AppContext>()
         altp.status AS title_translation_status
       FROM articles a
       JOIN feeds f ON f.id = a.feed_id
-      LEFT JOIN article_contents ac ON ac.article_id = a.id
       LEFT JOIN article_read_states ars ON ars.article_id = a.id AND ars.user_id = ?
       ${readingListJoin} article_user_collections rli
         ON rli.article_id = a.id AND rli.user_id = ? AND rli.kind = 'reading_list'
@@ -296,11 +293,6 @@ export const articleRoutes = new Hono<AppContext>()
     const feed = await c.env.DB.prepare("SELECT id, title, site_url, favicon_url FROM feeds WHERE id = ?")
       .bind(article.feed_id)
       .first<{ id: number; title: string; site_url: string | null; favicon_url: string | null }>();
-    const content = await c.env.DB.prepare(
-      "SELECT source_language FROM article_contents WHERE article_id = ?",
-    )
-      .bind(articleId)
-      .first<{ source_language: string | null }>();
     const context = await subscriptionContextFor(c.env.DB, user.id, article.feed_id);
     const state = await effectiveArticleState(c.env.DB, user.id, articleId, article.feed_id);
 
@@ -311,7 +303,7 @@ export const articleRoutes = new Hono<AppContext>()
       .first<{ language: string | null; readable_languages: string | null }>();
     const userLang = settings?.language ?? "ja";
     const readableLanguages = parseReadableLanguages(settings?.readable_languages);
-    const sourceLanguage = normalizeSourceLanguage(content?.source_language);
+    const sourceLanguage = normalizeSourceLanguage(article.source_language);
     const needsTranslation = sourceLanguage != null
       && (!isSupportedLanguage(sourceLanguage) || !readableLanguages.includes(sourceLanguage));
     const listingTranslation = needsTranslation
@@ -326,7 +318,6 @@ export const articleRoutes = new Hono<AppContext>()
       data: {
         id: article.id,
         title: article.title,
-        originalTitle: article.title,
         translatedTitle: listingTranslation?.status === "ready" ? listingTranslation.title : null,
         titleTranslationPending: needsTranslation && listingTranslation?.status === "pending",
         sourceLanguage,

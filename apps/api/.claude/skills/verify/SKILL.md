@@ -29,7 +29,7 @@ server on 8787 works fine.
 ```bash
 curl http://127.0.0.1:8788/fetch/<feedId>     # run runFetchFeed for one feed
 curl http://127.0.0.1:8788/translate/<feedId> # enqueue+drain translations
-# also: /detect-all, /revalidate-all, /probe (see worker.ts usage string)
+# also: /revalidate-all, /probe (see worker.ts usage string)
 ```
 
 The endpoint returns `{"ok":true,...}` even when the fetch job itself settled

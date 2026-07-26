@@ -10,6 +10,7 @@ Content-Type: `application/json`
 ## Table of Contents
 
 - [Common Rules](#common-rules)
+- [Health](#health)
 - [Settings](#settings)
 - [Subscriptions](#subscriptions)
 - [Tags](#tags)
@@ -19,6 +20,7 @@ Content-Type: `application/json`
 - [Playback Queue](#playback-queue)
 - [OPML](#opml)
 - [Account](#account)
+- [Status & Manual Operations](#status--manual-operations)
 - [Admin Feeds](#admin-feeds)
 - [Error Codes](#error-codes)
 
@@ -41,10 +43,11 @@ Content-Type: `application/json`
 - List API `limit`: default `20`, max `100`
 - feed discovery redirect: max `5`
 - feed discovery / feed fetch timeout: `10s`
-- feed refresh interval: success `30m`, not_modified `120m`
+- feed refresh interval: feed の投稿ペースから算出（`60m`〜`1440m`）。ペース不明時は success `60m`、not_modified `120m`
 - OPML import file size: max `5MB`
 - OPML import outline count: max `2000`
-- background job attempt max: `5`
+- レスポンス読み込みの上限: `5MB`
+- queue job retry: max `5`
 
 ### Success response
 
@@ -110,6 +113,13 @@ Content-Type: `application/json`
 
 - request / response では JSON boolean を利用する
 - DB では integer flag で保存してよい
+
+## Health
+
+### GET /api/v1/health
+
+- 唯一の認証不要 endpoint。deploy 後の疎通確認に使う
+- response: `{ status: "ok", time }`
 
 ## Settings
 
@@ -260,7 +270,7 @@ Returns a single subscription owned by the current user.
 - `initialFetchStatus` を `fetching` に戻し、`initialFetchErrorCode` を clear して非同期 initial fetch job を再投入する
 - 実際の再試行処理は feed 単位の fetch を再投入し、その feed を待機中の current user の failed subscription 群に結果を反映してよい
 - 対象 feed が `paused` の場合でも、この endpoint による user 主導の one-shot recovery は受け付けてよい
-- one-shot recovery が成功した場合は `feeds.status=active`、`consecutive_failures=0`、`nextFetchAfter=now+30m` に戻してよい
+- one-shot recovery が成功した場合は `feeds.status=active`、`consecutive_failures=0` に戻し、`nextFetchAfter` は通常の success と同じく投稿ペースから算出してよい
 - one-shot recovery が失敗した場合は subscription を再度 `failed` に戻し、feed は `paused` のまま維持してよい
 - `ready` または `fetching` の subscription に対する再試行は `initial_fetch_retry_not_allowed` を返す
 - response は更新後の subscription summary を返す
@@ -421,7 +431,6 @@ Deletes a tag owned by the current user.
   "data": {
     "id": 5501,
     "title": "Post title",
-    "originalTitle": "Post title",
     "translatedTitle": "翻訳済みタイトル",
     "sourceLanguage": "en",
     "canonicalUrl": "https://example.com/posts/123",
@@ -511,7 +520,7 @@ Returns the current user's playback queue and playback state.
 
 - キュー内の記事は `sort_order ASC, article_id ASC` で返す
 - 記事メタデータ（タイトル、フィード情報）を含めて返すため、表示に追加 API 呼び出しは不要
-- タイトルは `readableLanguages` 設定に基づき翻訳済みタイトルを優先する
+- `title` は常に原文タイトルを返す。`translatedTitle` は `readableLanguages` 設定から翻訳が必要と判断され、かつ翻訳が ready の場合のみ返す（記事一覧と同じ規則）
 - `playbackState` は未作成の場合 `null` を返す
 
 ```json
@@ -523,8 +532,8 @@ Returns the current user's playback queue and playback state.
         "sortOrder": 0,
         "article": {
           "id": 5501,
-          "title": "翻訳済みタイトル",
-          "originalTitle": "Post title",
+          "title": "Post title",
+          "translatedTitle": "翻訳済みタイトル",
           "sourceLanguage": "en",
           "canonicalUrl": "https://example.com/posts/123",
           "publishedAt": "2026-05-10T22:00:00Z",
@@ -688,37 +697,47 @@ Returns the current user's playback queue and playback state.
 
 - current user の購読ごとの状態を返す
 - response `data`:
+  - `generatedAt`: 集計時刻
   - `feeds`: `{ total, active, paused, lastFetchedAt }`
   - `articles`: `{ total }`
-  - `translator`: `{ pending }`。current user の購読全体で翻訳キューに残っている pair 数
-  - `subscriptionStatuses[]`: `{ subscriptionId, feedId, feedTitle, feedStatus, feedLanguage, lastResult, lastError, lastFetchedAt, consecutiveFailures, translation, fetchJob }`
+  - `translator`: `{ pending, current[] }`。`pending` は current user の購読全体で翻訳キューに残っている pair 数、`current` は今モデルへ送信中のタイトル（`{ title, languages[] }`、最大5件）
+  - `subscriptionStatuses[]`: `{ subscriptionId, feedId, feedTitle, feedStatus, lastResult, lastError, lastFetchedAt, consecutiveFailures, translation, fetchJob }`
   - `fetchJob`: `{ status, requestedAt, startedAt, finishedAt, lastError, updatedAt, stalled } | null`。`stalled` は `pending/running` のまま `10m` 以上更新されていない中断ジョブ
-- `translation`: `{ articles, untranslatable, needed, ready, failed, pending, missing, lastError }`。feed の翻訳カバレッジを保存済みデータから都度算出する。`untranslatable` は原文言語不明・タイトル空で翻訳対象にできない記事数、`needed` は翻訳対象記事ごとに `ja/en/zh/ko/es` のうち原文言語と異なる言語数を合算する（原文が対応言語なら4、その他の言語なら5）、`ready`/`failed`/`pending` は `article_listing_translations` の該当状態数、`missing = max(needed − ready − failed − pending, 0)` は未投入数、`lastError` は最新の `error` 行の理由。job の主張ではなく実データだけを根拠にするため、状況を常に正確に反映する
+- `translation`: `{ articles, untranslatable, needed, ready, failed, queued, processing, pending, missing, lastError }`。feed の翻訳カバレッジを保存済みデータから都度算出する。`untranslatable` はタイトルが空で翻訳対象にできない記事数、`needed` は翻訳対象記事 × 対応5言語（`ja/en/zh/ko/es`）、`ready`/`failed` は `article_listing_translations` の該当状態数、`queued` は未着手の `pending`、`processing` はモデルへ送信済みで応答待ちの `pending`、`pending = queued + processing`、`missing = max(needed − ready − failed − pending, 0)` は未投入数、`lastError` は最新の `error` 行の理由。job の主張ではなく実データだけを根拠にするため、状況を常に正確に反映する
 - 手動操作後の完了検知: fetch は `subscriptionStatuses[].fetchJob` が非アクティブになること、翻訳は `translation.pending = 0`（`stalled` なジョブはアクティブ扱いしない）
 
 ### POST /api/v1/status/refresh
 
-- current user の購読 feed の fetch job を enqueue する（202）。対象 feed ごとに `feed_jobs (kind='fetch')` を `pending` にする
+- current user の購読 feed の fetch job を enqueue する（202）。対象 feed ごとに `feed_jobs` 行を `pending` にする
 - request: `{ force?: boolean }`
 - `force=false` の場合は `nextFetchAfter <= now` かつ `status = active` の feed のみを対象にする（記事一覧の pull-to-refresh 用）。処理ステータス画面の「すべて取得」は `force=true` で全 active feed を対象にする
 - response: `{ accepted, enqueued, skipped, queuedAt }`。`skipped` はクールダウン中で対象外になった active feed 数
 - refresh worker は `consecutive_failures` を更新し、`3` 回連続 `error` で `feeds.status=paused` に遷移させる
-- `error` 時の `nextFetchAfter` backoff は `15m -> 60m -> 360m` とする
+- `error` 時の `nextFetchAfter` backoff は `60m -> 360m -> 1440m` とする
 - `success` と `not_modified` は成功扱いとし、`consecutive_failures=0` に reset する
-- `success` 時は `nextFetchAfter=now+30m`、`not_modified` 時は `nextFetchAfter=now+120m` とする（手動更新の連打防止クールダウンとして扱う）
+- `success` / `not_modified` 時の `nextFetchAfter` は feed 自身の投稿ペースから算出する（手動更新の連打防止クールダウンとして扱う）
+  - 直近 `20` 件の `published_at` の連続間隔の中央値を基準に `60m`〜`1440m` にクランプし、最新記事からの経過時間の半分を下限として併用する
+  - `published_at` を持つ記事が `4` 件未満の場合のみ、`success` は `now+60m`、`not_modified` は `now+120m` にフォールバックする
 - worker は処理開始時に `feed_jobs` を `running`、確定時に `completed | failed` にする。`success/not_modified` は `completed`、fetch error・feed 削除済み・paused skip は `failed` とする
 
 ### POST /api/v1/status/refresh/{feedId}
 
-- 購読中 feed 単体の fetch job を enqueue する（202）。`feed_jobs (kind='fetch')` を `pending` にする
+- 購読中 feed 単体の fetch job を enqueue する（202）。`feed_jobs` 行を `pending` にする
 
 ### POST /api/v1/status/translate / POST /api/v1/status/translate/{feedId}
 
 - current user の未翻訳タイトルの翻訳を投入する（202）。set-based SQL で不足している `(article, language)` pair を `article_listing_translations` に `status='pending'` として一括 INSERT し、既存の `error` 行を `pending` に戻し（`attempt_count=0`）、グローバル翻訳 drain を1メッセージ蹴る
 - request body は無し（既存翻訳の強制再生成は提供しない）
 - response: `{ accepted, enqueued, queuedAt }`。`enqueued` は投入した pair 数。翻訳結果は `article_listing_translations` に共有保存され、一覧の `translatedTitle` に反映される
-- 翻訳先サポート言語は `ja` / `en` / `zh` / `ko` / `es`。原文言語（`sourceLanguage`）はこれらに限定せず保存する。翻訳対象は feed の**全記事**（新しい順）× 対応5言語のうち原文言語と異なる言語。既に `ready` の pair は再翻訳しない
+- 翻訳先サポート言語は `ja` / `en` / `zh` / `ko` / `es`。原文言語（`sourceLanguage`）はこれらに限定せず保存する。翻訳対象は feed の**全記事** × 対応5言語すべてで、原文言語を事前に知らないまま投入する（原文言語はモデルの応答で初めて分かるため、投入時の絞り込みには使えない）。原文言語と一致する行はモデルが翻訳行を省略し、呼び出し側が原文タイトルで補完する。既に `ready` の pair は再翻訳しない
 - listing 翻訳では source language の事前判定値をモデルへ渡さず、`id + title` からモデル自身にタイトルごとの source language を識別させる。複数言語のタイトルは `mixed`、判定不能は `und` とし、値は可能な限り ISO 639-1 へ正規化する。`mixed`/`und` は翻訳対象外ではなく、全ターゲット言語を生成する対象として扱う
+
+### POST /api/v1/status/translate/discard / POST /api/v1/status/translate/{feedId}/discard
+
+- 対象 feed の `pending` / `error` 行を削除し、翻訳キューを空にする（200）。`ready` 行は残すので完了済みの翻訳は失われない
+- request body は無し
+- response: `{ accepted, removed, discardedAt }`。`removed` は削除した pair 数
+- drain と watchdog は `pending` が無くなった時点で自然に停止するため、別途停止操作は持たない
 
 #### 翻訳 drain（`translate_drain` job）
 
@@ -782,11 +801,10 @@ Returns fetch logs for a feed.
 - `article_not_found`: current user が対象 article を購読中でも retained でもない
 - `invalid_cursor`: cursor が不正または改ざん検知された
 - `admin_required`: admin endpoint に対する admin 権限不足
-- `feed_refresh_failed`: feed refresh job の投入または処理に失敗
 - `feed_discovery_failed`: feed discovery で有効候補を確定できない
 - `feed_unreachable`: feed または site URL へ到達できない、または timeout
 - `initial_fetch_retry_not_allowed`: 初回取得 retry 条件を満たしていない subscription へ再試行した
 - `opml_import_not_found`: current user から対象 OPML import job が不可視
-- `language_detection_failed`: 原文言語を判定できず、対象 content の生成を開始しなかった
 - `account_deletion_failed`: Clerk deletion または app data cleanup が失敗し、削除 job が `failed` になった
-- `playback_queue_item_not_in_queue`: `PATCH /playback-queue/state` で指定した `currentArticleId` がキューに含まれていない
+
+`rate_limited` は client 側の文言だけ用意してある予約コードで、server から返す経路はまだ無い（`OPERATIONS.md` の `Not yet implemented` を参照）。

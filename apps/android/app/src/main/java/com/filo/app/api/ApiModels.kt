@@ -49,7 +49,7 @@ data class ArticleUserState(
 data class ArticleListItem(
     val id: Int,
     val title: String,
-    val originalTitle: String,
+    val translatedTitle: String?,
     val titleTranslationPending: Boolean,
     val sourceLanguage: String?,
     val canonicalUrl: String?,
@@ -250,9 +250,8 @@ internal fun parseUserState(json: JSONObject?): ArticleUserState =
 internal fun parseArticleListItem(json: JSONObject): ArticleListItem =
     ArticleListItem(
         id = json.getInt("id"),
-        // show the shared listing translation when present; the row toggle reveals the original
-        title = json.optStringOrNull("translatedTitle") ?: json.optString("title", ""),
-        originalTitle = json.optString("title", ""),
+        title = json.optString("title", ""),
+        translatedTitle = json.optStringOrNull("translatedTitle"),
         titleTranslationPending = json.optBoolean("titleTranslationPending", false),
         sourceLanguage = json.optStringOrNull("sourceLanguage"),
         canonicalUrl = json.optStringOrNull("canonicalUrl"),
@@ -452,7 +451,9 @@ internal fun parsePlaybackQueue(json: JSONObject): PlaybackQueueData {
         PlaybackQueueEntry(
             articleId = item.getInt("articleId"),
             sortOrder = item.optInt("sortOrder", index),
-            title = article.optString("title", ""),
+            // `title` is the original; `translatedTitle` is set only when the
+            // server decided the user needs it.
+            title = article.optStringOrNull("translatedTitle") ?: article.optString("title", ""),
             canonicalUrl = article.optStringOrNull("canonicalUrl"),
             sourceLanguage = article.optStringOrNull("sourceLanguage"),
             feedTitle = article.optJSONObject("feed")?.optString("title"),

@@ -171,8 +171,8 @@ fun ArticleReadingScreen(
             return@Scaffold
         }
 
-        val isTranslatedTitle = a.translatedTitle != null
-        val displayTitle = if (showOriginalTitle || !isTranslatedTitle) a.title else a.translatedTitle!!
+        val translatedTitle = a.translatedTitle
+        val displayTitle = if (showOriginalTitle || translatedTitle == null) a.title else translatedTitle
 
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             Column(
@@ -215,7 +215,7 @@ fun ArticleReadingScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    if (isTranslatedTitle) {
+                    if (translatedTitle != null) {
                         Surface(
                             onClick = { showOriginalTitle = !showOriginalTitle },
                             shape = MaterialTheme.shapes.extraSmall,

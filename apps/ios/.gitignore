@@ -6,3 +6,4 @@ DerivedData
 *.log
 **/GoogleService-Info.plist
 LocalSecrets.plist
+**/*.xcconfig

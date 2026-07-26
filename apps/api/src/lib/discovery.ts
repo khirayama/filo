@@ -97,7 +97,7 @@ export async function discoverFeed(inputUrl: string): Promise<DiscoveredFeed> {
   throw new ApiError(400, "feed_discovery_failed", "No valid feed candidate found");
 }
 
-export function discoverFaviconUrlInHtml(html: string, baseUrl: string): string | null {
+function discoverFaviconUrlInHtml(html: string, baseUrl: string): string | null {
   const head = html.slice(0, 200_000);
   const linkTags = head.match(/<link\b[^>]*>/gi) ?? [];
   let best: { url: string; size: number } | null = null;

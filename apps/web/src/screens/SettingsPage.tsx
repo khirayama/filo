@@ -141,7 +141,7 @@ export function SettingsPage() {
               <p style={{ color: palette.muted, fontSize: "13px", margin: "0 0 8px" }}>
                 {t("表示言語を切り替えると、リーディングリスト内のタイトル翻訳をその言語で表示します。")}
               </p>
-              <SettingRow label={t("表示可能言語")}>
+              <SettingRow label={t("原文のまま読む言語")}>
                 <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                   {SUPPORTED_LANGUAGES.map((code) => (
                     <label key={code} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>

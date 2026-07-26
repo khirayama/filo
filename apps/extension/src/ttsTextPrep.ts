@@ -1,3 +1,5 @@
+// TTS text preparation. Duplicated verbatim in apps/web/src/lib/ttsTextPrep.ts:
+// the two apps build independently, so any change here must be made there too.
 const URL_RE = /https?:\/\/[^\s)}\]>]+/g;
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 const FENCED_CODE_RE = /```[\s\S]*?```/g;

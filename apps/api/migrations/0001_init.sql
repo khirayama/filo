@@ -9,6 +9,8 @@ CREATE TABLE users (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- A deletion request is recorded here before Clerk is called, and keeps normal
+-- sign-in from re-creating the user while cleanup is still running.
 CREATE TABLE deleted_user_tombstones (
   clerk_user_id TEXT PRIMARY KEY,
   deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -50,12 +52,15 @@ CREATE TABLE opml_import_jobs (
 
 -- Settings
 
+-- `language` is the app's display language; `readable_languages` are the
+-- languages the user reads without help, so a title already in one of them is
+-- shown untranslated.
 CREATE TABLE user_settings (
   user_id INTEGER PRIMARY KEY,
   theme TEXT NOT NULL DEFAULT 'system'
     CHECK (theme IN ('light', 'dark', 'system')),
   language TEXT NOT NULL DEFAULT 'ja'
-    CHECK (language IN ('ja', 'en')),
+    CHECK (language IN ('ja', 'en', 'zh', 'ko', 'es')),
   readable_languages TEXT NOT NULL DEFAULT '["ja"]',
   article_sort_order TEXT NOT NULL DEFAULT 'published_at_desc'
     CHECK (article_sort_order IN ('published_at_desc', 'fetched_at_desc')),
@@ -68,6 +73,7 @@ CREATE TABLE user_settings (
 
 -- Feeds & subscriptions
 
+-- A feed is a shared source; everything per-user lives in `subscriptions`.
 CREATE TABLE feeds (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   feed_url TEXT NOT NULL UNIQUE,
@@ -75,7 +81,6 @@ CREATE TABLE feeds (
   title TEXT NOT NULL,
   description TEXT,
   favicon_url TEXT,
-  language TEXT,
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'paused')),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -124,6 +129,9 @@ CREATE TABLE subscription_tags (
 
 -- Articles
 
+-- `source_language` is what the translation model reported about the title, so
+-- it stays NULL until the article has been through a translation drain. No
+-- local language inference writes it.
 CREATE TABLE articles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   feed_id INTEGER NOT NULL,
@@ -143,11 +151,13 @@ CREATE TABLE articles (
   FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE RESTRICT
 );
 
+-- Body extraction exists for the reading part (speech queue) only. A row here
+-- always means an extraction was requested, so `pending` means a job is in
+-- flight and nothing else may create the row.
 CREATE TABLE article_contents (
   article_id INTEGER PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
   text TEXT,
   html TEXT,
-  source_language TEXT,
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'ready', 'error')),
   error_message TEXT,
@@ -155,50 +165,62 @@ CREATE TABLE article_contents (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE article_content_translations (
-  article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
-  language TEXT NOT NULL,
-  text TEXT,
-  html TEXT,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'ready', 'error')),
-  error_message TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (article_id, language)
-);
-
+-- One row per (article, target language). These rows are the translation work
+-- ledger: `pending` is queued, `processing_at` marks a pair in flight to the
+-- model, `ready`/`error` are terminal. There is no separate translation job.
 CREATE TABLE article_listing_translations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
   article_id INTEGER NOT NULL,
   language TEXT NOT NULL,
   title TEXT,
-  preview_text TEXT,
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'ready', 'error')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  processing_at TEXT,
   error_message TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (article_id, language),
+  PRIMARY KEY (article_id, language),
   FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
 );
 
-CREATE TABLE article_user_states (
+-- Explicit read overrides. A missing row does not mean unread: the feed read
+-- cursor below decides that case.
+CREATE TABLE article_read_states (
   user_id INTEGER NOT NULL,
   article_id INTEGER NOT NULL,
   is_read INTEGER NOT NULL DEFAULT 0
     CHECK (is_read IN (0, 1)),
-  is_saved INTEGER NOT NULL DEFAULT 0
-    CHECK (is_saved IN (0, 1)),
-  is_starred INTEGER NOT NULL DEFAULT 0
-    CHECK (is_starred IN (0, 1)),
   read_at TEXT,
-  saved_at TEXT,
-  starred_at TEXT,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (user_id, article_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+);
+
+-- Sparse memberships. A membership here is also what keeps an article
+-- reachable after unsubscribe (a "retained article").
+CREATE TABLE article_user_collections (
+  user_id INTEGER NOT NULL,
+  article_id INTEGER NOT NULL,
+  kind TEXT NOT NULL
+    CHECK (kind IN ('reading_list', 'bookmark')),
+  added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, article_id, kind),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+);
+
+-- "Everything up to this article id is read", per user and feed. Mark-all-read
+-- advances the cursor instead of writing one row per article.
+CREATE TABLE feed_read_cursors (
+  user_id INTEGER NOT NULL,
+  feed_id INTEGER NOT NULL,
+  last_read_article_id INTEGER NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, feed_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
 );
 
 -- Feed fetch tracking
@@ -230,6 +252,25 @@ CREATE TABLE feed_fetch_logs (
   FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
 );
 
+-- A user-requested feed fetch. The row is written before the queue message, so
+-- a lost message still leaves a row the status screen shows as interrupted and
+-- the user can re-run. Title translation has no job row; its ledger is
+-- article_listing_translations.
+CREATE TABLE feed_jobs (
+  user_id INTEGER NOT NULL,
+  feed_id INTEGER NOT NULL,
+  status TEXT NOT NULL
+    CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at TEXT,
+  finished_at TEXT,
+  last_error TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, feed_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
+);
+
 -- Playback queue
 
 CREATE TABLE playback_queue_items (
@@ -245,8 +286,6 @@ CREATE TABLE playback_queue_items (
 CREATE TABLE playback_states (
   user_id INTEGER PRIMARY KEY,
   current_article_id INTEGER,
-  content_type TEXT
-    CHECK (content_type IS NULL OR content_type IN ('extracted', 'translated')),
   content_language TEXT,
   position_percent REAL NOT NULL DEFAULT 0
     CHECK (position_percent >= 0 AND position_percent <= 1),
@@ -267,11 +306,19 @@ CREATE INDEX idx_articles_feed_published_at ON articles(feed_id, published_at DE
 CREATE INDEX idx_articles_feed_fetched_at ON articles(feed_id, fetched_at DESC);
 CREATE INDEX idx_articles_published_id ON articles(published_at DESC, id DESC);
 CREATE INDEX idx_articles_fetched_id ON articles(fetched_at DESC, id DESC);
-CREATE INDEX idx_article_user_states_user_flags ON article_user_states(user_id, is_read, is_saved, is_starred);
-CREATE INDEX idx_article_user_states_user_article ON article_user_states(user_id, article_id);
-CREATE INDEX idx_article_content_translations_article ON article_content_translations(article_id, language);
-CREATE INDEX idx_article_listing_translations_article_lang ON article_listing_translations(article_id, language);
+-- Unread counts scan a feed's articles as an id range against the read cursor.
+CREATE INDEX idx_articles_feed_id_id ON articles(feed_id, id);
+CREATE INDEX idx_article_read_states_user_read ON article_read_states(user_id, is_read, article_id);
+CREATE INDEX idx_article_read_states_article_id ON article_read_states(article_id);
+CREATE INDEX idx_article_user_collections_user_kind_article
+  ON article_user_collections(user_id, kind, article_id);
+CREATE INDEX idx_article_user_collections_article_id ON article_user_collections(article_id);
+-- The drain selects pending pairs across every article.
+CREATE INDEX idx_article_listing_translations_status
+  ON article_listing_translations(status, article_id);
 CREATE INDEX idx_feed_fetch_states_next_fetch_after ON feed_fetch_states(next_fetch_after);
+CREATE INDEX idx_feed_jobs_user_status ON feed_jobs(user_id, status, updated_at);
+CREATE INDEX idx_feed_jobs_feed_status ON feed_jobs(feed_id, status);
 CREATE INDEX idx_account_deletion_jobs_status_updated_at ON account_deletion_jobs(status, updated_at);
 CREATE INDEX idx_account_deletion_jobs_clerk_user_id ON account_deletion_jobs(clerk_user_id);
 CREATE INDEX idx_opml_import_jobs_user_created_at ON opml_import_jobs(user_id, created_at DESC);

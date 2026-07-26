@@ -2,7 +2,6 @@
 export const SUPPORTED_LANGUAGES = ["ja", "en", "zh", "ko", "es"] as const;
 
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
-export type SourceLanguage = string;
 
 export function isSupportedLanguage(value: unknown): value is SupportedLanguage {
   return typeof value === "string" && (SUPPORTED_LANGUAGES as readonly string[]).includes(value);
@@ -28,7 +27,7 @@ const ISO639_3_TO_1: ReadonlyMap<string, string> = new Map([
 
 // AI source_lang values are normalized only for storage and client language
 // selection; no local language inference is performed.
-export function normalizeSourceLanguage(value: string | null | undefined): SourceLanguage | null {
+export function normalizeSourceLanguage(value: string | null | undefined): string | null {
   const lower = normalizeLanguageCode(value);
   if (!lower) return null;
   return ISO639_3_TO_1.get(lower) ?? (lower.startsWith("zh-") ? "zh" : lower.split("-")[0] ?? null);

@@ -1,6 +1,6 @@
 # filo API
 
-Cloudflare Workers + D1 + Queues + Workers AI implementation of `SPEC/API.md`.
+Cloudflare Workers + D1 + Queues + Durable Objects implementation of `SPEC/API.md`. Title translation goes to an OpenAI-compatible server (LM Studio by default), not Workers AI.
 
 ## Setup
 
@@ -26,6 +26,7 @@ npx wrangler queues create filo-translate  # title translation drain
 npm run db:migrate:remote
 wrangler secret put CLERK_SECRET_KEY
 wrangler secret put CURSOR_SECRET
+wrangler secret put CRON_SECRET
 npm run deploy
 ```
 
@@ -60,9 +61,9 @@ TRANSLATION_MODEL=google/gemma-4-12b-qat
 - `LM_STUDIO_API_KEY`: optional; only needed when the OpenAI-compatible server requires authentication
 - `TRANSLATION_MODEL`: optional, defaults to `google/gemma-4-12b-qat`; must be loaded in LM Studio (`lms ps`)
 
-The title translation request runs with `reasoning_effort: "none"` and no `response_format`: the output shape is prompted and recovered by the response parser. Strict `json_schema` decoding was dropped because it is slower on the local Gemma engine and intermittently aborts the request with a `peg-gemma4 format` engine error.
+The title translation request runs with `reasoning_effort: "none"` and no `response_format`: the output shape is prompted and recovered by the response parser, which tolerates prose and truncation. Strict `json_schema` decoding is not used — constrained sampling is markedly slower on the local Gemma engine and intermittently aborts the request with a `peg-gemma4 format` engine error, failing the whole batch.
 
-Generation is the entire cost of a request on a local model, so the answer is a line format rather than JSON — the id is written once per title and the title's own language is omitted instead of echoed back, which is ~25% fewer completion tokens for the same translations. The drain sends two batches at a time; start LM Studio with a matching slot count or the second request just queues:
+Generation is the entire cost of a request on a local model, so the answer is a line format rather than JSON: the id is written once per title and the title's own language is omitted instead of echoed back, which keeps completion tokens to a minimum. The drain sends two batches at a time; start LM Studio with a matching slot count or the second request just queues:
 
 ```bash
 lms load google/gemma-4-12b-qat --parallel 2

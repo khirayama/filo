@@ -8,7 +8,7 @@
 - [Architecture Overview](#architecture-overview)
 - [Application Rules](#application-rules)
 - [Authentication and Authorization](#authentication-and-authorization)
-- [Decision Gates](#decision-gates)
+- [Release Gate](#release-gate)
 
 ## Documents
 
@@ -60,24 +60,17 @@
 
 - Clerk 認証後、アプリケーションは通常サインイン時に限り `clerk_user_id` を唯一キーとして `users` を upsert する
 - user endpoint は Clerk session を必須とする
-- admin endpoint の認可は Clerk role または同等の server-side metadata で一元判定する
-- Clerk webhook は署名検証を必須とし、重複配送されても冪等に処理する
+- admin endpoint の認可は `ADMIN_CLERK_USER_IDS` で一元判定する
+- user 行の作成経路は API 呼び出し時の upsert だけとする（Clerk webhook による同期は持たない。`OPERATIONS.md` の `Not yet implemented` を参照）
 - アカウント削除フロー中または削除済みユーザーを、自動 upsert で再生成してはならない
 - 削除要求受付後の `clerk_user_id` は tombstone または active deletion job を source of truth として自動 upsert 対象から除外する
 - アカウント削除、監査ログ、secret 管理などの運用ルールは `OPERATIONS.md` に従う
 
-## Decision Gates
-
-### Implementation Start
-
-実装開始は Go とする。理由は、MVP の主語、データ所有境界、主要 API、DB schema、画面導線、運用・リリース基準が実装者に渡せる粒度で定義済みだからである。
-
-実装開始後に発見した詳細差分は、以下を満たす限り仕様更新を伴う通常の実装課題として扱い、開始判断の差し戻し理由にしない。
-
-- `subscription` 主語、shared `feed/article/content`、user-owned state の境界を壊さない
-- 初期リリース対象を `iOS` `Android` `Web` `Browser Extension` と backend/API/operations とする
-- API contract、DB migration、画面表示状態、運用 checklist のいずれかに追記して吸収できる
-
-### Release
+## Release Gate
 
 リリースは `OPERATIONS.md` の Release Checklist を全項目満たし、各機能が `iOS` `Android` `Web + Extension` で同一リリース単位にそろった時点で Go とする。
+
+実装中に見つかった仕様差分は、以下を満たす限り仕様更新を伴う通常の実装課題として扱う。
+
+- `subscription` 主語、shared `feed/article/content`、user-owned state の境界を壊さない
+- API contract、DB migration、画面表示状態、運用 checklist のいずれかに追記して吸収できる

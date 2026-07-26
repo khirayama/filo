@@ -173,8 +173,11 @@ fun ArticleRow(
     onToggleBookmark: (() -> Unit)? = null,
 ) {
     var showOriginal by remember { mutableStateOf(false) }
-    val isTranslated = article.title != article.originalTitle
-    val displayTitle = if (showOriginal) article.originalTitle else article.title
+    // The server only sends translatedTitle when the original is in a language
+    // the user does not read, so its presence is the whole translated/original
+    // decision; the row toggle lets the user see the original anyway.
+    val isTranslated = article.translatedTitle != null
+    val displayTitle = if (showOriginal) article.title else article.translatedTitle ?: article.title
 
     Surface(onClick = onOpen, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -382,16 +385,3 @@ class SpeechPlayer(context: Context) {
         tts.shutdown()
     }
 }
-
-fun htmlToPlainText(html: String): String =
-    html
-        .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
-        .replace(Regex("</p>", RegexOption.IGNORE_CASE), "\n\n")
-        .replace(Regex("<[^>]+>"), "")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&nbsp;", " ")
-        .replace("&#39;", "'")
-        .trim()

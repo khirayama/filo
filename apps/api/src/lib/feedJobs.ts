@@ -1,13 +1,13 @@
 import { nowIso, toIso } from "./util";
 
-// Translation no longer uses feed_jobs: its state is derived from
-// article_listing_translations rows (see lib/translationCoverage.ts).
-export type FeedJobKind = "fetch";
+// feed_jobs tracks user-requested feed fetches only. Title translation has no
+// job row; its state is derived from article_listing_translations
+// (see lib/translationCoverage.ts).
 export type FeedJobStatus = "pending" | "running" | "completed" | "failed";
 
 // A pending/running job whose row has not been touched for this long is
 // treated as interrupted (worker died, queue message lost) and can be resumed.
-export const FEED_JOB_STALL_MS = 10 * 60 * 1000;
+const FEED_JOB_STALL_MS = 10 * 60 * 1000;
 
 export interface FeedJobRow {
   status: FeedJobStatus;
@@ -18,7 +18,7 @@ export interface FeedJobRow {
   updated_at: string;
 }
 
-export function isStalledFeedJob(status: string, updatedAt: string | null, now = Date.now()): boolean {
+function isStalledFeedJob(status: string, updatedAt: string | null, now = Date.now()): boolean {
   if (status !== "pending" && status !== "running") return false;
   const updated = updatedAt ? Date.parse(updatedAt) : Number.NaN;
   if (Number.isNaN(updated)) return true;
@@ -42,16 +42,15 @@ export async function upsertFeedJob(
   db: D1Database,
   userId: number,
   feedId: number,
-  kind: FeedJobKind,
   status: FeedJobStatus,
   fields: { startedAt?: string | null; finishedAt?: string | null; lastError?: string | null } = {},
 ): Promise<void> {
   const now = nowIso();
   await db.prepare(
     `INSERT INTO feed_jobs
-       (user_id, feed_id, kind, status, requested_at, started_at, finished_at, last_error, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (user_id, feed_id, kind) DO UPDATE SET
+       (user_id, feed_id, status, requested_at, started_at, finished_at, last_error, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (user_id, feed_id) DO UPDATE SET
        status = excluded.status,
        requested_at = CASE WHEN excluded.status = 'pending' THEN excluded.requested_at ELSE feed_jobs.requested_at END,
        started_at = excluded.started_at,
@@ -62,7 +61,6 @@ export async function upsertFeedJob(
     .bind(
       userId,
       feedId,
-      kind,
       status,
       now,
       fields.startedAt ?? null,
@@ -73,7 +71,7 @@ export async function upsertFeedJob(
     .run();
 }
 
-// Fetch jobs are feed-scoped on the worker side: one queue message serves every
+// A fetch is feed-scoped on the worker side: one queue message serves every
 // user who requested that feed, so completion updates all active rows at once.
 export async function settleFetchJobs(
   db: D1Database,
@@ -85,7 +83,7 @@ export async function settleFetchJobs(
   await db.prepare(
     `UPDATE feed_jobs
      SET status = ?, started_at = ?, finished_at = ?, last_error = ?, updated_at = ?
-     WHERE feed_id = ? AND kind = 'fetch' AND status IN ('pending', 'running')`,
+     WHERE feed_id = ? AND status IN ('pending', 'running')`,
   )
     .bind(
       status,
