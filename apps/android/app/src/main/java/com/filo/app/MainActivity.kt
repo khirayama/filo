@@ -119,7 +119,16 @@ private fun AuthRoot(
     }
 
     if (!uiState.isInitialized) {
-        CenteredLoading()
+        if (uiState.initializationError) {
+            CenteredMessage(
+                title = "Unable to connect",
+                body = "Check your internet connection and try again.",
+                actionLabel = "Retry",
+                onAction = mainViewModel::retryInitialization,
+            )
+        } else {
+            CenteredLoading()
+        }
         return
     }
 
@@ -627,7 +636,12 @@ private fun CenteredLoading() {
     }
 }
 @Composable
-private fun CenteredMessage(title: String, body: String) {
+private fun CenteredMessage(
+    title: String,
+    body: String,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -636,5 +650,11 @@ private fun CenteredMessage(title: String, body: String) {
         Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(12.dp))
         Text(body, style = MaterialTheme.typography.bodyLarge)
+        if (actionLabel != null && onAction != null) {
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(onClick = onAction) {
+                Text(actionLabel)
+            }
+        }
     }
 }

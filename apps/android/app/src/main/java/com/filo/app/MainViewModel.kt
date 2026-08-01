@@ -43,6 +43,7 @@ enum class SecondFactorMethod {
 data class AuthUiState(
     val isConfigured: Boolean = BuildConfig.CLERK_PUBLISHABLE_KEY.isNotBlank(),
     val isInitialized: Boolean = false,
+    val initializationError: Boolean = false,
     val isSignedIn: Boolean = false,
     val isSubmitting: Boolean = false,
     val mode: AuthMode = AuthMode.SignIn,
@@ -66,16 +67,26 @@ class MainViewModel : ViewModel() {
 
     init {
         if (_uiState.value.isConfigured) {
-            combine(Clerk.isInitialized, Clerk.userFlow) { initialized, user ->
-                initialized to user
-            }.onEach { (initialized, user) ->
+            combine(Clerk.isInitialized, Clerk.userFlow, Clerk.initializationError) { initialized, user, error ->
+                Triple(initialized, user, error)
+            }.onEach { (initialized, user, error) ->
                 _uiState.value =
                     _uiState.value.copy(
                         isInitialized = initialized,
+                        initializationError = error != null && !initialized,
                         isSignedIn = user != null,
                         mode = if (user != null) _uiState.value.mode else normalizeSignedOutMode(_uiState.value.mode),
                     )
             }.launchIn(viewModelScope)
+        }
+    }
+
+    fun retryInitialization() {
+        if (!_uiState.value.isConfigured || _uiState.value.isInitialized) return
+
+        _uiState.value = _uiState.value.copy(initializationError = false)
+        if (!Clerk.reinitialize()) {
+            _uiState.value = _uiState.value.copy(initializationError = true)
         }
     }
 
