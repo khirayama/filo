@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import { AppShell, useIsDesktop } from "../components/AppShell";
@@ -9,6 +9,7 @@ import { EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, pa
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage } from "../lib/messages";
 import { refreshFeedsAndWait } from "../lib/refresh";
+import { detectReadingExtension, launchReadingExtension, subscribeExtensionEvents } from "../lib/extensionBridge";
 
 export function ArticlesPage() {
   return <ArticlesListPage />;
@@ -17,11 +18,31 @@ export function ArticlesPage() {
 function ArticlesListPage() {
   const isDesktop = useIsDesktop();
   const api = useApi();
-  const { tags, subscriptions, error: sideError, refresh: refreshAppData, language, t } = useAppData();
+  const { tags, subscriptions, settings, error: sideError, refresh: refreshAppData, language, t } = useAppData();
   const { tagId, bookmarkedOnly, readingListOnly, read, setRead, clearTag } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
+  const [extensionReady, setExtensionReady] = useState(false);
+  const [startingReading, setStartingReading] = useState(false);
+
+  const startReading = async (autoplay: boolean) => {
+    if (!extensionReady || startingReading) return;
+    setStartingReading(true);
+    setMarkAllError(null);
+    try {
+      const session = await api.startReadingSession();
+      if (!session.playbackState?.currentArticleId) {
+        setMarkAllError("未読の記事がありません。");
+        return;
+      }
+      await launchReadingExtension(session, { autoplay, targetLanguage: settings?.language ?? "ja" });
+    } catch (e) {
+      setMarkAllError(errorMessage(e, language));
+    } finally {
+      setStartingReading(false);
+    }
+  };
 
   const apiFilters = useMemo(
     () => ({
@@ -34,6 +55,19 @@ function ArticlesListPage() {
   );
 
   const list = useArticleList(api, apiFilters);
+  const reloadList = list.reload;
+
+  useEffect(() => {
+    if (!readingListOnly) return;
+    void detectReadingExtension().then(setExtensionReady);
+    return subscribeExtensionEvents((event) => {
+      if (event.type === "articleRead") {
+        void api.setArticleRead(event.articleId, true).then(reloadList);
+      } else {
+        void api.updatePlaybackState(event);
+      }
+    });
+  }, [api, reloadList, readingListOnly]);
 
   const hasSubscriptions = subscriptions.length > 0;
   const hasArticleFilter = tagId !== undefined || read !== undefined || readingListOnly || bookmarkedOnly;
@@ -122,6 +156,16 @@ function ArticlesListPage() {
             {title}
           </h1>
           <TitleTranslationToggle />
+          {readingListOnly ? (
+            <>
+              <InlineButton disabled={!extensionReady || startingReading} onClick={() => void startReading(false)}>
+                {t("閲覧開始")}
+              </InlineButton>
+              <InlineButton disabled={!extensionReady || startingReading} onClick={() => void startReading(true)}>
+                {t("読み上げ開始")}
+              </InlineButton>
+            </>
+          ) : null}
           {!bookmarkedOnly && !readingListOnly ? (
             <>
               <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />

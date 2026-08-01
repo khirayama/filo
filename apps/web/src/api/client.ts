@@ -8,6 +8,8 @@ import type {
   ListMeta,
   MarkAllReadResult,
   OpmlImportJob,
+  PlaybackState,
+  ReadingSession,
   Settings,
   StatusOverview,
   Subscription,
@@ -146,6 +148,11 @@ export function createApiClient(getToken: TokenGetter) {
       (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/reading-list`)).data,
     setBookmarkMembership: async (id: number, active: boolean) =>
       (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/bookmark`)).data,
+    startReadingSession: async () =>
+      (await send<ReadingSession>("POST", "/api/v1/playback-queue/start")).data,
+    getReadingSession: async () => (await get<ReadingSession>("/api/v1/playback-queue")).data,
+    updatePlaybackState: async (patch: Partial<Pick<PlaybackState, "currentArticleId" | "contentLanguage" | "positionPercent">>) =>
+      (await send<PlaybackState | null>("PATCH", "/api/v1/playback-queue/state", patch)).data,
 
     importOpml: async (file: File) => {
       const formData = new FormData();
