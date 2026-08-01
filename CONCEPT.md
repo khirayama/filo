@@ -15,7 +15,7 @@ Filo は、RSS/Atom で記事を見つけ、一覧タイトルを端末内で翻
 
 ## 翻訳方針
 
-- 翻訳エンジンは自前で持たず、iOS は Translation framework、Android は ML Kit、Web はブラウザの Translator API を利用する。
+- 翻訳エンジンは自前で学習・運用せず、iOS は Translation framework、Android は ML Kit、Web はブラウザの Translator API を優先する。非対応Webブラウザでは、Transformers.js + ONNX Runtime Web のWASMモデルを端末内で実行する。
 - 翻訳結果は端末内に留め、サーバーへ保存・共有しない。
 - 翻訳は記事一覧の手動トグルで起動する。
 - 原文言語がユーザーの readableLanguages に含まれる記事は翻訳しない。

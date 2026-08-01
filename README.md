@@ -39,4 +39,4 @@ just ios          # iOS をビルドしてシミュレータで起動
 just android      # Android をビルドしてエミュレータで起動
 ```
 
-翻訳は端末内で行う（iOS: Translation framework、Android: ML Kit、Web: ブラウザ組み込みの Translator API）。サーバーは翻訳を生成も保存もしない。対象機能は、購読管理、RSS記事一覧、既読／ブックマーク、一覧タイトル翻訳です。
+翻訳は端末内で行う（iOS: Translation framework、Android: ML Kit、Web: ブラウザ組み込みの Translator API を優先し、非対応ブラウザでは Transformers.js + ONNX Runtime Web の WASM フォールバック）。サーバーは翻訳を生成も保存しない。対象機能は、購読管理、RSS記事一覧、既読／ブックマーク、一覧タイトル翻訳です。

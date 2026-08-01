@@ -20,6 +20,8 @@ export function TitleTranslationSetup() {
     languages,
     checkedLanguages,
     preparing,
+    preparationProgress,
+    preparationError,
     refreshLanguages,
     prepare,
   } = useTitleTranslation();
@@ -37,6 +39,33 @@ export function TitleTranslationSetup() {
       return code;
     }
   };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const progressLabel = (() => {
+    switch (preparationProgress?.stage) {
+      case "downloading":
+        return t("翻訳モデルをダウンロードしています…");
+      case "initializing":
+        return t("翻訳エンジンを初期化しています…");
+      case "ready":
+        return t("翻訳モデルの準備が完了しました。");
+      case "failed":
+        return t("翻訳モデルの準備に失敗しました。");
+      default:
+        return t("翻訳モデルを準備しています…");
+    }
+  })();
+
+  const progressValue = preparationProgress?.progress == null
+    ? undefined
+    : Math.min(100, Math.max(0, preparationProgress.progress));
+  const progressBytes = preparationProgress?.loaded != null && preparationProgress.total != null
+    ? `${formatBytes(preparationProgress.loaded)} / ${formatBytes(preparationProgress.total)}`
+    : null;
 
   return (
     <div
@@ -75,6 +104,33 @@ export function TitleTranslationSetup() {
         <p style={{ color: palette.muted, fontSize: "13px", margin: "0 0 16px" }}>
           {t("タイトルの翻訳はこの端末の中で行います。はじめに、翻訳したい言語をダウンロードしてください。")}
         </p>
+
+        {preparing || preparationProgress?.stage === "failed" ? (
+          <div
+            aria-live="polite"
+            role="status"
+            style={{
+              background: palette.surface,
+              border: `1px solid ${palette.border}`,
+              borderRadius: "6px",
+              marginBottom: "16px",
+              padding: "12px",
+            }}
+          >
+            <div style={{ color: palette.text, fontSize: "13px", marginBottom: "8px" }}>{progressLabel}</div>
+            <progress max={100} value={progressValue} style={{ display: "block", width: "100%" }} />
+            <div style={{ color: palette.muted, fontSize: "12px", marginTop: "6px" }}>
+              {progressValue == null ? t("進捗を確認しています…") : `${Math.round(progressValue)}%`}
+              {progressBytes ? ` · ${progressBytes}` : ""}
+            </div>
+          </div>
+        ) : null}
+
+        {preparationError ? (
+          <p role="alert" style={{ color: palette.danger, fontSize: "13px", margin: "0 0 16px" }}>
+            {preparationError}
+          </p>
+        ) : null}
 
         {!checkedLanguages ? (
           <Spinner label={t("確認しています…")} />

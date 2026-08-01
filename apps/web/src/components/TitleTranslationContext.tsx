@@ -4,6 +4,7 @@ import {
   titleTranslationStatus,
   titleTranslationSupported,
   translateTitles,
+  type TitleTranslationProgress,
   type TitleTranslationStatus,
 } from "../lib/titleTranslator";
 import { useAppData } from "./AppDataContext";
@@ -28,6 +29,8 @@ interface TitleTranslation {
   languages: TitleTranslationLanguage[];
   checkedLanguages: boolean;
   preparing: string | null;
+  preparationProgress: TitleTranslationProgress | null;
+  preparationError: string | null;
   showSetup: boolean;
   setShowSetup: (value: boolean) => void;
   refreshLanguages: () => Promise<void>;
@@ -40,7 +43,7 @@ interface TitleTranslation {
 const TitleTranslationContext = createContext<TitleTranslation | null>(null);
 
 export function TitleTranslationProvider({ children }: { children: ReactNode }) {
-  const { language, settings, subscriptions } = useAppData();
+  const { language, settings, subscriptions, t } = useAppData();
   const readableLanguages = settings?.readableLanguages ?? ["ja"];
   const [enabled, setEnabled] = useState(
     () => titleTranslationSupported && localStorage.getItem(STORAGE_KEY) === "1",
@@ -50,10 +53,12 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
   const [languages, setLanguages] = useState<TitleTranslationLanguage[]>([]);
   const [checkedLanguages, setCheckedLanguages] = useState(false);
   const [preparing, setPreparing] = useState<string | null>(null);
+  const [preparationProgress, setPreparationProgress] = useState<TitleTranslationProgress | null>(null);
+  const [preparationError, setPreparationError] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
 
-  // 候補は「購読に実在する言語」。ブラウザは対応言語を列挙できないので、
-  // サーバーが決めた feed の言語から作る。訳す必要がない言語は除く。
+  // 候補は「購読に実在する言語」。サーバーが決めた feed の言語から作る。
+  // 標準APIとWASMのどちらを使うかは翻訳モジュール側で選ぶ。
   const candidates = useMemo(() => {
     const codes = new Set<string>();
     for (const subscription of subscriptions) {
@@ -78,14 +83,26 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
   const prepare = useCallback(
     async (code: string) => {
       setPreparing(code);
+      setPreparationProgress({ stage: "preparing", progress: 0 });
+      setPreparationError(null);
       try {
-        await prepareTitleTranslation(code, language);
+        let errorDetail: string | undefined;
+        const onProgress = (progress: TitleTranslationProgress) => {
+          if (progress.error) errorDetail = progress.error.slice(0, 240);
+          setPreparationProgress(progress);
+        };
+        const prepared = await prepareTitleTranslation(code, language, onProgress);
+        if (!prepared) {
+          setPreparationProgress({ stage: "failed", progress: null });
+          const message = t("翻訳モデルの準備に失敗しました。通信状況を確認して、もう一度お試しください。");
+          setPreparationError(errorDetail ? `${message} (${errorDetail})` : message);
+        }
         await refreshLanguages();
       } finally {
         setPreparing(null);
       }
     },
-    [language, refreshLanguages],
+    [language, refreshLanguages, t],
   );
   // 同じ記事を二度投げないための記録。トグル OFF と表示言語の変更でリセットする。
   const requested = useRef(new Set<number>());
@@ -153,6 +170,8 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
       languages,
       checkedLanguages,
       preparing,
+      preparationProgress,
+      preparationError,
       showSetup,
       setShowSetup,
       refreshLanguages,
@@ -160,7 +179,7 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
       request,
       titleFor,
     }),
-    [enabled, translating, toggle, languages, checkedLanguages, preparing, showSetup, refreshLanguages, prepare, request, titleFor],
+    [enabled, translating, toggle, languages, checkedLanguages, preparing, preparationProgress, preparationError, showSetup, refreshLanguages, prepare, request, titleFor],
   );
 
   return <TitleTranslationContext.Provider value={value}>{children}</TitleTranslationContext.Provider>;

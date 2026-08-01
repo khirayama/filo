@@ -5,7 +5,7 @@
   "packageManager": "npm@11.6.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --force",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=0",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.6",
+    "@huggingface/transformers": "3.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.15.1"

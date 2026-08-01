@@ -46,10 +46,9 @@ Restart `wrangler dev` after changing CORS behavior so the local worker reloads 
 
 The server neither generates nor stores translations. Clients translate listing
 titles on-device (iOS: Translation framework, Android: ML Kit, Web: the
-browser's built-in Translator API), so there is no translation queue, drain,
+browser's built-in Translator API or a browser-local WASM model), so there is no translation queue, drain,
 model configuration, or coverage to operate.
 
 The only language signal the server keeps is `feeds.language`, taken from the
 feed's declared `<language>` / `xml:lang` at fetch time. New articles inherit it
 as `source_language`, which read-aloud uses to pick a voice.
-
