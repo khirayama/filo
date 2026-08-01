@@ -11,6 +11,7 @@ enum AppRoute: Hashable {
     case subscriptionDetail(Int)
     case accountDeletionStatus(String?)
     case readingSession(Bool)
+    case addArticle(String)
 }
 
 // settings.theme を描画へ反映する。サーバー設定が届く前のフラッシュを防ぐため、
@@ -73,6 +74,12 @@ struct AppNavigationView: View {
     @ObservedObject private var languageManager = LanguageManager.shared
     @ObservedObject private var titleTranslations = TitleTranslationStore.shared
     @StateObject private var readingPlayer = ReadingPlayerStore()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var pendingSharedUrl: String?
+
+    init() {
+        _pendingSharedUrl = State(initialValue: SharedURLInbox.take())
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -102,6 +109,8 @@ struct AppNavigationView: View {
                             AccountDeletionStatusScreen(deletionToken: token)
                         case .readingSession(let autoplay):
                             ReadingSessionScreen(autoplay: autoplay)
+                        case .addArticle(let url):
+                            AddArticleScreen(initialUrl: url, onDone: { if !path.isEmpty { path.removeLast() } })
                         }
                     }
             }
@@ -114,11 +123,22 @@ struct AppNavigationView: View {
             TitleTranslationSetupView(store: titleTranslations)
         }
         .environment(\.locale, languageManager.locale)
+        .onAppear { openPendingShare() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { openPendingShare() }
+        }
         .task {
             if let settings = try? await APIClient.shared.getSettings() {
                 languageManager.language = settings.language
             }
         }
+    }
+
+    private func openPendingShare() {
+        let url = pendingSharedUrl ?? SharedURLInbox.take()
+        guard let url, !url.isEmpty else { return }
+        pendingSharedUrl = nil
+        path.append(AppRoute.addArticle(url))
     }
 }
 

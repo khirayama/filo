@@ -52,6 +52,13 @@ struct ArticleUserState: Codable, Hashable {
     var isBookmarked: Bool
 }
 
+struct SavedArticleResult: Codable, Hashable {
+    let articleId: Int
+    let title: String
+    let url: String
+    let created: Bool
+}
+
 struct SubscriptionContext: Codable, Hashable {
     var subscriptionIds: [Int]
     var tagIds: [Int]

@@ -66,6 +66,13 @@ export interface ArticleUserState {
   isBookmarked: boolean;
 }
 
+export interface SavedArticleResult {
+  articleId: number;
+  title: string;
+  url: string;
+  created: boolean;
+}
+
 export interface ArticleListItem {
   id: number;
   title: string;

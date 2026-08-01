@@ -5,6 +5,7 @@ import type { AppContext } from "../lib/auth";
 import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { errors } from "../lib/errors";
 import { normalizeSourceLanguage } from "../lib/languages";
+import { canonicalizeUrl } from "../lib/net";
 import { EFFECTIVE_IS_READ } from "../lib/readCursor";
 import { serializeUserState } from "../lib/serialize";
 import { htmlToText, nowIso, parseId, parseLimit, previewFrom, sanitizeHtml, toIso } from "../lib/util";
@@ -37,6 +38,95 @@ interface ArticleListRow {
   is_read: number | null;
   in_reading_list: number | null;
   is_bookmarked: number | null;
+}
+
+function fallbackSavedArticleTitle(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "") || url;
+  } catch {
+    return url;
+  }
+}
+
+function parseSavedArticleInput(body: unknown): { url: string; title?: string; summary?: string } {
+  if (!body || typeof body !== "object") throw errors.validation();
+  const input = body as { url?: unknown; title?: unknown; summary?: unknown };
+  if (typeof input.url !== "string" || input.url.trim().length === 0) {
+    throw errors.validation("url is required");
+  }
+  let url: string;
+  try {
+    const parsed = new URL(input.url.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("protocol");
+    url = canonicalizeUrl(input.url.trim());
+  } catch {
+    throw errors.validation("url must be a valid http(s) URL");
+  }
+  if (typeof input.title !== "undefined" && typeof input.title !== "string") {
+    throw errors.validation("title must be a string");
+  }
+  if (typeof input.summary !== "undefined" && typeof input.summary !== "string") {
+    throw errors.validation("summary must be a string");
+  }
+  const title = typeof input.title === "string" ? input.title.trim().slice(0, 500) : undefined;
+  const summary = typeof input.summary === "string" ? input.summary.trim().slice(0, 10_000) : undefined;
+  return { url, title: title || undefined, summary: summary || undefined };
+}
+
+async function saveArticleFromUrl(
+  db: D1Database,
+  userId: number,
+  input: { url: string; title?: string; summary?: string },
+): Promise<{ articleId: number; title: string; url: string; created: boolean }> {
+  const now = nowIso();
+  const title = input.title ?? fallbackSavedArticleTitle(input.url);
+
+  // A saved page is a paused source rather than a subscription. This keeps
+  // the existing article/list/playback schema usable without making it appear
+  // in feed subscription management or feed refresh jobs.
+  await db.prepare(
+    `INSERT INTO feeds (feed_url, site_url, title, status, created_at, updated_at)
+     VALUES (?, ?, ?, 'paused', ?, ?)
+     ON CONFLICT (feed_url) DO NOTHING`,
+  ).bind(input.url, input.url, title, now, now).run();
+  const feed = await db.prepare("SELECT id FROM feeds WHERE feed_url = ?").bind(input.url).first<{ id: number }>();
+  if (!feed) throw errors.internal();
+
+  await db.prepare(
+    `INSERT INTO articles (feed_id, guid, canonical_url, dedupe_key, title, rss_summary, fetched_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (feed_id, dedupe_key) DO NOTHING`,
+  ).bind(feed.id, input.url, input.url, input.url, title, input.summary ?? null, now, now, now).run();
+  const article = await db.prepare(
+    "SELECT id, title, canonical_url FROM articles WHERE feed_id = ? AND dedupe_key = ?",
+  ).bind(feed.id, input.url).first<{ id: number; title: string; canonical_url: string | null }>();
+  if (!article) throw errors.internal();
+
+  const membership = await db.prepare(
+    `SELECT 1 FROM article_user_collections
+     WHERE user_id = ? AND article_id = ? AND kind = 'reading_list'`,
+  ).bind(userId, article.id).first();
+  await db.prepare(
+    `INSERT INTO article_user_collections (user_id, article_id, kind, added_at, updated_at)
+     VALUES (?, ?, 'reading_list', ?, ?)
+     ON CONFLICT (user_id, article_id, kind) DO UPDATE SET updated_at = excluded.updated_at`,
+  ).bind(userId, article.id, now, now).run();
+
+  const content = await db.prepare("SELECT status FROM article_contents WHERE article_id = ?").bind(article.id).first<{ status: string }>();
+  if (!content || content.status === "error") {
+    await db.prepare(
+      `INSERT INTO article_contents (article_id, status, created_at, updated_at)
+       VALUES (?, 'pending', ?, ?)
+       ON CONFLICT (article_id) DO UPDATE SET status = 'pending', error_message = NULL, updated_at = excluded.updated_at`,
+    ).bind(article.id, now, now).run();
+  }
+
+  return {
+    articleId: article.id,
+    title: article.title,
+    url: article.canonical_url ?? input.url,
+    created: membership === null,
+  };
 }
 
 export const articleRoutes = new Hono<AppContext>()
@@ -193,6 +283,21 @@ export const articleRoutes = new Hono<AppContext>()
       });
     }
     return c.json({ data, meta: { nextCursor } });
+  })
+  .post("/import", async (c) => {
+    const user = c.get("user");
+    const input = parseSavedArticleInput(await c.req.json().catch(() => null));
+    const saved = await saveArticleFromUrl(c.env.DB, user.id, input);
+
+    // Content extraction is best effort. The browser/reader can still use the
+    // live page when the remote server blocks this worker.
+    const articleContent = await c.env.DB.prepare(
+      "SELECT status FROM article_contents WHERE article_id = ?",
+    ).bind(saved.articleId).first<{ status: string }>();
+    if (articleContent?.status === "pending") {
+      await c.env.JOBS.send({ jobType: "extract_content", articleId: saved.articleId });
+    }
+    return c.json({ data: saved }, saved.created ? 201 : 200);
   })
   .post("/mark-all-read", async (c) => {
     const user = c.get("user");

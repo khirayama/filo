@@ -214,6 +214,12 @@ object ApiClient {
         )
     }
 
+    suspend fun importArticle(url: String, title: String? = null): SavedArticle {
+        val body = JSONObject().put("url", url)
+        title?.takeIf { it.isNotBlank() }?.let { body.put("title", it) }
+        return parseSavedArticle(JSONObject(sendJson("POST", "/api/v1/articles/import", body)).getJSONObject("data"))
+    }
+
     suspend fun setArticleRead(id: Int, isRead: Boolean): ArticleUserState {
         val body = JSONObject().put("isRead", isRead)
         return parseUserState(JSONObject(sendJson("PATCH", "/api/v1/articles/$id/state", body)).getJSONObject("data"))

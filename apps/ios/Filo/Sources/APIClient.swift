@@ -217,6 +217,10 @@ final class APIClient: Sendable {
         return (envelope.data, envelope.meta?.nextCursor)
     }
 
+    func importArticle(url: String, title: String? = nil) async throws -> SavedArticleResult {
+        try await send("POST", "/api/v1/articles/import", json: ["url": url, "title": title])
+    }
+
     func setArticleRead(_ id: Int, isRead: Bool) async throws -> ArticleUserState {
         try await send("PATCH", "/api/v1/articles/\(id)/state", json: ["isRead": isRead])
     }

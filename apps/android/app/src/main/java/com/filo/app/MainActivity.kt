@@ -60,8 +60,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 
 class MainActivity : ComponentActivity() {
+    private var sharedUrl by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sharedUrl = extractSharedUrl(intent)
         LanguagePreference.apply(this)
         ThemePreference.load(this)
         enableEdgeToEdge()
@@ -71,10 +74,24 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    AuthRoot()
+                    AuthRoot(sharedUrl = sharedUrl, onSharedUrlConsumed = { sharedUrl = null })
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        sharedUrl = extractSharedUrl(intent)
+    }
+
+    private fun extractSharedUrl(intent: Intent?): String? {
+        val candidate = when (intent?.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            else -> intent?.dataString
+        }?.trim() ?: return null
+        return Regex("https?://\\S+", RegexOption.IGNORE_CASE).find(candidate)?.value?.trimEnd('.', ',', ')', ']', '"')
     }
 }
 
@@ -86,7 +103,11 @@ private object WirePalette {
 }
 
 @Composable
-private fun AuthRoot(mainViewModel: MainViewModel = viewModel()) {
+private fun AuthRoot(
+    sharedUrl: String? = null,
+    onSharedUrlConsumed: () -> Unit = {},
+    mainViewModel: MainViewModel = viewModel(),
+) {
     val uiState by mainViewModel.uiState.collectAsState()
 
     if (!uiState.isConfigured) {
@@ -103,7 +124,11 @@ private fun AuthRoot(mainViewModel: MainViewModel = viewModel()) {
     }
 
     if (uiState.isSignedIn) {
-        RssNavigation(onSignOut = mainViewModel::signOut)
+        RssNavigation(
+            onSignOut = mainViewModel::signOut,
+            sharedUrl = sharedUrl,
+            onSharedUrlConsumed = onSharedUrlConsumed,
+        )
         return
     }
 
@@ -442,7 +467,11 @@ private fun secondFactorLabel(method: SecondFactorMethod): String =
     }
 
 @Composable
-private fun RssNavigation(onSignOut: () -> Unit) {
+private fun RssNavigation(
+    onSignOut: () -> Unit,
+    sharedUrl: String? = null,
+    onSharedUrlConsumed: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -457,6 +486,10 @@ private fun RssNavigation(onSignOut: () -> Unit) {
         com.filo.app.ui.TitleTranslationSetupSheet(titleTranslations) {
             titleTranslations.isShowingSetup = false
         }
+    }
+
+    LaunchedEffect(sharedUrl) {
+        if (sharedUrl != null) navController.navigate("addArticle")
     }
 
     NavHost(navController = navController, startDestination = "articles") {
@@ -500,6 +533,15 @@ private fun RssNavigation(onSignOut: () -> Unit) {
             )
         }
         composable("addFeed") { com.filo.app.ui.AddFeedScreen(onBack = { navController.navigateUp() }) }
+        composable("addArticle") {
+            com.filo.app.ui.AddArticleScreen(
+                initialUrl = sharedUrl.orEmpty(),
+                onBack = {
+                    onSharedUrlConsumed()
+                    navController.navigateUp()
+                },
+            )
+        }
         composable("tags") { com.filo.app.ui.TagsScreen(onBack = { navController.navigateUp() }) }
         composable("status") {
             com.filo.app.ui.StatusScreen(

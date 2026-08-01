@@ -64,6 +64,7 @@ account deletion 専用:
 - `tags` は feed ではなく `subscriptions` に紐づく
 - `subscription_tags` は DB の FK だけでは同一 user 制約を表現できないため、application 層で `subscription.user_id == tag.user_id` を必須検証する
 - `article_user_collections` は `subscription` から独立して保持し、unsubscribe 後も `reading_list` または `bookmark` membership がある記事の参照権を維持する（retained article）
+- ブラウザ／共有から保存した任意URLは、購読を持たない `paused` な `feeds` / `articles` として登録し、`article_user_collections` の membership だけでユーザーから参照できる。既存の本文抽出・再生テーブルを共用する
 - unsubscribe 済み記事は最後の collection membership が削除された時点で参照不可に戻る
 - `feed_read_cursors` は subscription ではなく user × feed に紐づき、購読解除・再購読後も維持される
 

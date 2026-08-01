@@ -33,10 +33,12 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         DEVELOPMENT_ASSET_PATHS: "\"Filo/Resources/Preview Content\""
+        CODE_SIGN_ENTITLEMENTS: Filo/Filo.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.filo.app
         PRODUCT_NAME: Filo
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited)
     dependencies:
+      - target: FiloShare
       - package: Clerk
         product: ClerkKit
       - package: Clerk
@@ -44,6 +46,18 @@ targets:
     scheme:
       testTargets:
         - FiloTests
+  FiloShare:
+    type: app-extension
+    platform: iOS
+    info:
+      path: FiloShare/Info.plist
+    sources:
+      - path: FiloShare
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: FiloShare/FiloShare.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.filo.app.share
+        PRODUCT_NAME: FiloShare
   FiloTests:
     type: bundle.unit-test
     platform: iOS

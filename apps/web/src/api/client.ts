@@ -14,6 +14,7 @@ import type {
   StatusOverview,
   Subscription,
   Tag,
+  SavedArticleResult,
 } from "./types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8787";
@@ -146,6 +147,8 @@ export function createApiClient(getToken: TokenGetter) {
       (await send<ArticleUserState>("PATCH", `/api/v1/articles/${id}/state`, { isRead })).data,
     setReadingListMembership: async (id: number, active: boolean) =>
       (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/reading-list`)).data,
+    importArticle: async (input: { url: string; title?: string; summary?: string }) =>
+      (await send<SavedArticleResult>("POST", "/api/v1/articles/import", input)).data,
     setBookmarkMembership: async (id: number, active: boolean) =>
       (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/bookmark`)).data,
     startReadingSession: async () =>

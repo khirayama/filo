@@ -36,6 +36,13 @@ export interface ReadingSession {
   playbackState: PlaybackState | null;
 }
 
+export interface SavedArticleResult {
+  articleId: number;
+  title: string;
+  url: string;
+  created: boolean;
+}
+
 type TokenGetter = () => Promise<string | null>;
 
 export class ExtensionApiError extends Error {
@@ -82,6 +89,8 @@ export function createExtensionApi(getToken: TokenGetter) {
       } while (cursor);
       return articles;
     },
+    importArticle: async (input: { url: string; title?: string }) =>
+      (await send<SavedArticleResult>("POST", "/api/v1/articles/import", input)).data,
     getLanguage: async () => (await get<{ language: string }>("/api/v1/settings")).data.language,
     startReadingSession: async () => (await send<ReadingSession>("POST", "/api/v1/playback-queue/start")).data,
     removeFromReadingList: async (articleId: number) => {

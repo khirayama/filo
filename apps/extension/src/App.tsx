@@ -42,6 +42,17 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<{ url: string; title: string } | null>(null);
+
+  const loadCurrentPage = useCallback(async () => {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs[0];
+    if (!tab?.url || !/^https?:\/\//i.test(tab.url)) {
+      setCurrentPage(null);
+      return;
+    }
+    setCurrentPage({ url: tab.url, title: tab.title ?? "" });
+  }, []);
 
   const loadReader = useCallback(async () => {
     const [nextReader, nextVoices] = await Promise.all([
@@ -60,14 +71,14 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      const [nextArticles] = await Promise.all([api.listReadingArticles(), loadReader()]);
+      const [nextArticles] = await Promise.all([api.listReadingArticles(), loadReader(), loadCurrentPage()]);
       setArticles(nextArticles);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setLoading(false);
     }
-  }, [api, isSignedIn, loadReader]);
+  }, [api, isSignedIn, loadCurrentPage, loadReader]);
 
   useEffect(() => {
     document.title = "Filo Reader";
@@ -129,6 +140,20 @@ export function App() {
       setArticles((current) => current.filter((article) => article.id !== articleId));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const addCurrentPage = async () => {
+    if (!currentPage || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.importArticle({ url: currentPage.url, title: currentPage.title });
+      setArticles(await api.listReadingArticles());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -194,6 +219,9 @@ export function App() {
 
       <section className="list-heading">
         <strong>リーディングリスト</strong>
+        <button disabled={busy || !currentPage} onClick={() => void addCurrentPage()}>
+          {currentPage ? "このページを追加" : "追加できるページなし"}
+        </button>
         <button disabled={busy || articles.length === 0} onClick={() => void start(false)}>閲覧開始</button>
         <button className="primary" disabled={busy || articles.length === 0} onClick={() => void start(true)}>読み上げ開始</button>
         <button className="link-button" disabled={loading} onClick={() => void loadAll()}>更新</button>

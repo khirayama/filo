@@ -180,6 +180,27 @@ function SidebarNav() {
         <Icon name="plus" size={16} />
         {t("フィードを追加")}
       </button>
+      <button
+        type="button"
+        onClick={() => navigate("/articles/new")}
+        style={{
+          alignItems: "center",
+          background: "transparent",
+          border: `1px solid ${palette.border}`,
+          borderRadius: "6px",
+          color: palette.text,
+          cursor: "pointer",
+          display: "flex",
+          fontSize: "14px",
+          gap: "8px",
+          justifyContent: "center",
+          marginBottom: "12px",
+          padding: "9px 12px",
+        }}
+      >
+        <Icon name="plus" size={16} />
+        {t("記事を追加")}
+      </button>
       <SidebarLink to="/articles" icon="list" label={t("全ての記事")} />
       <SidebarLink to="/articles?readingList=1" icon="queueAdd" label={t("リーディングリスト")} />
       <SidebarLink to="/articles?bookmarked=1" icon="bookmark" label={t("ブックマーク")} />

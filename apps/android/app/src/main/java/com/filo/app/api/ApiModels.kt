@@ -62,6 +62,8 @@ data class ArticleListItem(
     val userState: ArticleUserState,
 )
 
+data class SavedArticle(val articleId: Int, val title: String, val url: String, val created: Boolean)
+
 data class ReadingSessionArticle(
     val id: Int,
     val title: String,
@@ -240,6 +242,14 @@ internal fun parseArticleListItem(json: JSONObject): ArticleListItem =
         subscriptionIds = json.optJSONObject("subscriptionContext")?.optJSONArray("subscriptionIds")?.toIntList()
             ?: emptyList(),
         userState = parseUserState(json.optJSONObject("userState")),
+    )
+
+internal fun parseSavedArticle(json: JSONObject): SavedArticle =
+    SavedArticle(
+        articleId = json.getInt("articleId"),
+        title = json.optString("title", ""),
+        url = json.optString("url", ""),
+        created = json.optBoolean("created", false),
     )
 
 internal fun parsePlaybackState(json: JSONObject?): PlaybackStateData? = json?.let {

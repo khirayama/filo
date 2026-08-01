@@ -334,6 +334,16 @@ Deletes a tag owned by the current user.
 
 ## Articles
 
+### POST /api/v1/articles/import
+
+ブラウザまたは共有シートから任意の http(s) URL をリーディングリストへ追加する。
+
+- request: `{ url, title?, summary? }`
+- URL は tracking parameter と hash を除いた canonical URL として保存する
+- 同じ URL の再追加は冪等で、既存の reading-list membership を維持する
+- 保存した URL は購読なしの paused source として扱い、既存の本文抽出・再生セッションを利用する
+- response: `{ articleId, title, url, created }`
+
 ### GET /api/v1/articles/lookup
 
 - query: `url`（必須。記事の canonical URL と完全一致で照合する）
