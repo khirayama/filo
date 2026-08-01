@@ -2,8 +2,20 @@
   "manifest_version": 3,
   "name": "Filo Reader",
   "version": "0.1.0",
-  "description": "Open the Filo translated RSS reader",
-  "permissions": [],
+  "description": "Read a Filo reading list in the original article pages",
+  "permissions": ["cookies", "storage", "tabs", "tts"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_popup": "popup.html"
   }

@@ -1,24 +1,222 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth, useUser } from "@clerk/chrome-extension";
+import { createExtensionApi, type ReadingArticle, type ReadingSession } from "./api";
+import { WEB_APP_URL, webAppPath } from "./config";
+
+interface PopupReaderState {
+  currentArticleId: number | null;
+  index: number;
+  count: number;
+  title: string;
+  playing: boolean;
+  rate: number;
+  voiceName: string | null;
+  targetLanguage: string;
+  positionPercent: number;
+  canPrevious: boolean;
+  canNext: boolean;
+}
+
+interface Voice {
+  name: string;
+  lang?: string;
+}
+
+async function send<T>(message: unknown): Promise<T> {
+  const response = await chrome.runtime.sendMessage(message) as { ok?: boolean; error?: string; data?: T } | undefined;
+  if (!response?.ok) throw new Error(response?.error ?? "拡張機能を操作できませんでした。");
+  return response.data as T;
+}
+
+function openWeb(path: string): void {
+  void chrome.tabs.create({ url: webAppPath(path), active: true });
+}
 
 export function App() {
-  useEffect(() => {
-    document.title = "Filo RSS Reader";
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
+  const api = useMemo(() => createExtensionApi(() => getToken()), [getToken]);
+  const [articles, setArticles] = useState<ReadingArticle[]>([]);
+  const [reader, setReader] = useState<PopupReaderState | null>(null);
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadReader = useCallback(async () => {
+    const [nextReader, nextVoices] = await Promise.all([
+      send<PopupReaderState | null>({ type: "filoGetReaderState" }),
+      send<Voice[]>({ type: "filoGetVoices" }),
+    ]);
+    setReader(nextReader);
+    setVoices(nextVoices);
   }, []);
 
+  const loadAll = useCallback(async () => {
+    if (!isSignedIn) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const [nextArticles] = await Promise.all([api.listReadingArticles(), loadReader()]);
+      setArticles(nextArticles);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoading(false);
+    }
+  }, [api, isSignedIn, loadReader]);
+
+  useEffect(() => {
+    document.title = "Filo Reader";
+  }, []);
+
+  useEffect(() => {
+    if (isLoaded) void loadAll();
+  }, [isLoaded, loadAll]);
+
+  useEffect(() => {
+    const onStorageChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === "local" && changes["filo:readerSession"]) void loadReader().catch(() => undefined);
+    };
+    chrome.storage.onChanged.addListener(onStorageChanged);
+    return () => chrome.storage.onChanged.removeListener(onStorageChanged);
+  }, [loadReader]);
+
+  const start = async (autoplay: boolean, articleId?: number) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const [session, language] = await Promise.all([api.startReadingSession(), api.getLanguage()]);
+      const currentId = articleId ?? session.playbackState?.currentArticleId ?? null;
+      if (currentId === null) throw new Error("未読の記事がありません。");
+      const started = await send<PopupReaderState>({
+        type: "filoStart",
+        session: session as ReadingSession,
+        articleId: currentId,
+        autoplay,
+        targetLanguage: language,
+        appUrl: webAppPath("/articles?readingList=1"),
+      });
+      setReader(started);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const control = async (action: string, settings: Record<string, unknown> = {}) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setReader(await send<PopupReaderState | null>({ type: "filoControl", action, ...settings }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (articleId: number) => {
+    setError(null);
+    try {
+      await api.removeFromReadingList(articleId);
+      setArticles((current) => current.filter((article) => article.id !== articleId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  if (!isLoaded) return <main className="empty-view">ログイン状態を確認しています…</main>;
+
+  if (!isSignedIn) {
+    return (
+      <main className="empty-view">
+        <h1>Filo</h1>
+        <p>Webアプリへログインすると、リーディングリストと再生状態がExtensionにも同期されます。</p>
+        {error ? <p className="error-message">{error}</p> : null}
+        <button className="primary-action" onClick={() => openWeb("/sign-in")}>Webアプリでログイン</button>
+        <small>ログイン後にポップアップを開き直してください。</small>
+      </main>
+    );
+  }
+
+  const filteredVoices = voices.filter((voice) => !reader?.targetLanguage || voice.lang?.startsWith(reader.targetLanguage));
+
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "20px", width: "280px" }}>
-      <h1 style={{ fontSize: "20px", margin: "0 0 8px" }}>Filo</h1>
-      <p style={{ color: "#666", fontSize: "13px", lineHeight: 1.5 }}>
-        翻訳付きRSSリーダーはWebアプリで利用できます。
-      </p>
-      <a
-        href="http://localhost:5173/articles"
-        target="_blank"
-        rel="noreferrer"
-        style={{ color: "#2563eb", fontSize: "13px" }}
-      >
-        RSSリーダーを開く
-      </a>
+    <main className="popup-shell">
+      <section className="top">
+        <div className="brand">
+          <span>Filo</span>
+          <small title={user?.primaryEmailAddress?.emailAddress}>{user?.primaryEmailAddress?.emailAddress ?? "ログイン済み"}</small>
+          <button className="link-button" onClick={() => openWeb("/articles?readingList=1")}>Webを開く</button>
+        </div>
+        <div className="now-playing">
+          <span className="now-playing-label">再生中</span>
+          <span className="now-playing-title">{reader?.title || "再生中の記事はありません"}</span>
+        </div>
+        <div className="progress-bar"><div className="progress-fill" style={{ width: `${(reader?.positionPercent ?? 0) * 100}%` }} /></div>
+      </section>
+
+      <section className="controls" aria-label="再生操作">
+        <button disabled={busy || !reader?.canPrevious} onClick={() => void control("previous")}>前へ</button>
+        <button className="primary" disabled={busy || !reader} onClick={() => void control(reader?.playing ? "pause" : "play")}>
+          {reader?.playing ? "一時停止" : "読み上げ"}
+        </button>
+        <button disabled={busy || !reader?.canNext} onClick={() => void control("next")}>次へ</button>
+        <span className="queue-count">{reader ? `${reader.index + 1}/${reader.count}` : `${articles.length}件`}</span>
+      </section>
+
+      <section className="settings" aria-label="読み上げ設定">
+        <div className="setting-row">
+          <label htmlFor="language">言語</label>
+          <select id="language" value={reader?.targetLanguage ?? "ja"} disabled={!reader || busy} onChange={(event) => void control("settings", { targetLanguage: event.target.value })}>
+            {['ja', 'en', 'zh', 'ko', 'es'].map((language) => <option value={language} key={language}>{language}</option>)}
+          </select>
+          <label htmlFor="rate">速度</label>
+          <select id="rate" value={reader?.rate ?? 1} disabled={!reader || busy} onChange={(event) => void control("settings", { rate: Number(event.target.value) })}>
+            {[0.75, 1, 1.25, 1.5, 2, 3].map((rate) => <option value={rate} key={rate}>{rate}x</option>)}
+          </select>
+        </div>
+        <div className="setting-row">
+          <label htmlFor="voice">声</label>
+          <select id="voice" value={reader?.voiceName ?? ""} disabled={!reader || busy} onChange={(event) => void control("settings", { voiceName: event.target.value || null })}>
+            <option value="">自動</option>
+            {filteredVoices.map((voice) => <option value={voice.name} key={voice.name}>{voice.name}</option>)}
+          </select>
+        </div>
+      </section>
+
+      <section className="list-heading">
+        <strong>リーディングリスト</strong>
+        <button disabled={busy || articles.length === 0} onClick={() => void start(false)}>閲覧開始</button>
+        <button className="primary" disabled={busy || articles.length === 0} onClick={() => void start(true)}>読み上げ開始</button>
+        <button className="link-button" disabled={loading} onClick={() => void loadAll()}>更新</button>
+      </section>
+
+      {error ? <p className="error-message">{error}</p> : null}
+      {loading ? <p className="status-message">読み込み中…</p> : articles.length === 0 ? (
+        <p className="status-message">リーディングリストに記事がありません。</p>
+      ) : (
+        <ul className="queue-list">
+          {articles.map((article) => (
+            <li className={`queue-item${reader?.currentArticleId === article.id ? " playing" : ""}`} key={article.id}>
+              <button className="article-open" disabled={busy || !article.canonicalUrl} onClick={() => void start(false, article.id)}>
+                <span className="queue-item-title">{article.title}</span>
+                <span className="article-meta">{article.userState.isRead ? "既読" : "未読"} · {article.feed.title}</span>
+              </button>
+              <button className="article-play" title="この記事から読み上げ" disabled={busy || !article.canonicalUrl} onClick={() => void start(true, article.id)}>▶</button>
+              <button className="queue-item-remove" title="リーディングリストから削除" onClick={() => void remove(article.id)}>×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <footer>{new URL(WEB_APP_URL).host}</footer>
     </main>
   );
 }
