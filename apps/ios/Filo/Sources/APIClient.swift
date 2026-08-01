@@ -229,6 +229,26 @@ final class APIClient: Sendable {
         try await send(active ? "PUT" : "DELETE", "/api/v1/articles/\(id)/bookmark")
     }
 
+    func startReadingSession() async throws -> ReadingSessionData {
+        try await send("POST", "/api/v1/playback-queue/start", json: [:])
+    }
+
+    func updatePlaybackState(currentArticleId: Int? = nil, contentLanguage: String? = nil, positionPercent: Double? = nil) async throws -> PlaybackStateData? {
+        var json: [String: Any?] = [:]
+        if let currentArticleId { json["currentArticleId"] = currentArticleId }
+        if let contentLanguage { json["contentLanguage"] = contentLanguage }
+        if let positionPercent { json["positionPercent"] = positionPercent }
+        return try await send("PATCH", "/api/v1/playback-queue/state", json: json)
+    }
+
+    func requestArticleContent(_ id: Int, force: Bool = false) async throws -> ArticleContent {
+        try await send("POST", "/api/v1/articles/\(id)/content", json: ["force": force])
+    }
+
+    func getArticleContent(_ id: Int) async throws -> ArticleContent {
+        try await get("/api/v1/articles/\(id)/content")
+    }
+
     // MARK: OPML
 
     func importOpml(fileData: Data, fileName: String) async throws -> OpmlImportJob {

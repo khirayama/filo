@@ -15,6 +15,13 @@ targets:
   Filo:
     type: application
     platform: iOS
+    info:
+      path: Filo/Info.plist
+      properties:
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UIBackgroundModes:
+          - audio
     sources:
       - path: Filo/Sources
       - path: Filo/Resources
@@ -26,9 +33,6 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         DEVELOPMENT_ASSET_PATHS: "\"Filo/Resources/Preview Content\""
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         PRODUCT_BUNDLE_IDENTIFIER: com.filo.app
         PRODUCT_NAME: Filo
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited)

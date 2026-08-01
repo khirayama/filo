@@ -10,6 +10,7 @@ enum AppRoute: Hashable {
     case tags
     case subscriptionDetail(Int)
     case accountDeletionStatus(String?)
+    case readingSession(Bool)
 }
 
 // settings.theme を描画へ反映する。サーバー設定が届く前のフラッシュを防ぐため、
@@ -71,6 +72,7 @@ struct AppNavigationView: View {
     @StateObject private var articlesModel = ArticlesViewModel()
     @ObservedObject private var languageManager = LanguageManager.shared
     @ObservedObject private var titleTranslations = TitleTranslationStore.shared
+    @StateObject private var readingPlayer = ReadingPlayerStore()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,12 +100,15 @@ struct AppNavigationView: View {
                             SubscriptionDetailScreen(subscriptionId: id)
                         case .accountDeletionStatus(let token):
                             AccountDeletionStatusScreen(deletionToken: token)
+                        case .readingSession(let autoplay):
+                            ReadingSessionScreen(autoplay: autoplay)
                         }
                     }
             }
             // 翻訳セッションはアプリ全体で 1 つ。画面ごとに付けると同じバッチに
             // 複数のセッションが張られて互いを畳み合う。
             .titleTranslation(store: titleTranslations)
+            .environmentObject(readingPlayer)
         }
         .sheet(isPresented: $titleTranslations.isShowingSetup) {
             TitleTranslationSetupView(store: titleTranslations)

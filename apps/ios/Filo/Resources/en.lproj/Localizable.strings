@@ -3,6 +3,14 @@
 "フィード追加" = "Add feed";
 "全ての記事" = "All articles";
 "リーディングリスト" = "Reading list";
+"閲覧開始" = "Start reading";
+"読み上げ開始" = "Start listening";
+"読み上げ" = "Read aloud";
+"一時停止" = "Pause";
+"前へ" = "Previous";
+"次へ" = "Next";
+"未読の記事がありません。" = "There are no unread articles.";
+"本文を抽出できませんでした。" = "The article text could not be extracted.";
 "ブックマーク" = "Bookmarks";
 "購読管理" = "Subscriptions";
 "タグ管理" = "Tags";

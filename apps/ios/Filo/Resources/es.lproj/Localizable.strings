@@ -3,6 +3,14 @@
 "フィード追加" = "Añadir feed";
 "全ての記事" = "Todos los artículos";
 "リーディングリスト" = "Lista de lectura";
+"閲覧開始" = "Empezar a leer";
+"読み上げ開始" = "Empezar a escuchar";
+"読み上げ" = "Leer en voz alta";
+"一時停止" = "Pausar";
+"前へ" = "Anterior";
+"次へ" = "Siguiente";
+"未読の記事がありません。" = "No hay artículos sin leer.";
+"本文を抽出できませんでした。" = "No se pudo extraer el texto del artículo.";
 "ブックマーク" = "Marcadores";
 "購読管理" = "Suscripciones";
 "タグ管理" = "Etiquetas";

@@ -71,6 +71,48 @@ struct ArticleListItem: Codable, Identifiable, Hashable {
     var userState: ArticleUserState
 }
 
+struct ReadingSessionArticle: Codable, Hashable {
+    struct Feed: Codable, Hashable {
+        let id: Int
+        let title: String
+        let faviconUrl: String?
+    }
+    let id: Int
+    let title: String
+    let sourceLanguage: String?
+    let canonicalUrl: String?
+    let publishedAt: String?
+    let feed: Feed
+}
+
+struct ReadingSessionItem: Codable, Identifiable, Hashable {
+    var id: Int { articleId }
+    let articleId: Int
+    let sortOrder: Int
+    let article: ReadingSessionArticle
+    let createdAt: String?
+}
+
+struct PlaybackStateData: Codable, Hashable {
+    let currentArticleId: Int?
+    let contentLanguage: String?
+    let positionPercent: Double
+    let updatedAt: String?
+}
+
+struct ReadingSessionData: Codable, Hashable {
+    let items: [ReadingSessionItem]
+    let playbackState: PlaybackStateData?
+}
+
+struct ArticleContent: Codable, Hashable {
+    let status: String
+    let sourceLanguage: String?
+    let text: String?
+    let html: String?
+    let errorMessage: String?
+}
+
 struct UserSettings: Codable, Hashable {
     var theme: String
     var language: String
