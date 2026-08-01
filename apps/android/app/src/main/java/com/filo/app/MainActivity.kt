@@ -447,6 +447,11 @@ private fun RssNavigation(onSignOut: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val titleTranslations = remember { com.filo.app.ui.TitleTranslationStore(context, scope) }
+    val readingPlayer = remember { com.filo.app.ui.ReadingPlayerController(context.applicationContext, scope) }
+
+    DisposableEffect(Unit) {
+        onDispose { readingPlayer.shutdown() }
+    }
 
     if (titleTranslations.isShowingSetup) {
         com.filo.app.ui.TitleTranslationSetupSheet(titleTranslations) {
@@ -471,6 +476,14 @@ private fun RssNavigation(onSignOut: () -> Unit) {
                 onOpenTags = { navController.navigate("tags") },
                 onOpenStatus = { navController.navigate("status") },
                 onOpenSettings = { navController.navigate("settings") },
+                onStartReading = { autoplay -> navController.navigate("reading/$autoplay") },
+            )
+        }
+        composable("reading/{autoplay}") { entry ->
+            com.filo.app.ui.ReadingSessionScreen(
+                player = readingPlayer,
+                autoplay = entry.arguments?.getString("autoplay").toBoolean(),
+                onBack = { navController.navigateUp() },
             )
         }
         composable("subscriptions") {

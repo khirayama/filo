@@ -90,6 +90,7 @@ fun ArticlesScreen(
     onOpenTags: () -> Unit,
     onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
+    onStartReading: (Boolean) -> Unit,
 ) {
     val vm: ArticlesViewModel = viewModel()
     val scope = rememberCoroutineScope()
@@ -223,6 +224,10 @@ fun ArticlesScreen(
                         }
                     },
                     actions = {
+                        if (readingListOnly) {
+                            TextButton(onClick = { onStartReading(false) }) { Text("閲覧開始") }
+                            TextButton(onClick = { onStartReading(true) }) { Text("読み上げ開始") }
+                        }
                         TitleTranslationToggle(translations)
                         if (!bookmarkedOnly && !readingListOnly) {
                             IconButton(onClick = { showMarkAllRead = true }) {

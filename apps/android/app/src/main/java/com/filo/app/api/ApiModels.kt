@@ -62,6 +62,38 @@ data class ArticleListItem(
     val userState: ArticleUserState,
 )
 
+data class ReadingSessionArticle(
+    val id: Int,
+    val title: String,
+    val sourceLanguage: String?,
+    val canonicalUrl: String?,
+    val feedTitle: String,
+)
+
+data class ReadingSessionItem(
+    val articleId: Int,
+    val sortOrder: Int,
+    val article: ReadingSessionArticle,
+)
+
+data class PlaybackStateData(
+    val currentArticleId: Int?,
+    val contentLanguage: String?,
+    val positionPercent: Double,
+)
+
+data class ReadingSessionData(
+    val items: List<ReadingSessionItem>,
+    val playbackState: PlaybackStateData?,
+)
+
+data class ArticleContent(
+    val status: String,
+    val sourceLanguage: String?,
+    val text: String?,
+    val errorMessage: String?,
+)
+
 data class UserSettings(
     val theme: String,
     val language: String,
@@ -209,6 +241,41 @@ internal fun parseArticleListItem(json: JSONObject): ArticleListItem =
             ?: emptyList(),
         userState = parseUserState(json.optJSONObject("userState")),
     )
+
+internal fun parsePlaybackState(json: JSONObject?): PlaybackStateData? = json?.let {
+    PlaybackStateData(
+        currentArticleId = if (it.isNull("currentArticleId")) null else it.optInt("currentArticleId"),
+        contentLanguage = it.optStringOrNull("contentLanguage"),
+        positionPercent = it.optDouble("positionPercent", 0.0),
+    )
+}
+
+internal fun parseReadingSession(json: JSONObject): ReadingSessionData {
+    val array = json.optJSONArray("items") ?: JSONArray()
+    val items = (0 until array.length()).map { index ->
+        val row = array.getJSONObject(index)
+        val article = row.getJSONObject("article")
+        ReadingSessionItem(
+            articleId = row.getInt("articleId"),
+            sortOrder = row.optInt("sortOrder", index),
+            article = ReadingSessionArticle(
+                id = article.getInt("id"),
+                title = article.optString("title", ""),
+                sourceLanguage = article.optStringOrNull("sourceLanguage"),
+                canonicalUrl = article.optStringOrNull("canonicalUrl"),
+                feedTitle = article.optJSONObject("feed")?.optString("title", "") ?: "",
+            ),
+        )
+    }
+    return ReadingSessionData(items, parsePlaybackState(json.optJSONObject("playbackState")))
+}
+
+internal fun parseArticleContent(json: JSONObject): ArticleContent = ArticleContent(
+    status = json.optString("status", "not_requested"),
+    sourceLanguage = json.optStringOrNull("sourceLanguage"),
+    text = json.optStringOrNull("text"),
+    errorMessage = json.optStringOrNull("errorMessage"),
+)
 
 private fun parseFeedJob(json: JSONObject?): FeedJob? =
     json?.let {
