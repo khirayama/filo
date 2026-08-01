@@ -44,6 +44,7 @@ data class MarkAllReadResult(
 
 data class ArticleUserState(
     val isRead: Boolean,
+    val inReadingList: Boolean,
     val isBookmarked: Boolean,
 )
 
@@ -133,6 +134,7 @@ data class ArticleListFilters(
     val subscriptionId: Int? = null,
     val tagId: Int? = null,
     val read: Boolean? = null,
+    val readingList: Boolean? = null,
     val bookmarked: Boolean? = null,
     // "published_at_desc" | "fetched_at_desc"。null は server が user 設定を適用する
     val sort: String? = null,
@@ -188,6 +190,7 @@ internal fun parseTag(json: JSONObject): Tag =
 internal fun parseUserState(json: JSONObject?): ArticleUserState =
     ArticleUserState(
         isRead = json?.optBoolean("isRead", false) ?: false,
+        inReadingList = json?.optBoolean("inReadingList", false) ?: false,
         isBookmarked = json?.optBoolean("isBookmarked", false) ?: false,
     )
 

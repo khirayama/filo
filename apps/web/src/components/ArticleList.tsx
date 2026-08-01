@@ -9,6 +9,7 @@ import { useTitleTranslation } from "./TitleTranslationContext";
 
 type ArticleStateMutation =
   | { isRead: boolean }
+  | { inReadingList: boolean }
   | { isBookmarked: boolean };
 import { ErrorBox, IconButton, Spinner, formatTimeCompact, palette } from "./ui";
 
@@ -63,6 +64,8 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
       try {
         const state = "isRead" in patch
           ? await api.setArticleRead(articleId, patch.isRead)
+        : "inReadingList" in patch
+          ? await api.setReadingListMembership(articleId, patch.inReadingList)
           : await api.setBookmarkMembership(articleId, patch.isBookmarked);
         const currentFilters = JSON.parse(filtersKey) as ArticleListFilters;
         setArticles((prev) =>
@@ -70,6 +73,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
             if (a.id !== articleId) return [a];
             const remainsInList =
               (currentFilters.bookmarked === undefined || state.isBookmarked === currentFilters.bookmarked) &&
+              (currentFilters.readingList === undefined || state.inReadingList === currentFilters.readingList) &&
               (currentFilters.read === undefined || state.isRead === currentFilters.read);
             return remainsInList ? [{ ...a, userState: state }] : [];
           }),
@@ -161,7 +165,7 @@ function ArticleRow({
   const { t } = useAppData();
   const [hovered, setHovered] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
-  const { isRead, isBookmarked } = article.userState;
+  const { isRead, inReadingList, isBookmarked } = article.userState;
   const translatedTitle = useTitleTranslation().titleFor(article.id);
   const isTranslated = translatedTitle != null;
   const displayTitle = showOriginal || !isTranslated ? article.title : translatedTitle;
@@ -244,12 +248,19 @@ function ArticleRow({
         alignItems: "center",
         display: "flex",
         gap: "2px",
-        opacity: hovered || isBookmarked ? 1 : 0,
+        opacity: hovered || inReadingList || isBookmarked ? 1 : 0,
         position: "relative",
         transition: "opacity 0.15s",
         zIndex: 1,
       }}
     >
+      <IconButton
+        icon="queueAdd"
+        label={inReadingList ? t("リーディングリストから削除") : t("リーディングリストに追加")}
+        active={inReadingList}
+        color={inReadingList ? palette.accent : undefined}
+        onClick={() => onUpdateState(article.id, { inReadingList: !inReadingList })}
+      />
       <IconButton
         icon="bookmark"
         label={isBookmarked ? t("ブックマークを解除") : t("ブックマーク")}

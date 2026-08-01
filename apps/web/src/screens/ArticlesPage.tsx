@@ -18,7 +18,7 @@ function ArticlesListPage() {
   const isDesktop = useIsDesktop();
   const api = useApi();
   const { tags, subscriptions, error: sideError, refresh: refreshAppData, language, t } = useAppData();
-  const { tagId, bookmarkedOnly, clearTag } = useArticleFilterParams();
+  const { tagId, bookmarkedOnly, readingListOnly, clearTag } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
@@ -26,9 +26,10 @@ function ArticlesListPage() {
   const apiFilters = useMemo(
     () => ({
       tagId,
+      readingList: readingListOnly ? (true as const) : undefined,
       bookmarked: bookmarkedOnly ? (true as const) : undefined,
     }),
-    [tagId, bookmarkedOnly],
+    [tagId, readingListOnly, bookmarkedOnly],
   );
 
   const list = useArticleList(api, apiFilters);
@@ -47,6 +48,11 @@ function ArticlesListPage() {
     <EmptyState>
       <p>{t("記事を取得しています…")}</p>
       <InlineButton onClick={() => void list.reload()}>{t("更新")}</InlineButton>
+    </EmptyState>
+  ) : readingListOnly ? (
+    <EmptyState>
+      <p>{t("リーディングリストに保存した記事はありません。")}</p>
+      <Link to="/articles" style={{ color: "inherit" }}>{t("全ての記事")}</Link>
     </EmptyState>
   ) : (
     <EmptyState>{t("表示できる記事がありません。")}</EmptyState>
@@ -88,7 +94,7 @@ function ArticlesListPage() {
     }
   };
 
-  const title = selectedTag?.name ?? (bookmarkedOnly ? t("ブックマーク") : t("全ての記事"));
+  const title = selectedTag?.name ?? (readingListOnly ? t("リーディングリスト") : bookmarkedOnly ? t("ブックマーク") : t("全ての記事"));
 
   return (
     <AppShell>
@@ -110,7 +116,7 @@ function ArticlesListPage() {
             {title}
           </h1>
           <TitleTranslationToggle />
-          {!bookmarkedOnly ? (
+          {!bookmarkedOnly && !readingListOnly ? (
             <>
               <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />
               <IconButton

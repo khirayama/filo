@@ -130,6 +130,7 @@ export function createApiClient(getToken: TokenGetter) {
       if (filters.subscriptionId !== undefined) params.set("subscriptionId", String(filters.subscriptionId));
       if (filters.tagId !== undefined) params.set("tagId", String(filters.tagId));
       if (filters.read !== undefined) params.set("read", String(filters.read));
+      if (filters.readingList !== undefined) params.set("readingList", String(filters.readingList));
       if (filters.bookmarked !== undefined) params.set("bookmarked", String(filters.bookmarked));
       if (filters.sort) params.set("sort", filters.sort);
       if (filters.cursor) params.set("cursor", filters.cursor);
@@ -141,6 +142,8 @@ export function createApiClient(getToken: TokenGetter) {
       (await send<{ updatedFeeds: number }>("POST", "/api/v1/articles/mark-all-read", tagId === undefined ? {} : { tagId })).data,
     setArticleRead: async (id: number, isRead: boolean) =>
       (await send<ArticleUserState>("PATCH", `/api/v1/articles/${id}/state`, { isRead })).data,
+    setReadingListMembership: async (id: number, active: boolean) =>
+      (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/reading-list`)).data,
     setBookmarkMembership: async (id: number, active: boolean) =>
       (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/bookmark`)).data,
 

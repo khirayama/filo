@@ -103,6 +103,7 @@ fun ArticlesScreen(
     val nextCursor = vm.nextCursor
 
     var selectedTagId by vm::selectedTagId
+    var readingListOnly by vm::readingListOnly
     var bookmarkedOnly by vm::bookmarkedOnly
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -114,7 +115,7 @@ fun ArticlesScreen(
     DisposableEffect(Unit) {
         onDispose { vm.resetLoadState() }
     }
-    LaunchedEffect(selectedTagId, bookmarkedOnly) {
+    LaunchedEffect(selectedTagId, readingListOnly, bookmarkedOnly) {
         vm.loadIfNeeded()
     }
     // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
@@ -131,6 +132,7 @@ fun ArticlesScreen(
 
     val viewTitle = when {
         selectedTagId != null -> tags.firstOrNull { it.id == selectedTagId }?.name ?: "タグ"
+        readingListOnly -> "リーディングリスト"
         bookmarkedOnly -> "ブックマーク"
         else -> "全ての記事"
     }
@@ -143,9 +145,11 @@ fun ArticlesScreen(
                     tags = tags,
                     subscriptions = subscriptions,
                     selectedTagId = selectedTagId,
+                    readingListOnly = readingListOnly,
                     bookmarkedOnly = bookmarkedOnly,
-                    onSelectView = { tagId, bookmarked ->
+                    onSelectView = { tagId, readingList, bookmarked ->
                         selectedTagId = tagId
+                        readingListOnly = readingList
                         bookmarkedOnly = bookmarked
                         scope.launch { drawerState.close() }
                     },
@@ -193,7 +197,7 @@ fun ArticlesScreen(
                     },
                     actions = {
                         TitleTranslationToggle(translations)
-                        if (!bookmarkedOnly) {
+                        if (!bookmarkedOnly && !readingListOnly) {
                             IconButton(onClick = { showMarkAllRead = true }) {
                                 Icon(Icons.Default.CheckCircle, contentDescription = "すべて既読にする")
                             }
@@ -325,6 +329,7 @@ fun ArticlesScreen(
                                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
                                 }
                             },
+                            onToggleReadingList = { vm.patchState(article, inReadingList = !article.userState.inReadingList) },
                             onToggleBookmark = { vm.patchState(article, isBookmarked = !article.userState.isBookmarked) },
                         )
                         HorizontalDivider()
@@ -372,8 +377,9 @@ private fun SourcesDrawerContent(
     tags: List<Tag>,
     subscriptions: List<Subscription>,
     selectedTagId: Int?,
+    readingListOnly: Boolean,
     bookmarkedOnly: Boolean,
-    onSelectView: (tagId: Int?, bookmarked: Boolean) -> Unit,
+    onSelectView: (tagId: Int?, readingList: Boolean, bookmarked: Boolean) -> Unit,
     onOpenSubscription: (Int) -> Unit,
     onOpenAddFeed: () -> Unit,
     onOpenSubscriptions: () -> Unit,
@@ -383,7 +389,7 @@ private fun SourcesDrawerContent(
 ) {
     var expandedTags by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var untaggedExpanded by remember { mutableStateOf(false) }
-    val noViewFilter = selectedTagId == null && !bookmarkedOnly
+    val noViewFilter = selectedTagId == null && !readingListOnly && !bookmarkedOnly
 
     Column(
         modifier = Modifier
@@ -409,14 +415,21 @@ private fun SourcesDrawerContent(
             label = { Text("全ての記事") },
             icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
             selected = noViewFilter,
-            onClick = { onSelectView(null, false) },
+            onClick = { onSelectView(null, false, false) },
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+        NavigationDrawerItem(
+            label = { Text("リーディングリスト") },
+            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+            selected = readingListOnly && selectedTagId == null,
+            onClick = { onSelectView(null, true, false) },
             modifier = Modifier.padding(horizontal = 12.dp),
         )
         NavigationDrawerItem(
             label = { Text("ブックマーク") },
             icon = { Icon(Icons.Default.BookmarkBorder, contentDescription = null) },
             selected = bookmarkedOnly && selectedTagId == null,
-            onClick = { onSelectView(null, true) },
+            onClick = { onSelectView(null, false, true) },
             modifier = Modifier.padding(horizontal = 12.dp),
         )
 
@@ -453,7 +466,7 @@ private fun SourcesDrawerContent(
                         }
                     },
                     selected = selectedTagId == tag.id,
-                    onClick = { onSelectView(tag.id, false) },
+                    onClick = { onSelectView(tag.id, false, false) },
                     modifier = Modifier.weight(1f),
                 )
             }

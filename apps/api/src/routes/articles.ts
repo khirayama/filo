@@ -35,6 +35,7 @@ interface ArticleListRow {
   feed_title: string;
   feed_favicon_url: string | null;
   is_read: number | null;
+  in_reading_list: number | null;
   is_bookmarked: number | null;
 }
 
@@ -49,6 +50,7 @@ export const articleRoutes = new Hono<AppContext>()
     }
 
     const read = parseBoolQuery(c.req.query("read"), "read");
+    const readingList = parseCollectionQuery(c.req.query("readingList"), "readingList");
     const bookmarked = parseCollectionQuery(c.req.query("bookmarked"), "bookmarked");
     const subscriptionIdRaw = c.req.query("subscriptionId");
     const tagIdRaw = c.req.query("tagId");
@@ -91,7 +93,7 @@ export const articleRoutes = new Hono<AppContext>()
     }
 
     // Retained articles only appear in unscoped collection lists, and never under read=false.
-    const includeRetained = bookmarked === true && !scopedToSubscription && read !== false;
+    const includeRetained = (readingList === true || bookmarked === true) && !scopedToSubscription && read !== false;
     if (!includeRetained) {
       conditions.push("EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = ? AND s.feed_id = a.feed_id)");
       binds.push(user.id);
@@ -126,6 +128,7 @@ export const articleRoutes = new Hono<AppContext>()
       sort === "fetched_at_desc"
         ? `(${EFFECTIVE_IS_READ}) ASC, a.fetched_at DESC, a.id DESC`
         : `(${EFFECTIVE_IS_READ}) ASC, (a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC`;
+    const readingListJoin = readingList === true ? "JOIN" : "LEFT JOIN";
     const bookmarkJoin = bookmarked === true ? "JOIN" : "LEFT JOIN";
 
     const sql = `
@@ -134,10 +137,13 @@ export const articleRoutes = new Hono<AppContext>()
         a.published_at, a.fetched_at, a.source_language,
         f.id AS feed_id, f.title AS feed_title, f.favicon_url AS feed_favicon_url,
         (${EFFECTIVE_IS_READ}) AS is_read,
+        CASE WHEN rli.user_id IS NULL THEN 0 ELSE 1 END AS in_reading_list,
         CASE WHEN ab.user_id IS NULL THEN 0 ELSE 1 END AS is_bookmarked
       FROM articles a
       JOIN feeds f ON f.id = a.feed_id
       LEFT JOIN article_read_states ars ON ars.article_id = a.id AND ars.user_id = ?
+      ${readingListJoin} article_user_collections rli
+        ON rli.article_id = a.id AND rli.user_id = ? AND rli.kind = 'reading_list'
       ${bookmarkJoin} article_user_collections ab
         ON ab.article_id = a.id AND ab.user_id = ? AND ab.kind = 'bookmark'
       LEFT JOIN feed_read_cursors frc ON frc.feed_id = a.feed_id AND frc.user_id = ?
@@ -146,7 +152,7 @@ export const articleRoutes = new Hono<AppContext>()
       LIMIT ?
     `;
     const { results } = await c.env.DB.prepare(sql)
-      .bind(user.id, user.id, user.id, ...binds, limit + 1)
+      .bind(user.id, user.id, user.id, user.id, ...binds, limit + 1)
       .all<ArticleListRow>();
 
     const hasMore = results.length > limit;
@@ -236,6 +242,20 @@ export const articleRoutes = new Hono<AppContext>()
     ]);
 
     return c.json({ data: { updatedFeeds: upsert?.meta.changes ?? 0 } });
+  })
+  .put("/:articleId/reading-list", async (c) => {
+    const user = c.get("user");
+    const articleId = parseId(c.req.param("articleId"));
+    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
+    const state = await setArticleCollection(c.env.DB, user.id, articleId, article.feed_id, "reading_list", true);
+    return c.json({ data: serializeUserState(state) });
+  })
+  .delete("/:articleId/reading-list", async (c) => {
+    const user = c.get("user");
+    const articleId = parseId(c.req.param("articleId"));
+    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
+    const state = await setArticleCollection(c.env.DB, user.id, articleId, article.feed_id, "reading_list", false);
+    return c.json({ data: serializeUserState(state) });
   })
   .put("/:articleId/bookmark", async (c) => {
     const user = c.get("user");

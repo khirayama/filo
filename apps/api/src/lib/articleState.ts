@@ -2,7 +2,7 @@ import { readCursorFor } from "./readCursor";
 import type { ArticleStateRow } from "./serialize";
 import { nowIso } from "./util";
 
-export type ArticleCollectionKind = "bookmark";
+export type ArticleCollectionKind = "reading_list" | "bookmark";
 
 export function collectionMutation(
   db: D1Database,
@@ -46,7 +46,7 @@ export async function hasArticleCollection(db: D1Database, userId: number, artic
   const row = await db
     .prepare(
       `SELECT 1 FROM article_user_collections
-       WHERE user_id = ? AND article_id = ? AND kind = 'bookmark'
+       WHERE user_id = ? AND article_id = ?
        LIMIT 1`,
     )
     .bind(userId, articleId)
@@ -65,14 +65,17 @@ export async function effectiveArticleState(
   const state = await db
     .prepare(
       `SELECT ars.is_read,
+              CASE WHEN rli.user_id IS NULL THEN 0 ELSE 1 END AS in_reading_list,
               CASE WHEN ab.user_id IS NULL THEN 0 ELSE 1 END AS is_bookmarked
        FROM articles a
        LEFT JOIN article_read_states ars ON ars.user_id = ? AND ars.article_id = a.id
+       LEFT JOIN article_user_collections rli
+         ON rli.user_id = ? AND rli.article_id = a.id AND rli.kind = 'reading_list'
        LEFT JOIN article_user_collections ab
          ON ab.user_id = ? AND ab.article_id = a.id AND ab.kind = 'bookmark'
        WHERE a.id = ?`,
     )
-    .bind(userId, userId, articleId)
+    .bind(userId, userId, userId, articleId)
     .first<ArticleStateRow>();
   if (!state || state.is_read !== null) return state;
 

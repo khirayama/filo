@@ -9,6 +9,7 @@ export function useArticleFilterParams() {
   const tagIdParam = searchParams.get("tagId");
   const tagId = tagIdParam && /^\d+$/.test(tagIdParam) ? Number(tagIdParam) : undefined;
   const bookmarkedOnly = searchParams.get("bookmarked") === "1";
+  const readingListOnly = searchParams.get("readingList") === "1";
   const sortParam = searchParams.get("sort");
   const sort: ArticleSortOrder | undefined =
     sortParam === "published_at_desc" || sortParam === "fetched_at_desc" ? sortParam : undefined;
@@ -26,5 +27,5 @@ export function useArticleFilterParams() {
     setSearchParams(next);
   };
 
-  return { tagId, bookmarkedOnly, sort, setSort, clearTag };
+  return { tagId, bookmarkedOnly, readingListOnly, sort, setSort, clearTag };
 }

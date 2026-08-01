@@ -62,6 +62,7 @@ export interface Tag {
 
 export interface ArticleUserState {
   isRead: boolean;
+  inReadingList: boolean;
   isBookmarked: boolean;
 }
 
@@ -148,6 +149,7 @@ export interface ArticleListFilters {
   subscriptionId?: number;
   tagId?: number;
   read?: boolean;
+  readingList?: true;
   bookmarked?: true;
   sort?: ArticleSortOrder;
   cursor?: string;

@@ -92,12 +92,14 @@ export function serializeTag(row: TagRow) {
 
 export interface ArticleStateRow {
   is_read: number | null;
+  in_reading_list: number | null;
   is_bookmarked: number | null;
 }
 
 export function serializeUserState(row: ArticleStateRow | null | undefined) {
   return {
     isRead: intToBool(row?.is_read ?? 0),
+    inReadingList: intToBool(row?.in_reading_list ?? 0),
     isBookmarked: intToBool(row?.is_bookmarked ?? 0),
   };
 }

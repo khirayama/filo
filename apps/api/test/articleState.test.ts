@@ -24,11 +24,13 @@ describe("article user state", () => {
   it("serializes the article state", () => {
     const state = serializeUserState({
       is_read: 1,
+      in_reading_list: 0,
       is_bookmarked: 0,
     });
 
     expect(state).toEqual({
       isRead: true,
+      inReadingList: false,
       isBookmarked: false,
     });
   });
@@ -36,6 +38,7 @@ describe("article user state", () => {
   it("returns false collection membership when no rows exist", () => {
     expect(serializeUserState(null)).toEqual({
       isRead: false,
+      inReadingList: false,
       isBookmarked: false,
     });
   });
@@ -56,6 +59,14 @@ describe("article user state", () => {
     expect(captured.sql).toContain("INSERT INTO article_user_collections");
     expect(captured.sql).not.toContain("article_user_states");
     expect(captured.binds).toEqual([4, 9, "bookmark", "2026-07-21T10:00:00Z", "2026-07-21T10:00:00Z"]);
+  });
+
+  it("writes reading-list membership", () => {
+    const { captured, db } = captureStatement();
+    collectionMutation(db, 4, 9, "reading_list", true, "2026-07-21T10:00:00Z");
+
+    expect(captured.sql).toContain("INSERT INTO article_user_collections");
+    expect(captured.binds).toEqual([4, 9, "reading_list", "2026-07-21T10:00:00Z", "2026-07-21T10:00:00Z"]);
   });
 
   it("deletes bookmark membership", () => {

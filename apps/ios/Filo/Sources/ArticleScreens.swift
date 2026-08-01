@@ -13,6 +13,7 @@ final class ArticlesViewModel: ObservableObject {
     @Published var subscriptions: [Subscription] = []
 
     @Published var selectedTagId: Int?
+    @Published var readingListOnly = false
     @Published var bookmarkedOnly = false
     @Published var settings: UserSettings?
 
@@ -20,6 +21,7 @@ final class ArticlesViewModel: ObservableObject {
         if let tagId = selectedTagId, let tag = tags.first(where: { $0.id == tagId }) {
             return tag.name
         }
+        if readingListOnly { return "リーディングリスト" }
         if bookmarkedOnly { return "ブックマーク" }
         return "全ての記事"
     }
@@ -28,6 +30,7 @@ final class ArticlesViewModel: ObservableObject {
         ArticleListFilters(
             subscriptionId: nil,
             tagId: selectedTagId,
+            readingList: readingListOnly ? true : nil,
             bookmarked: bookmarkedOnly ? true : nil
         )
     }
@@ -119,8 +122,9 @@ final class ArticlesViewModel: ObservableObject {
         isLoadingMore = false
     }
 
-    func selectView(tagId: Int? = nil, bookmarked: Bool = false) {
+    func selectView(tagId: Int? = nil, readingList: Bool = false, bookmarked: Bool = false) {
         selectedTagId = tagId
+        readingListOnly = readingList
         bookmarkedOnly = bookmarked
     }
 
@@ -135,18 +139,20 @@ final class ArticlesViewModel: ObservableObject {
         }
     }
 
-    func patchState(_ articleId: Int, isRead: Bool? = nil, isBookmarked: Bool? = nil) async {
+    func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
         do {
             let state: ArticleUserState
             if let isRead {
                 state = try await APIClient.shared.setArticleRead(articleId, isRead: isRead)
+            } else if let inReadingList {
+                state = try await APIClient.shared.setReadingListMembership(articleId, active: inReadingList)
             } else if let isBookmarked {
                 state = try await APIClient.shared.setBookmarkMembership(articleId, active: isBookmarked)
             } else {
                 return
             }
             if let index = articles.firstIndex(where: { $0.id == articleId }) {
-                let remainsInList = !bookmarkedOnly || state.isBookmarked
+                let remainsInList = (!readingListOnly || state.inReadingList) && (!bookmarkedOnly || state.isBookmarked)
                 if !remainsInList {
                     articles.remove(at: index)
                 } else {
@@ -194,7 +200,7 @@ struct ArticlesScreen: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 TitleTranslationToggle(store: translations)
-                if !model.bookmarkedOnly {
+                if !model.bookmarkedOnly && !model.readingListOnly {
                     Button {
                         showMarkAllReadConfirm = true
                     } label: {
@@ -216,6 +222,7 @@ struct ArticlesScreen: View {
         }
         .onChange(of: model.selectedTagId) { Task { await model.reloadArticles() } }
         .onChange(of: model.bookmarkedOnly) { Task { await model.reloadArticles() } }
+        .onChange(of: model.readingListOnly) { Task { await model.reloadArticles() } }
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
         .onChange(of: model.articles, initial: true) { registerTitlesForTranslation() }
         .onChange(of: translations.isEnabled) { registerTitlesForTranslation() }
@@ -298,6 +305,15 @@ struct ArticlesScreen: View {
                         }
                     }
                     .swipeActions(edge: .trailing) {
+                        Button {
+                            Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
+                        } label: {
+                            Label(
+                                article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
+                                systemImage: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus"
+                            )
+                        }
+                        .tint(.blue)
                         Button {
                             Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
                         } label: {

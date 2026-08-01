@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-const iconPaths: Record<string, ReactNode> = {
+const iconPaths = {
   menu: (
     <>
       <path d="M3 6h18" />
@@ -60,6 +60,15 @@ const iconPaths: Record<string, ReactNode> = {
       <path d="M3 18h.01" />
     </>
   ),
+  queueAdd: (
+    <>
+      <path d="M3 6h13" />
+      <path d="M3 12h13" />
+      <path d="M3 18h9" />
+      <path d="M18 15v6" />
+      <path d="M15 18h6" />
+    </>
+  ),
   back: (
     <>
       <path d="M19 12H5" />
@@ -98,7 +107,7 @@ const iconPaths: Record<string, ReactNode> = {
       <path d="M12 12l4-4" />
     </>
   ),
-};
+} satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof iconPaths;
 

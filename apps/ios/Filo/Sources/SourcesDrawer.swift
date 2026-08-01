@@ -26,8 +26,11 @@ struct SourcesDrawer: View {
                 .padding(.bottom, 12)
                 .simultaneousGesture(TapGesture().onEnded { onSelect() })
 
-                drawerItem("全ての記事", icon: "list.bullet", isActive: model.selectedTagId == nil && !model.bookmarkedOnly) {
+                drawerItem("全ての記事", icon: "list.bullet", isActive: model.selectedTagId == nil && !model.readingListOnly && !model.bookmarkedOnly) {
                     model.selectView()
+                }
+                drawerItem("リーディングリスト", icon: "text.badge.checkmark", isActive: model.readingListOnly && model.selectedTagId == nil) {
+                    model.selectView(readingList: true)
                 }
                 drawerItem("ブックマーク", icon: "bookmark", isActive: model.bookmarkedOnly && model.selectedTagId == nil) {
                     model.selectView(bookmarked: true)

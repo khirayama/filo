@@ -48,6 +48,7 @@ struct Tag: Codable, Identifiable, Hashable {
 
 struct ArticleUserState: Codable, Hashable {
     var isRead: Bool
+    var inReadingList: Bool
     var isBookmarked: Bool
 }
 
@@ -166,6 +167,7 @@ struct ArticleListFilters: Hashable {
     var subscriptionId: Int?
     var tagId: Int?
     var read: Bool?
+    var readingList: Bool? = nil
     var bookmarked: Bool?
     // "published_at_desc" | "fetched_at_desc"。nil は server が user 設定を適用する
     var sort: String?

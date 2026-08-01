@@ -201,6 +201,7 @@ final class APIClient: Sendable {
         if let id = filters.subscriptionId { items.append(.init(name: "subscriptionId", value: String(id))) }
         if let id = filters.tagId { items.append(.init(name: "tagId", value: String(id))) }
         if let read = filters.read { items.append(.init(name: "read", value: read ? "true" : "false")) }
+        if filters.readingList == true { items.append(.init(name: "readingList", value: "true")) }
         if filters.bookmarked == true { items.append(.init(name: "bookmarked", value: "true")) }
         if let sort = filters.sort { items.append(.init(name: "sort", value: sort)) }
         if let cursor { items.append(.init(name: "cursor", value: cursor)) }
@@ -212,6 +213,10 @@ final class APIClient: Sendable {
 
     func setArticleRead(_ id: Int, isRead: Bool) async throws -> ArticleUserState {
         try await send("PATCH", "/api/v1/articles/\(id)/state", json: ["isRead": isRead])
+    }
+
+    func setReadingListMembership(_ id: Int, active: Bool) async throws -> ArticleUserState {
+        try await send(active ? "PUT" : "DELETE", "/api/v1/articles/\(id)/reading-list")
     }
 
     func setBookmarkMembership(_ id: Int, active: Bool) async throws -> ArticleUserState {

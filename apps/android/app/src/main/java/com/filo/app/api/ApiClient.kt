@@ -203,6 +203,7 @@ object ApiClient {
         filters.subscriptionId?.let { params.add("subscriptionId=$it") }
         filters.tagId?.let { params.add("tagId=$it") }
         filters.read?.let { params.add("read=$it") }
+        if (filters.readingList == true) params.add("readingList=true")
         if (filters.bookmarked == true) params.add("bookmarked=true")
         filters.sort?.let { params.add("sort=$it") }
         cursor?.let { params.add("cursor=" + URLEncoder.encode(it, "UTF-8")) }
@@ -216,6 +217,11 @@ object ApiClient {
     suspend fun setArticleRead(id: Int, isRead: Boolean): ArticleUserState {
         val body = JSONObject().put("isRead", isRead)
         return parseUserState(JSONObject(sendJson("PATCH", "/api/v1/articles/$id/state", body)).getJSONObject("data"))
+    }
+
+    suspend fun setReadingListMembership(id: Int, active: Boolean): ArticleUserState {
+        val method = if (active) "PUT" else "DELETE"
+        return parseUserState(JSONObject(sendJson(method, "/api/v1/articles/$id/reading-list")).getJSONObject("data"))
     }
 
     suspend fun setBookmarkMembership(id: Int, active: Boolean): ArticleUserState {

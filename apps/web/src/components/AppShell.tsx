@@ -181,6 +181,7 @@ function SidebarNav() {
         {t("フィードを追加")}
       </button>
       <SidebarLink to="/articles" icon="list" label={t("全ての記事")} />
+      <SidebarLink to="/articles?readingList=1" icon="queueAdd" label={t("リーディングリスト")} />
       <SidebarLink to="/articles?bookmarked=1" icon="bookmark" label={t("ブックマーク")} />
 
       <p
@@ -270,7 +271,7 @@ function useIsActive(to: string): boolean {
   const [path, query] = to.split("?");
   if (location.pathname !== path) return false;
   const target = new URLSearchParams(query ?? "");
-  const keys = ["unread", "bookmarked", "tagId"];
+  const keys = ["unread", "readingList", "bookmarked", "tagId"];
   return keys.every((key) => (target.get(key) ?? null) === (searchParams.get(key) ?? null));
 }
 

@@ -167,6 +167,7 @@ fun FaviconImage(url: String?, siteUrl: String? = null, modifier: Modifier = Mod
 fun ArticleRow(
     article: ArticleListItem,
     onOpen: () -> Unit,
+    onToggleReadingList: (() -> Unit)? = null,
     onToggleBookmark: (() -> Unit)? = null,
     translations: TitleTranslationStore? = null,
 ) {
@@ -204,6 +205,18 @@ fun ArticleRow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 FaviconImage(url = article.feedFaviconUrl, siteUrl = article.canonicalUrl)
+                if (onToggleReadingList != null) {
+                    Surface(onClick = onToggleReadingList, shape = MaterialTheme.shapes.extraSmall, color = Color.Transparent) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.List,
+                            contentDescription = if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加",
+                            tint = if (article.userState.inReadingList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp).padding(horizontal = 1.dp),
+                        )
+                    }
+                } else if (article.userState.inReadingList) {
+                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "リーディングリスト済み", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                }
                 if (onToggleBookmark != null) {
                     Surface(onClick = onToggleBookmark, shape = MaterialTheme.shapes.extraSmall, color = Color.Transparent) {
                         Icon(
