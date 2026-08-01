@@ -178,6 +178,15 @@ final class ArticlesViewModel: ObservableObject {
         }
     }
 
+    func removeReadArticlesFromReadingList() async {
+        do {
+            _ = try await APIClient.shared.removeReadArticlesFromReadingList()
+            await reloadArticles()
+        } catch {
+            errorMessage = ErrorMessages.message(for: error)
+        }
+    }
+
     func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
         do {
             let state: ArticleUserState
@@ -213,6 +222,7 @@ struct ArticlesScreen: View {
     @ObservedObject private var translations = TitleTranslationStore.shared
     @State private var showDrawer = false
     @State private var showMarkAllReadConfirm = false
+    @State private var showRemoveReadConfirm = false
     @Environment(\.openURL) private var openURL
 
     private var markAllReadPrompt: String {
@@ -241,6 +251,11 @@ struct ArticlesScreen: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if model.readingListOnly {
+                    Button {
+                        showRemoveReadConfirm = true
+                    } label: {
+                        Label("既読記事を削除", systemImage: "trash")
+                    }
                     NavigationLink(value: AppRoute.readingSession(false)) {
                         Label("閲覧開始", systemImage: "book")
                     }
@@ -264,6 +279,9 @@ struct ArticlesScreen: View {
         }
         .confirmationDialog(markAllReadPrompt, isPresented: $showMarkAllReadConfirm, titleVisibility: .visible) {
             Button("すべて既読にする") { Task { await model.markAllRead() } }
+        }
+        .confirmationDialog("既読の記事をリーディングリストから削除しますか？", isPresented: $showRemoveReadConfirm, titleVisibility: .visible) {
+            Button("既読記事を削除", role: .destructive) { Task { await model.removeReadArticlesFromReadingList() } }
         }
         .refreshable { await model.refreshFeedsAndReload() }
         .task {

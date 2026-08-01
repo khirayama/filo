@@ -143,6 +143,20 @@ export function App() {
     }
   };
 
+  const removeReadArticles = async () => {
+    if (!window.confirm("既読の記事をリーディングリストから削除しますか？")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.removeReadArticlesFromReadingList();
+      setArticles(await api.listReadingArticles());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const addCurrentPage = async () => {
     if (!currentPage || busy) return;
     setBusy(true);
@@ -224,6 +238,7 @@ export function App() {
         </button>
         <button disabled={busy || articles.length === 0} onClick={() => void start(false)}>閲覧開始</button>
         <button className="primary" disabled={busy || articles.length === 0} onClick={() => void start(true)}>読み上げ開始</button>
+        <button disabled={busy || !articles.some((article) => article.userState.isRead)} onClick={() => void removeReadArticles()}>既読記事を削除</button>
         <button className="link-button" disabled={loading} onClick={() => void loadAll()}>更新</button>
       </section>
 

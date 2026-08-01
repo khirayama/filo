@@ -348,6 +348,21 @@ export const articleRoutes = new Hono<AppContext>()
 
     return c.json({ data: { updatedFeeds: upsert?.meta.changes ?? 0 } });
   })
+  .delete("/reading-list/read", async (c) => {
+    const user = c.get("user");
+    const result = await c.env.DB.prepare(
+      `DELETE FROM article_user_collections
+       WHERE user_id = ? AND kind = 'reading_list'
+       AND article_id IN (
+         SELECT a.id
+         FROM articles a
+         LEFT JOIN article_read_states ars ON ars.user_id = ? AND ars.article_id = a.id
+         LEFT JOIN feed_read_cursors frc ON frc.user_id = ? AND frc.feed_id = a.feed_id
+         WHERE (${EFFECTIVE_IS_READ}) = 1
+       )`,
+    ).bind(user.id, user.id, user.id).run();
+    return c.json({ data: { removedCount: result.meta.changes ?? 0 } });
+  })
   .put("/:articleId/reading-list", async (c) => {
     const user = c.get("user");
     const articleId = parseId(c.req.param("articleId"));

@@ -198,6 +198,10 @@ object ApiClient {
         sendJson("POST", "/api/v1/articles/mark-all-read", body)
     }
 
+    suspend fun removeReadArticlesFromReadingList() {
+        sendJson("DELETE", "/api/v1/articles/reading-list/read")
+    }
+
     suspend fun listArticles(filters: ArticleListFilters, cursor: String? = null, limit: Int = 20): ArticlePage {
         val params = mutableListOf("limit=$limit")
         filters.subscriptionId?.let { params.add("subscriptionId=$it") }

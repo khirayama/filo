@@ -145,6 +145,15 @@ class ArticlesViewModel : ViewModel() {
         }
     }
 
+    suspend fun removeReadArticlesFromReadingList() {
+        try {
+            ApiClient.removeReadArticlesFromReadingList()
+            reload()
+        } catch (e: Exception) {
+            errorMessage = ErrorMessages.forError(e)
+        }
+    }
+
     fun patchState(article: ArticleListItem, isRead: Boolean? = null, inReadingList: Boolean? = null, isBookmarked: Boolean? = null) {
         viewModelScope.launch {
             try {

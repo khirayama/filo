@@ -36,6 +36,10 @@ struct MarkAllArticlesReadResult: Codable, Hashable {
     var updatedFeeds: Int
 }
 
+struct RemoveReadArticlesResult: Codable, Hashable {
+    var removedCount: Int
+}
+
 struct Tag: Codable, Identifiable, Hashable {
     let id: Int
     var name: String

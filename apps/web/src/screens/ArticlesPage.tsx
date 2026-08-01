@@ -25,6 +25,7 @@ function ArticlesListPage() {
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [extensionReady, setExtensionReady] = useState(false);
   const [startingReading, setStartingReading] = useState(false);
+  const [removingReadArticles, setRemovingReadArticles] = useState(false);
 
   const startReading = async (autoplay: boolean) => {
     if (!extensionReady || startingReading) return;
@@ -134,6 +135,19 @@ function ArticlesListPage() {
     }
   };
 
+  const removeReadArticles = async () => {
+    if (!window.confirm(t("既読の記事をリーディングリストから削除しますか？"))) return;
+    setRemovingReadArticles(true);
+    try {
+      await api.removeReadArticlesFromReadingList();
+      await list.reload();
+    } catch (e) {
+      setMarkAllError(errorMessage(e, language));
+    } finally {
+      setRemovingReadArticles(false);
+    }
+  };
+
   const title = selectedTag?.name ?? (readingListOnly ? t("リーディングリスト") : bookmarkedOnly ? t("ブックマーク") : t("全ての記事"));
 
   return (
@@ -158,6 +172,12 @@ function ArticlesListPage() {
           <TitleTranslationToggle />
           {readingListOnly ? (
             <>
+              <IconButton
+                icon="trash"
+                label={t("既読記事を削除")}
+                disabled={removingReadArticles}
+                onClick={() => void removeReadArticles()}
+              />
               <InlineButton disabled={!extensionReady || startingReading} onClick={() => void startReading(false)}>
                 {t("閲覧開始")}
               </InlineButton>

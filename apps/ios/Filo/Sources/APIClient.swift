@@ -201,6 +201,10 @@ final class APIClient: Sendable {
         try await send("POST", "/api/v1/articles/mark-all-read", json: ["tagId": tagId])
     }
 
+    func removeReadArticlesFromReadingList() async throws -> RemoveReadArticlesResult {
+        try await send("DELETE", "/api/v1/articles/reading-list/read")
+    }
+
     func listArticles(filters: ArticleListFilters, cursor: String? = nil, limit: Int = 20) async throws -> (articles: [ArticleListItem], nextCursor: String?) {
         var components = URLComponents()
         var items = [URLQueryItem(name: "limit", value: String(limit))]

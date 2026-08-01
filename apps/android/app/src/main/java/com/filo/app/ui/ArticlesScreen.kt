@@ -49,6 +49,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
@@ -113,6 +114,7 @@ fun ArticlesScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var optionsMenuOpen by remember { mutableStateOf(false) }
     var showMarkAllRead by remember { mutableStateOf(false) }
+    var showRemoveReadArticles by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
@@ -225,6 +227,9 @@ fun ArticlesScreen(
                     },
                     actions = {
                         if (readingListOnly) {
+                            IconButton(onClick = { showRemoveReadArticles = true }) {
+                                Icon(Icons.Default.Delete, contentDescription = "既読記事を削除")
+                            }
                             TextButton(onClick = { onStartReading(false) }) { Text("閲覧開始") }
                             TextButton(onClick = { onStartReading(true) }) { Text("読み上げ開始") }
                         }
@@ -414,6 +419,20 @@ fun ArticlesScreen(
                 }) { Text("すべて既読にする") }
             },
             dismissButton = { TextButton(onClick = { showMarkAllRead = false }) { Text("キャンセル") } },
+        )
+    }
+
+    if (showRemoveReadArticles) {
+        AlertDialog(
+            onDismissRequest = { showRemoveReadArticles = false },
+            title = { Text("既読の記事をリーディングリストから削除しますか？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRemoveReadArticles = false
+                    scope.launch { vm.removeReadArticlesFromReadingList() }
+                }) { Text("既読記事を削除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { showRemoveReadArticles = false }) { Text("キャンセル") } },
         )
     }
 }

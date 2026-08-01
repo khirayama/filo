@@ -143,6 +143,8 @@ export function createApiClient(getToken: TokenGetter) {
     },
     markAllArticlesRead: async (tagId?: number) =>
       (await send<{ updatedFeeds: number }>("POST", "/api/v1/articles/mark-all-read", tagId === undefined ? {} : { tagId })).data,
+    removeReadArticlesFromReadingList: async () =>
+      (await send<{ removedCount: number }>("DELETE", "/api/v1/articles/reading-list/read")).data,
     setArticleRead: async (id: number, isRead: boolean) =>
       (await send<ArticleUserState>("PATCH", `/api/v1/articles/${id}/state`, { isRead })).data,
     setReadingListMembership: async (id: number, active: boolean) =>

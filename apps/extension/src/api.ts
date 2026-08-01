@@ -96,6 +96,9 @@ export function createExtensionApi(getToken: TokenGetter) {
     removeFromReadingList: async (articleId: number) => {
       await send<unknown>("DELETE", `/api/v1/articles/${articleId}/reading-list`);
     },
+    removeReadArticlesFromReadingList: async () => {
+      await send<unknown>("DELETE", "/api/v1/articles/reading-list/read");
+    },
     setArticleRead: async (articleId: number) => {
       await send<unknown>("PATCH", `/api/v1/articles/${articleId}/state`, { isRead: true });
     },

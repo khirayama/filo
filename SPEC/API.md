@@ -409,6 +409,13 @@ Deletes a tag owned by the current user.
 }
 ```
 
+### DELETE /api/v1/articles/reading-list/read
+
+current user のリーディングリストから、実効既読状態のすべての記事を削除する。
+
+- `article_read_states` の明示状態と `feed_read_cursors` のカーソル状態を含めて既読判定する
+- response: `{ removedCount }`
+
 ### POST /api/v1/articles/mark-all-read
 
 購読フィード全体（またはタグ配下のフィード群）の一括全既読。対象となる各 feed の既読カーソル（`feed_read_cursors`）をその feed の最大 article id まで前進させる。
