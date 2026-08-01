@@ -128,7 +128,7 @@ account deletion 専用:
 
 ### 読み上げキュー
 
-- `playback_queue_items` はユーザーごとの読み上げキューを保持し、`sort_order` で再生順序を管理する
+- `playback_queue_items` はリーディング開始時点のリーディングリストを固定する内部セッションで、`sort_order` で再生順序を管理する
 - キューは端末間で共有され、iOS / Android / Web + Extension で同一キューを参照する
 - 同一記事は1ユーザーのキューに1回のみ存在する（`user_id + article_id` で一意）
 - `playback_states` はユーザーごとに1行保持し、現在の再生位置を管理する
@@ -154,7 +154,7 @@ account deletion 専用:
 - `read=false` の一覧は retained article を含めない
 - `published_at` が `NULL` の記事は `published_at_desc` で末尾に寄せ、同順位では `id DESC` を使う
 - タグ一覧と購読一覧は `sort_order ASC, id ASC` で返す
-- 読み上げ開始時に `article_read_states.is_read=1` と `read_at` を更新する
+- 前後移動時は移動元、読み上げ完了時は完了記事の `article_read_states.is_read=1` と `read_at` を更新する。開始・一時停止だけでは更新しない
 - retained article の `subscriptionContext` は空配列として返す
 - `DELETE /articles/{id}/reading-list` または `DELETE /articles/{id}/bookmark` により unsubscribe 済み記事の最後の membership が削除された場合、以後その記事は不可視になる
 - `PATCH /articles/{id}/state` の競合は server received order による last-write-wins で収束させる

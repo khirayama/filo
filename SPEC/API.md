@@ -489,8 +489,9 @@ Deletes a tag owned by the current user.
 - mutation は server が受信した順序で適用し、offline retry / multi-device 競合時は last-write-wins とする
 - この方針では、遅延した古い retry が新しい操作結果を上書きしうる。MVP では version token や client operation id による厳密な競合制御は導入しない
 - client は mutation を即時送信し、失敗時は画面上の再操作で回復する。retry queue やオフライン mutation は持たない
-- audio playback start should mark the article as read via this endpoint
+- 前後移動時は移動元、読み上げ完了時は完了記事をこの endpoint で既読にする
 - opening the reading screen alone does not change read state
+- audio playback start / pause alone does not change read state
 - collection membership の canonical mutation は下記専用 endpoint を使う
 
 ### PUT /api/v1/articles/{articleId}/reading-list
@@ -511,7 +512,15 @@ Deletes a tag owned by the current user.
 
 ## Playback Queue
 
-端末間で共有される読み上げキュー。iOS / Android / Web + Extension のいずれかで追加・再生した状態を他端末から参照・再開できる。
+ユーザーにはリーディングリストとして見せる。Playback Queue は開始時点のリーディングリストを固定する内部再生セッションであり、端末間で再生位置を共有する。
+
+### POST /api/v1/playback-queue/start
+
+- current user のリーディングリストを `added_at ASC, article_id ASC` でスナップショット化する
+- canonical URL を持つフィード記事だけを対象にする
+- 最初の未読記事を `playbackState.currentArticleId` に設定する
+- 全件既読または対象なしの場合は `currentArticleId` を `null` とする
+- response は更新後の playback queue と playback state を返す
 
 ### GET /api/v1/playback-queue
 

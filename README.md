@@ -10,7 +10,7 @@ RSS で記事を見つけ、一覧タイトルを端末内で翻訳して読む 
 | --- | --- |
 | `apps/api` | Cloudflare Workers + D1 + Queues + Durable Objects の API |
 | `apps/web` | React + Vite の Web クライアント |
-| `apps/extension` | Browser Extension（旧コンポーネント。RSSリーダー本体の対象外） |
+| `apps/extension` | Browser Extension（Webのリーディングリスト閲覧・読み上げ） |
 | `apps/ios` | SwiftUI アプリ |
 | `apps/android` | Jetpack Compose アプリ |
 

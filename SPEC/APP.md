@@ -1,6 +1,6 @@
 # filo App Specification
 
-本書は、翻訳付き RSS リーダーとしてのアプリ共通仕様を定義します。リーディング画面、本文抽出、読み上げ、再生キューは現在の対象外です。
+本書は、翻訳付き RSS リーダーとリーディング機能のアプリ共通仕様を定義します。
 
 ## Documents
 
@@ -14,7 +14,7 @@
 - Auth は Clerk、API は Cloudflare Workers、Database は Cloudflare D1 を利用する。
 - Feed refresh はユーザーの明示操作で開始し、Queue の完了を status API で確認する。
 - 翻訳はクライアント端末内で実行し、API は翻訳を生成・保存しない。
-- iOS、Android、Web は購読管理と RSS 記事一覧を提供する。Browser Extension は現在の主要機能に含めない。
+- iOS、Android、Web は購読管理と RSS 記事一覧を提供する。Web のリーディング機能は Browser Extension と連携する。
 
 ## Application Rules
 
@@ -26,6 +26,9 @@
 - 翻訳済みタイトルには原文へ戻す操作を用意する。
 - 端末内翻訳を利用できない場合は翻訳トグルを表示しない。
 - feed refresh、購読管理、タグ管理、OPML、アカウント削除は既存 API 契約に従う。
+- リーディング開始時にリーディングリストを追加順の再生セッションへ固定し、最初の未読記事から開始する。
+- 前後移動時は移動元、読み上げ完了時は完了記事を既読にする。閲覧開始と一時停止だけでは既読にしない。
+- 本文翻訳に失敗した場合は原文を読み上げ、セッションを止めない。
 
 ## Release Gate
 

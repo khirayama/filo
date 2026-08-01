@@ -46,6 +46,14 @@ Secrets（`wrangler secret put`）:
 
 secret は Git にコミットしない。ローカルは `.dev.vars`（`.dev.vars.example` を複製）を使う。
 
+Browser Extension（build-time env）:
+
+- `VITE_API_BASE_URL`: API origin
+- `VITE_WEB_APP_URL`: Webアプリ origin
+- `VITE_CLERK_PUBLISHABLE_KEY`: Webと同じClerk instanceのpublishable key
+- `VITE_CLERK_SYNC_HOST`: WebログインをExtensionへ同期するorigin
+- Clerk instance の `allowed_origins` に `chrome-extension://<Extension ID>` を登録する
+
 ## Operational Defaults
 
 HTTP / API:
@@ -214,6 +222,7 @@ shared data の自動 retention 削除は `article_contents` を除いて導入�
 - `success/not_modified/error` ごとの `next_fetch_after` 更新を確認している
 - `paused` feed 上の failed subscription を user retry で復帰できることを確認している
 - Error Codes と主要画面文言の対応を確認している
+- ExtensionのIDをClerk `allowed_origins`へ登録し、Webログインがポップアップとbackgroundへ同期されることを確認している
 
 ## Not yet implemented
 
