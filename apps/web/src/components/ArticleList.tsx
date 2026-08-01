@@ -25,6 +25,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   const load = useCallback(async () => {
     const gen = ++generation.current;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
     try {
       const parsed = JSON.parse(filtersKey) as ArticleListFilters;
@@ -46,16 +47,19 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
+    const gen = generation.current;
     setLoadingMore(true);
     try {
       const parsed = JSON.parse(filtersKey) as ArticleListFilters;
       const result = await api.listArticles({ ...parsed, cursor: nextCursor });
+      if (generation.current !== gen) return;
       setArticles((prev) => [...prev, ...result.articles]);
       setNextCursor(result.nextCursor);
     } catch (e) {
+      if (generation.current !== gen) return;
       setError(errorMessage(e));
     } finally {
-      setLoadingMore(false);
+      if (generation.current === gen) setLoadingMore(false);
     }
   }, [api, filtersKey, nextCursor, loadingMore]);
 
@@ -248,12 +252,18 @@ function ArticleRow({
         alignItems: "center",
         display: "flex",
         gap: "2px",
-        opacity: hovered || inReadingList || isBookmarked ? 1 : 0,
+        opacity: !isDesktop || hovered || inReadingList || isBookmarked ? 1 : 0,
         position: "relative",
         transition: "opacity 0.15s",
         zIndex: 1,
       }}
     >
+      <IconButton
+        icon="checkCircle"
+        label={isRead ? t("未読にする") : t("既読にする")}
+        active={isRead}
+        onClick={() => onUpdateState(article.id, { isRead: !isRead })}
+      />
       <IconButton
         icon="queueAdd"
         label={inReadingList ? t("リーディングリストから削除") : t("リーディングリストに追加")}
@@ -328,6 +338,22 @@ function ArticleRow({
           <div style={{ fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: 1.4, marginTop: "2px" }}>
             {displayTitle}
           </div>
+          {article.previewText ? (
+            <div
+              style={{
+                color: palette.muted,
+                display: "-webkit-box",
+                fontSize: "13px",
+                lineHeight: 1.4,
+                marginTop: "2px",
+                overflow: "hidden",
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: 2,
+              }}
+            >
+              {article.previewText}
+            </div>
+          ) : null}
         </>
       )}
       {/* Web は記事詳細画面を持たず、記事タップで実際の元記事ページを開く (SPEC/SCREENS.md) */}

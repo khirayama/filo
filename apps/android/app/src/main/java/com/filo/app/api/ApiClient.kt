@@ -123,7 +123,7 @@ object ApiClient {
         var cursor: String? = null
         do {
             var path = "/api/v1/subscriptions?limit=100"
-            cursor?.let { path += "&cursor=$it" }
+            cursor?.let { path += "&cursor=" + URLEncoder.encode(it, "UTF-8") }
             val (data, next) = getList(path)
             for (i in 0 until data.length()) all.add(parseSubscription(data.getJSONObject(i)))
             cursor = next

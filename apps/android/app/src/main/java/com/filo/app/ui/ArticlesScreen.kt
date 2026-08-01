@@ -82,6 +82,8 @@ import androidx.compose.material3.AlertDialog
 @Composable
 fun ArticlesScreen(
     translations: TitleTranslationStore,
+    initialSelectedTagId: Int? = null,
+    onInitialSelectedTagConsumed: () -> Unit = {},
     onOpenSubscription: (Int) -> Unit,
     onOpenSubscriptions: () -> Unit,
     onOpenAddFeed: () -> Unit,
@@ -103,6 +105,7 @@ fun ArticlesScreen(
     val nextCursor = vm.nextCursor
 
     var selectedTagId by vm::selectedTagId
+    var readFilter by vm::readFilter
     var readingListOnly by vm::readingListOnly
     var bookmarkedOnly by vm::bookmarkedOnly
 
@@ -115,12 +118,27 @@ fun ArticlesScreen(
     DisposableEffect(Unit) {
         onDispose { vm.resetLoadState() }
     }
-    LaunchedEffect(selectedTagId, readingListOnly, bookmarkedOnly) {
+    LaunchedEffect(initialSelectedTagId) {
+        if (initialSelectedTagId != null) {
+            selectedTagId = initialSelectedTagId
+            readingListOnly = false
+            bookmarkedOnly = false
+            onInitialSelectedTagConsumed()
+        }
+    }
+    LaunchedEffect(selectedTagId, readFilter, readingListOnly, bookmarkedOnly) {
         vm.loadIfNeeded()
     }
     // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
     // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
-    LaunchedEffect(vm.articles, vm.language, vm.readableLanguages, vm.subscriptions, translations.isEnabled) {
+    LaunchedEffect(
+        vm.articles,
+        vm.language,
+        vm.readableLanguages,
+        vm.subscriptions,
+        translations.isEnabled,
+        translations.languages,
+    ) {
         translations.configure(vm.language, vm.readableLanguages)
         // 準備画面の候補は「購読に実在する言語」
         translations.setCandidates(vm.subscriptions)
@@ -135,6 +153,15 @@ fun ArticlesScreen(
         readingListOnly -> "リーディングリスト"
         bookmarkedOnly -> "ブックマーク"
         else -> "全ての記事"
+    }
+    val hasFetchingSubscriptionInScope = if (readingListOnly || bookmarkedOnly || readFilter != null) {
+        false
+    } else {
+        selectedTagId?.let { tagId ->
+            subscriptions.any {
+                it.initialFetchStatus == "fetching" && it.tagIds.contains(tagId)
+            }
+        } ?: subscriptions.any { it.initialFetchStatus == "fetching" }
     }
 
     ModalNavigationDrawer(
@@ -269,6 +296,19 @@ fun ArticlesScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
+                            .padding(top = 4.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilterChipButton("すべて", readFilter == null) { readFilter = null }
+                        FilterChipButton("未読のみ", readFilter == false) { readFilter = false }
+                        FilterChipButton("既読のみ", readFilter == true) { readFilter = true }
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
                             .padding(top = 4.dp, bottom = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -310,7 +350,7 @@ fun ArticlesScreen(
                                     Text("まだ購読がありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Button(onClick = onOpenAddFeed) { Text("フィードを追加して始めましょう") }
                                 }
-                                subscriptions.any { it.initialFetchStatus == "fetching" } -> {
+                                hasFetchingSubscriptionInScope -> {
                                     CircularProgressIndicator()
                                     Text("記事を取得しています…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     TextButton(onClick = { scope.launch { vm.reload() } }) { Text("更新") }
@@ -329,6 +369,7 @@ fun ArticlesScreen(
                                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
                                 }
                             },
+                            onToggleRead = { vm.patchState(article, isRead = !article.userState.isRead) },
                             onToggleReadingList = { vm.patchState(article, inReadingList = !article.userState.inReadingList) },
                             onToggleBookmark = { vm.patchState(article, isBookmarked = !article.userState.isBookmarked) },
                         )

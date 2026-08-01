@@ -82,6 +82,8 @@ final class TitleTranslationStore: ObservableObject {
 
     // 原文言語 -> 未翻訳のタイトル
     private var pending: [String: [(id: Int, title: String)]] = [:]
+    // 対応しているが未ダウンロードの言語ペア。準備完了後に pending へ戻す。
+    private var waitingForPreparation: [String: [(id: Int, title: String)]] = [:]
     // 同じ記事を二度投げないための記録
     private var requested: Set<Int> = []
     private var token = 0
@@ -93,6 +95,8 @@ final class TitleTranslationStore: ObservableObject {
     private var installedLanguages: [String] = []
     // 準備画面の候補。購読に実在する言語だけを並べる
     private var candidates: [String] = []
+    // 設定変更時に候補を再計算できるよう、絞り込み前の言語も保持する。
+    private var subscriptionLanguages: [String] = []
 
     private init() {
         isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
@@ -122,17 +126,13 @@ final class TitleTranslationStore: ObservableObject {
     // 準備画面の候補を購読の言語から作る。訳す必要がない言語は除く。
     // Web は対応言語を列挙できないため、3 プラットフォームで同じ出所にしてある。
     func setCandidates(_ subscriptions: [Subscription]) {
-        let targetBase = Self.baseCode(target)
-        candidates = subscriptions
+        subscriptionLanguages = subscriptions
             .compactMap { $0.feed.language }
-            .filter { code in
-                let base = Self.baseCode(code)
-                return base != targetBase && !readableLanguages.contains(base)
-            }
             .reduce(into: [String]()) { unique, code in
                 if !unique.contains(code) { unique.append(code) }
             }
             .sorted()
+        updateCandidates()
     }
 
     // 候補の言語ごとに、表示言語へ翻訳できるかを OS へ問い合わせる
@@ -146,15 +146,15 @@ final class TitleTranslationStore: ObservableObject {
             switch status {
             case .installed: result.append(TitleTranslationLanguage(code: code, status: .installed))
             case .supported: result.append(TitleTranslationLanguage(code: code, status: .downloadable))
-            case .unsupported: continue  // 端末が訳せない組み合わせは並べない
-            @unknown default: continue
+            case .unsupported: result.append(TitleTranslationLanguage(code: code, status: .unsupported))
+            @unknown default: result.append(TitleTranslationLanguage(code: code, status: .unknown))
             }
         }
 
         languages = result.sorted { $0.displayName < $1.displayName }
-        // 候補があるのに 1 つも訳せないなら、原因は言語ペアではなく端末側にある
-        isDeviceSupported = candidates.isEmpty || !result.isEmpty
+        isDeviceSupported = candidates.isEmpty || result.contains { $0.status == .installed || $0.status == .downloadable }
         installedLanguages = result.filter { $0.status == .installed }.map(\.code)
+        resumePreparedTitles()
         hasCheckedLanguages = true
         #if DEBUG
         print("[title-translation] target=\(target) supported=\(isDeviceSupported) installed=\(installedLanguages)")
@@ -173,22 +173,26 @@ final class TitleTranslationStore: ObservableObject {
 
     // 表示言語と「原文のまま読む言語」を反映する。表示言語が変われば翻訳結果は使えない。
     func configure(language: String, readableLanguages: [String]) {
+        let readableChanged = self.readableLanguages != readableLanguages
         self.readableLanguages = readableLanguages
-        guard language != target else { return }
+        guard language != target || readableChanged else { return }
         target = language
         reset()
+        updateCandidates()
     }
 
     // 表示中の記事を翻訳対象として登録する。トグル ON の間はスクロールで増えた分も翻訳する。
     func register(_ articles: [ArticleListItem]) {
         guard isEnabled else { return }
+        let waitingIds = Set(waitingForPreparation.values.flatMap { $0.map(\.id) })
         for article in articles where !requested.contains(article.id) {
-            requested.insert(article.id)
+            guard !waitingIds.contains(article.id) else { continue }
             let title = article.title.trimmingCharacters(in: .whitespacesAndNewlines)
             // 原文言語はサーバーが決めている。不明な記事は原文のまま出す
             guard !title.isEmpty, let source = article.sourceLanguage else { continue }
             guard TitleTranslationRules.needsTranslation(source: source, target: target, readable: readableLanguages)
             else { continue }
+            requested.insert(article.id)
             pending[source, default: []].append((id: article.id, title: title))
         }
         #if DEBUG
@@ -208,8 +212,10 @@ final class TitleTranslationStore: ObservableObject {
         if current.isPreparation {
             do {
                 try await session.prepareTranslation()
+                guard batch?.token == current.token else { return }
                 lastError = nil
             } catch {
+                guard batch?.token == current.token else { return }
                 lastError = error.localizedDescription
                 #if DEBUG
                 print("[title-translation] prepare \(current.source) -> \(current.target): \(error)")
@@ -234,8 +240,13 @@ final class TitleTranslationStore: ObservableObject {
             from: Locale.Language(identifier: current.source),
             to: Locale.Language(identifier: current.target),
         )
+        guard batch?.token == current.token else { return }
         guard availability == .installed else {
             lastError = "\(Locale.current.localizedString(forLanguageCode: Self.baseCode(current.source)) ?? current.source)は準備できていません。設定の「翻訳の準備」からダウンロードしてください。"
+            requested.subtract(items.map(\.id))
+            if availability == .supported {
+                waitingForPreparation[current.source, default: []].append(contentsOf: items)
+            }
             await refreshLanguages()
             finish(token: current.token)
             return
@@ -247,6 +258,7 @@ final class TitleTranslationStore: ObservableObject {
             }
             // 応答順は保証されないので clientIdentifier で戻す
             let responses = try await session.translations(from: requests)
+            guard batch?.token == current.token else { return }
             for response in responses {
                 guard let identifier = response.clientIdentifier, let id = Int(identifier) else { continue }
                 let text = response.targetText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -255,6 +267,7 @@ final class TitleTranslationStore: ObservableObject {
             }
             lastError = nil
         } catch {
+            guard batch?.token == current.token else { return }
             // このバッチは原文のまま残す。黙って落ちると原因が追えないので理由は残す
             lastError = error.localizedDescription
             #if DEBUG
@@ -274,6 +287,7 @@ final class TitleTranslationStore: ObservableObject {
     private func reset() {
         titles.removeAll()
         pending.removeAll()
+        waitingForPreparation.removeAll()
         requested.removeAll()
         // 表示言語が変われば言語ペアの可否も変わるので、確認からやり直す
         hasCheckedLanguages = false
@@ -292,6 +306,23 @@ final class TitleTranslationStore: ObservableObject {
         token += 1
         isTranslating = true
         batch = TitleTranslationBatch(source: source, target: target, token: token, isPreparation: false)
+    }
+
+    private func resumePreparedTitles() {
+        for source in installedLanguages {
+            guard let items = waitingForPreparation.removeValue(forKey: source) else { continue }
+            pending[source, default: []].append(contentsOf: items)
+            requested.formUnion(items.map(\.id))
+        }
+        startNextBatchIfIdle()
+    }
+
+    private func updateCandidates() {
+        let targetBase = Self.baseCode(target)
+        candidates = subscriptionLanguages.filter { code in
+            let base = Self.baseCode(code)
+            return base != targetBase && !readableLanguages.contains(where: { Self.baseCode($0) == base })
+        }
     }
 
     private static func baseCode(_ code: String) -> String { TitleTranslationRules.baseCode(code) }
@@ -347,13 +378,15 @@ struct TitleTranslationToggle: View {
     @ObservedObject var store: TitleTranslationStore
 
     var body: some View {
-        Button {
-            store.toggle()
-        } label: {
-            Label(
-                store.isEnabled ? "原文タイトルに戻す" : "タイトルを翻訳",
-                systemImage: store.isEnabled ? "character.book.closed" : "translate",
-            )
+        if store.isDeviceSupported {
+            Button {
+                store.toggle()
+            } label: {
+                Label(
+                    store.isEnabled ? "原文タイトルに戻す" : "タイトルを翻訳",
+                    systemImage: store.isEnabled ? "character.book.closed" : "translate",
+                )
+            }
         }
     }
 }

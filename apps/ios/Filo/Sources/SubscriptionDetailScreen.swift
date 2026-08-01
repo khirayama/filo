@@ -9,10 +9,18 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var articles: [ArticleListItem] = []
     @Published var nextCursor: String?
     @Published var isLoading = true
+    @Published var isLoadingMore = false
     @Published var isGone = false
     @Published var errorMessage: String?
 
-    @Published var sort = "published_at_desc"
+    @Published var sort = "published_at_desc" {
+        didSet { if sort != oldValue { invalidateArticleRequests() } }
+    }
+    @Published var readFilter: Bool? {
+        didSet { if readFilter != oldValue { invalidateArticleRequests() } }
+    }
+
+    private var articleGeneration = 0
 
     let subscriptionId: Int
 
@@ -24,6 +32,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
         ArticleListFilters(
             subscriptionId: subscriptionId,
             tagId: nil,
+            read: readFilter,
             sort: sort
         )
     }
@@ -48,38 +57,61 @@ final class SubscriptionDetailViewModel: ObservableObject {
     }
 
     func reloadArticles() async {
+        invalidateArticleRequests()
+        let currentGeneration = articleGeneration
         do {
             let result = try await APIClient.shared.listArticles(filters: filters)
+            guard articleGeneration == currentGeneration else { return }
             articles = result.articles
             nextCursor = result.nextCursor
+            errorMessage = nil
         } catch {
-            errorMessage = ErrorMessages.message(for: error)
+            if articleGeneration == currentGeneration {
+                errorMessage = ErrorMessages.message(for: error)
+            }
         }
     }
 
     func loadMore() async {
-        guard let cursor = nextCursor else { return }
+        guard let cursor = nextCursor, !isLoadingMore else { return }
+        let currentGeneration = articleGeneration
+        isLoadingMore = true
         do {
             let result = try await APIClient.shared.listArticles(filters: filters, cursor: cursor)
+            guard articleGeneration == currentGeneration else { return }
             articles.append(contentsOf: result.articles)
             nextCursor = result.nextCursor
         } catch {
-            errorMessage = ErrorMessages.message(for: error)
+            if articleGeneration == currentGeneration {
+                errorMessage = ErrorMessages.message(for: error)
+            }
         }
+        if articleGeneration == currentGeneration { isLoadingMore = false }
     }
 
-    func patchState(_ articleId: Int, isRead: Bool? = nil, isBookmarked: Bool? = nil) async {
+    private func invalidateArticleRequests() {
+        articleGeneration += 1
+        isLoadingMore = false
+    }
+
+    func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
         do {
             let state: ArticleUserState
             if let isRead {
                 state = try await APIClient.shared.setArticleRead(articleId, isRead: isRead)
+            } else if let inReadingList {
+                state = try await APIClient.shared.setReadingListMembership(articleId, active: inReadingList)
             } else if let isBookmarked {
                 state = try await APIClient.shared.setBookmarkMembership(articleId, active: isBookmarked)
             } else {
                 return
             }
             if let index = articles.firstIndex(where: { $0.id == articleId }) {
-                articles[index].userState = state
+                if readFilter == nil || state.isRead == readFilter {
+                    articles[index].userState = state
+                } else {
+                    articles.remove(at: index)
+                }
             }
         } catch {
             errorMessage = ErrorMessages.message(for: error)
@@ -188,6 +220,7 @@ struct SubscriptionDetailScreen: View {
         }
         .task { await model.load() }
         .onChange(of: model.sort) { Task { await model.reloadArticles() } }
+        .onChange(of: model.readFilter) { Task { await model.reloadArticles() } }
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
         .onChange(of: model.articles, initial: true) { translations.register(model.articles) }
         .onChange(of: translations.isEnabled) { translations.register(model.articles) }
@@ -218,6 +251,12 @@ struct SubscriptionDetailScreen: View {
                         Text("取得日時が新しい順").tag("fetched_at_desc")
                     }
                     .pickerStyle(.menu)
+                    Picker("既読状態", selection: $model.readFilter) {
+                        Text("すべて").tag(Bool?.none)
+                        Text("未読のみ").tag(Bool?.some(false))
+                        Text("既読のみ").tag(Bool?.some(true))
+                    }
+                    .pickerStyle(.segmented)
                 }
             }
             if model.isRefreshingFeed {
@@ -235,7 +274,11 @@ struct SubscriptionDetailScreen: View {
                 if model.isLoading {
                     ProgressView("読み込み中…")
                 } else if model.articles.isEmpty {
-                    if model.subscription?.initialFetchStatus == "fetching" {
+                    if model.readFilter == false {
+                        EmptyStateView { Text("未読の記事はありません。") }
+                    } else if model.readFilter == true {
+                        EmptyStateView { Text("既読の記事はありません。") }
+                    } else if model.subscription?.initialFetchStatus == "fetching" {
                         EmptyStateView {
                             ProgressView()
                             Text("記事を取得しています…")
@@ -253,6 +296,15 @@ struct SubscriptionDetailScreen: View {
                         .buttonStyle(.plain)
                         .swipeActions(edge: .trailing) {
                             Button {
+                                Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
+                            } label: {
+                                Label(
+                                    article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
+                                    systemImage: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus"
+                                )
+                            }
+                            .tint(.blue)
+                            Button {
                                 Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
                             } label: {
                                 Label(
@@ -262,9 +314,23 @@ struct SubscriptionDetailScreen: View {
                             }
                             .tint(.yellow)
                         }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
+                            } label: {
+                                Label(
+                                    article.userState.isRead ? "未読にする" : "既読にする",
+                                    systemImage: article.userState.isRead ? "circle" : "checkmark.circle"
+                                )
+                            }
+                            .tint(.green)
+                        }
                     }
                     if model.nextCursor != nil {
-                        Button("さらに読み込む") { Task { await model.loadMore() } }
+                        Button(model.isLoadingMore ? "読み込み中…" : "さらに読み込む") {
+                            Task { await model.loadMore() }
+                        }
+                        .disabled(model.isLoadingMore)
                     }
                 }
             }

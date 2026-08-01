@@ -42,9 +42,15 @@ export function SubscriptionsPage() {
 
   const load = appData.refresh;
 
-  const moveSubscription = async (id: number, direction: -1 | 1) => {
-    const next = moveItem(subscriptions, id, direction, (s) => s.id);
-    if (!next) return;
+  const moveSubscription = async (id: number, direction: -1 | 1, groupItems: Subscription[]) => {
+    const groupIndex = groupItems.findIndex((subscription) => subscription.id === id);
+    const neighbor = groupItems[groupIndex + direction];
+    if (groupIndex < 0 || !neighbor) return;
+    const index = subscriptions.findIndex((subscription) => subscription.id === id);
+    const neighborIndex = subscriptions.findIndex((subscription) => subscription.id === neighbor.id);
+    if (index < 0 || neighborIndex < 0) return;
+    const next = [...subscriptions];
+    [next[index], next[neighborIndex]] = [next[neighborIndex]!, next[index]!];
     setSubscriptions(next);
     setBusy(true);
     try {
@@ -182,8 +188,8 @@ export function SubscriptionsPage() {
                         subscription={subscription}
                         allTags={tags}
                         busy={busy}
-                        onMoveUp={() => void moveSubscription(subscription.id, -1)}
-                        onMoveDown={() => void moveSubscription(subscription.id, 1)}
+                        onMoveUp={() => void moveSubscription(subscription.id, -1, group.items)}
+                        onMoveDown={() => void moveSubscription(subscription.id, 1, group.items)}
                         onTagsChange={(tagIds) => void updateSubscriptionTags(subscription.id, tagIds)}
                       />
                     ))}

@@ -56,6 +56,7 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
   const [preparationProgress, setPreparationProgress] = useState<TitleTranslationProgress | null>(null);
   const [preparationError, setPreparationError] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
+  const languageCheckGeneration = useRef(0);
 
   // 候補は「購読に実在する言語」。サーバーが決めた feed の言語から作る。
   // 標準APIとWASMのどちらを使うかは翻訳モジュール側で選ぶ。
@@ -70,15 +71,26 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
     }
     return [...codes].sort();
   }, [subscriptions, language, readableLanguages]);
+  const readableLanguagesKey = [...readableLanguages].sort().join(",");
+  const configurationKey = `${language}:${readableLanguagesKey}`;
 
   const refreshLanguages = useCallback(async () => {
+    const generation = ++languageCheckGeneration.current;
     const result: TitleTranslationLanguage[] = [];
     for (const code of candidates) {
       result.push({ code, status: await titleTranslationStatus(code, language) });
     }
+    if (languageCheckGeneration.current !== generation) return;
     setLanguages(result);
     setCheckedLanguages(true);
   }, [candidates, language]);
+
+  useEffect(() => {
+    languageCheckGeneration.current++;
+    setCheckedLanguages(false);
+    setLanguages([]);
+    if (enabled && candidates.length > 0) void refreshLanguages();
+  }, [enabled, candidates, language, refreshLanguages]);
 
   const prepare = useCallback(
     async (code: string) => {
@@ -106,13 +118,16 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
   );
   // 同じ記事を二度投げないための記録。トグル OFF と表示言語の変更でリセットする。
   const requested = useRef(new Set<number>());
+  const activeConfiguration = useRef(configurationKey);
   // 翻訳は 1 本ずつ直列に流す。スクロール中に何度呼ばれても順番待ちになるだけ。
   const chain = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
+    if (activeConfiguration.current === configurationKey) return;
+    activeConfiguration.current = configurationKey;
     requested.current = new Set();
     setTitles(new Map());
-  }, [language]);
+  }, [configurationKey]);
 
   const toggle = useCallback(() => {
     setEnabled((prev) => {
@@ -122,9 +137,11 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
       // ON にした時点で準備状況を確かめ、1 つも使えないなら準備画面へ誘導する
       if (next) {
         void (async () => {
+          const generation = ++languageCheckGeneration.current;
           const statuses = await Promise.all(
             candidates.map((code) => titleTranslationStatus(code, language)),
           );
+          if (languageCheckGeneration.current !== generation) return;
           setLanguages(candidates.map((code, index) => ({ code, status: statuses[index]! })));
           setCheckedLanguages(true);
           if (!statuses.includes("installed")) setShowSetup(true);
@@ -137,7 +154,21 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
   const request = useCallback(
     (items: { id: number; title: string; sourceLanguage: string | null }[]) => {
       if (!enabled || !titleTranslationSupported) return;
-      const fresh = items.filter((item) => !requested.current.has(item.id));
+      if (activeConfiguration.current !== configurationKey) {
+        activeConfiguration.current = configurationKey;
+        requested.current = new Set();
+        setTitles(new Map());
+      }
+      const requestConfiguration = configurationKey;
+      const installedSources = new Set(
+        languages
+          .filter((entry) => entry.status === "installed")
+          .map((entry) => entry.code.toLowerCase().split("-")[0]),
+      );
+      const fresh = items.filter((item) => {
+        const source = item.sourceLanguage?.toLowerCase().split("-")[0];
+        return source != null && installedSources.has(source) && !requested.current.has(item.id);
+      });
       if (fresh.length === 0) return;
       for (const item of fresh) requested.current.add(item.id);
 
@@ -149,6 +180,7 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
             targetLanguage: language,
             readableLanguages,
             onTranslated: (id, title) => {
+              if (activeConfiguration.current !== requestConfiguration) return;
               setTitles((prev) => new Map(prev).set(id, title));
             },
           }).then(() => undefined),
@@ -156,14 +188,21 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
         .catch(() => undefined)
         .finally(() => setTranslating(false));
     },
-    [enabled, language, readableLanguages],
+    [configurationKey, enabled, language, readableLanguages, languages],
   );
 
-  const titleFor = useCallback((articleId: number) => titles.get(articleId) ?? null, [titles]);
+  const titleFor = useCallback(
+    (articleId: number) => enabled && activeConfiguration.current === configurationKey ? titles.get(articleId) ?? null : null,
+    [configurationKey, enabled, titles],
+  );
+
+  const supported = titleTranslationSupported
+    && candidates.length > 0
+    && (!checkedLanguages || languages.some((entry) => entry.status !== "unavailable"));
 
   const value = useMemo(
     () => ({
-      supported: titleTranslationSupported,
+      supported,
       enabled,
       translating,
       toggle,
@@ -179,7 +218,7 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
       request,
       titleFor,
     }),
-    [enabled, translating, toggle, languages, checkedLanguages, preparing, preparationProgress, preparationError, showSetup, refreshLanguages, prepare, request, titleFor],
+    [supported, enabled, translating, toggle, languages, checkedLanguages, preparing, preparationProgress, preparationError, showSetup, refreshLanguages, prepare, request, titleFor],
   );
 
   return <TitleTranslationContext.Provider value={value}>{children}</TitleTranslationContext.Provider>;

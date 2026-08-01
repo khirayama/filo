@@ -29,13 +29,16 @@ class ArticlesViewModel : ViewModel() {
     var refreshNotice by mutableStateOf<String?>(null)
 
     var selectedTagId by mutableStateOf<Int?>(null)
+    var readFilter by mutableStateOf<Boolean?>(null)
     var readingListOnly by mutableStateOf(false)
     var bookmarkedOnly by mutableStateOf(false)
 
     private var lastLoadedFilters = ""
+    private var articleGeneration = 0L
 
     private fun filters() = ArticleListFilters(
         tagId = selectedTagId,
+        read = readFilter,
         readingList = if (readingListOnly) true else null,
         bookmarked = if (bookmarkedOnly) true else null,
     )
@@ -45,47 +48,69 @@ class ArticlesViewModel : ViewModel() {
     }
 
     fun loadIfNeeded() {
-        val current = "${selectedTagId}|${readingListOnly}|${bookmarkedOnly}"
+        val current = "${selectedTagId}|${readFilter}|${readingListOnly}|${bookmarkedOnly}"
         if (lastLoadedFilters == current) return
         lastLoadedFilters = current
         viewModelScope.launch { reload() }
     }
 
     suspend fun reload() {
+        val requestGeneration = ++articleGeneration
+        val requestFilters = filters()
         isLoading = true
+        isLoadingMore = false
+        nextCursor = null
         errorMessage = null
         try {
-            val page = ApiClient.listArticles(filters())
+            val page = ApiClient.listArticles(requestFilters)
+            if (requestGeneration != articleGeneration || requestFilters != filters()) return
             articles = page.articles
             nextCursor = page.nextCursor
-            runCatching { tags = ApiClient.listTags() }
-            runCatching { subscriptions = ApiClient.listSubscriptions() }
+            runCatching { ApiClient.listTags() }.getOrNull()?.let {
+                if (requestGeneration == articleGeneration) tags = it
+            }
+            runCatching { ApiClient.listSubscriptions() }.getOrNull()?.let {
+                if (requestGeneration == articleGeneration) subscriptions = it
+            }
             runCatching {
-                val settings = ApiClient.getSettings()
-                openInBrowserByDefault = settings.openInBrowserByDefault
-                theme = settings.theme
-                language = settings.language
-                readableLanguages = settings.readableLanguages
+                ApiClient.getSettings()
+            }.getOrNull()?.let { settings ->
+                if (requestGeneration == articleGeneration) {
+                    openInBrowserByDefault = settings.openInBrowserByDefault
+                    theme = settings.theme
+                    language = settings.language
+                    readableLanguages = settings.readableLanguages
+                }
             }
         } catch (e: Exception) {
-            errorMessage = ErrorMessages.forError(e)
+            if (requestGeneration == articleGeneration && requestFilters == filters()) {
+                errorMessage = ErrorMessages.forError(e)
+            }
+        } finally {
+            if (requestGeneration == articleGeneration) isLoading = false
         }
-        isLoading = false
     }
 
     fun loadMore() {
         val cursor = nextCursor ?: return
         if (isLoadingMore) return
+        val requestGeneration = articleGeneration
+        val requestFilters = filters()
         isLoadingMore = true
         viewModelScope.launch {
             try {
-                val page = ApiClient.listArticles(filters(), cursor = cursor)
-                articles = articles + page.articles
-                nextCursor = page.nextCursor
+                val page = ApiClient.listArticles(requestFilters, cursor = cursor)
+                if (requestGeneration == articleGeneration && requestFilters == filters()) {
+                    articles = articles + page.articles
+                    nextCursor = page.nextCursor
+                }
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                if (requestGeneration == articleGeneration && requestFilters == filters()) {
+                    errorMessage = ErrorMessages.forError(e)
+                }
+            } finally {
+                if (requestGeneration == articleGeneration) isLoadingMore = false
             }
-            isLoadingMore = false
         }
     }
 
@@ -132,6 +157,7 @@ class ArticlesViewModel : ViewModel() {
                 articles = articles.mapNotNull {
                     if (it.id != article.id) it
                     else if (
+                        (readFilter != null && state.isRead != readFilter) ||
                         (readingListOnly && !state.inReadingList) ||
                         (bookmarkedOnly && !state.isBookmarked)
                     ) null

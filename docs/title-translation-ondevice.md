@@ -20,10 +20,10 @@
 
 ```
 端末内翻訳が使える  → 判定も翻訳も端末で行う
-端末内翻訳が使えない → 翻訳トグルを出さない（原文のまま）
+対応する端末内エンジンがない → 翻訳トグルを出さない（原文のまま）
 ```
 
-サーバ経路のフォールバックは**作らない**（2026-07-28 決定）。iOS は deploymentTarget を 18 に上げたので常に Translation framework が使え、Android は ML Kit が使える。残るのは Translator API を持たないブラウザ（Safari / Firefox）だけで、そこではトグル自体を出さない。
+サーバ経路のフォールバックは**作らない**（2026-07-28 決定）。iOS は Translation framework、Android は ML Kit を使う。Web は Translator API を優先し、非対応ブラウザでは Transformers.js + ONNX Runtime Web の WASM モデルを端末内で実行する。どちらの端末内経路も対応しない言語ペアではトグルを出さない。
 
 フォールバックが要ると分かった時点で、判定も翻訳もサーバに委ねる同期 endpoint を 1 本足す（§5）。プラットフォームごとに別経路を作らないことは維持する。
 
@@ -88,7 +88,7 @@ franc-min（127KB、ESM）。Workers に載る現実的な選択肢はこれだ�
 | --- | --- | --- | --- |
 | iOS | Apple Translation framework（`TranslationSession`） | 言語ペア未対応 | そのタイトルは原文のまま |
 | Android | ML Kit Translation（既存依存） | Play Services 不在、モデル取得失敗 | そのタイトルは原文のまま |
-| Web | `Translator` API（Chrome / Edge 138+） | Safari、Firefox、`availability()` が `unavailable` | トグルを出さない |
+| Web | `Translator` APIを優先、Transformers.js + ONNX Runtime Webをフォールバック | 両エンジンが言語ペア非対応 | トグルを出さない |
 | Extension | 変更なし（本文はブラウザ翻訳のまま。キューのタイトルは原文） | — | — |
 
 実装上の注意:
@@ -109,7 +109,7 @@ franc-min（127KB、ESM）。Workers に載る現実的な選択肢はこれだ�
 - **言語モデルの取得は準備画面（設定 →「翻訳の準備」）でのみ行う。** 一覧のスクロール中に取得を走らせると OS の確認ダイアログが不意に割り込むうえ、失敗しても理由が伝わらない。翻訳経路では `LanguageAvailability` が `.installed` でない言語ペアを素通しし、準備画面に状態（準備済み / 未ダウンロード / 非対応）と直近のエラーを出す
 - **Android**: 既存の `ReaderPageController` と同じ `Translation.getClient()` / `downloadModelIfNeeded()` の形をそのまま使う。source 言語が必須なので、判定に失敗したタイトルは翻訳せず原文のまま残す
 - **Web**: `Translator.availability({sourceLanguage, targetLanguage})` を確認してから `create()`。`unavailable` のペアは原文のまま残す
-- **Transformers.js は採用しない。** 数百MB のモデル取得が必要で、その負担が最も重い環境（iOS Safari）にちょうど落ちる。同じボタンが Chrome では即時、Safari では数百MB + 数十秒になる非対称は許容しない
+- **Web のローカルフォールバックには Transformers.js を採用する。** モデル取得は一覧スクロール中に暗黙で開始せず、翻訳準備画面の明示操作に限定する。取得量と初期化時間は進捗として表示し、対応ペアがなければ原文のままにする
 
 ## 5. サーバ API
 
@@ -208,6 +208,6 @@ migration `0002_ondevice_title_translation.sql`:
 
 積み残し:
 
-- Safari / Firefox の Web ではタイトル翻訳が使えない。トグルを出さないので壊れては見えないが、機能としては欠けている
+- Web の WASM フォールバックはモデルが大きいため、初回準備の実機計測とモデル構成の継続的な見直しが必要
 - Extension の音読キューはタイトルを原文のまま表示する（Web 本体のキューは一覧と同じ翻訳結果を使う）
 - 実機での体感（初回の言語モデル取得にかかる時間、一覧スクロール中の追従）は未計測

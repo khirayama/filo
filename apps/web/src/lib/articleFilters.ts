@@ -10,6 +10,8 @@ export function useArticleFilterParams() {
   const tagId = tagIdParam && /^\d+$/.test(tagIdParam) ? Number(tagIdParam) : undefined;
   const bookmarkedOnly = searchParams.get("bookmarked") === "1";
   const readingListOnly = searchParams.get("readingList") === "1";
+  const readParam = searchParams.get("read");
+  const read = readParam === "1" ? true : readParam === "0" ? false : undefined;
   const sortParam = searchParams.get("sort");
   const sort: ArticleSortOrder | undefined =
     sortParam === "published_at_desc" || sortParam === "fetched_at_desc" ? sortParam : undefined;
@@ -21,11 +23,18 @@ export function useArticleFilterParams() {
     setSearchParams(next);
   };
 
+  const setRead = (value: boolean | undefined) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === undefined) next.delete("read");
+    else next.set("read", value ? "1" : "0");
+    setSearchParams(next);
+  };
+
   const clearTag = () => {
     const next = new URLSearchParams(searchParams);
     next.delete("tagId");
     setSearchParams(next);
   };
 
-  return { tagId, bookmarkedOnly, readingListOnly, sort, setSort, clearTag };
+  return { tagId, bookmarkedOnly, readingListOnly, read, sort, setRead, setSort, clearTag };
 }

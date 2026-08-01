@@ -53,6 +53,7 @@ import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,43 +70,85 @@ fun SubscriptionDetailScreen(
     var allTags by remember { mutableStateOf<List<Tag>>(emptyList()) }
     var articles by remember { mutableStateOf<List<ArticleListItem>>(emptyList()) }
     var nextCursor by remember { mutableStateOf<String?>(null) }
+    var isLoadingMore by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
     var isGone by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     var sort by remember { mutableStateOf("published_at_desc") }
+    var readFilter by remember { mutableStateOf<Boolean?>(null) }
 
     var showRename by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
     var showUnsubscribe by remember { mutableStateOf(false) }
     var showMarkAllRead by remember { mutableStateOf(false) }
     var showFeedUrl by remember { mutableStateOf(false) }
+    val articleGeneration = remember(subscriptionId) { AtomicLong(0L) }
 
     fun filters() = ArticleListFilters(
         subscriptionId = subscriptionId,
+        read = readFilter,
         sort = sort,
     )
 
     suspend fun reloadArticles() {
+        val requestGeneration = articleGeneration.incrementAndGet()
+        val requestFilters = filters()
+        isLoadingMore = false
+        nextCursor = null
         try {
-            val page = ApiClient.listArticles(filters())
-            articles = page.articles
-            nextCursor = page.nextCursor
+            val page = ApiClient.listArticles(requestFilters)
+            if (requestGeneration == articleGeneration.get() && requestFilters == filters()) {
+                articles = page.articles
+                nextCursor = page.nextCursor
+            }
         } catch (e: Exception) {
-            errorMessage = ErrorMessages.forError(e)
+            if (requestGeneration == articleGeneration.get() && requestFilters == filters()) {
+                errorMessage = ErrorMessages.forError(e)
+            }
         }
     }
 
-    fun patchState(article: ArticleListItem, isRead: Boolean? = null, isBookmarked: Boolean? = null) {
+    fun loadMore() {
+        val cursor = nextCursor ?: return
+        if (isLoadingMore) return
+        val requestGeneration = articleGeneration.get()
+        val requestFilters = filters()
+        isLoadingMore = true
+        scope.launch {
+            try {
+                val page = ApiClient.listArticles(requestFilters, cursor = cursor)
+                if (requestGeneration == articleGeneration.get() && requestFilters == filters()) {
+                    articles = articles + page.articles
+                    nextCursor = page.nextCursor
+                }
+            } catch (e: Exception) {
+                if (requestGeneration == articleGeneration.get() && requestFilters == filters()) {
+                    errorMessage = ErrorMessages.forError(e)
+                }
+            } finally {
+                if (requestGeneration == articleGeneration.get()) isLoadingMore = false
+            }
+        }
+    }
+
+    fun patchState(
+        article: ArticleListItem,
+        isRead: Boolean? = null,
+        inReadingList: Boolean? = null,
+        isBookmarked: Boolean? = null,
+    ) {
         scope.launch {
             try {
                 val state = when {
                     isRead != null -> ApiClient.setArticleRead(article.id, isRead)
+                    inReadingList != null -> ApiClient.setReadingListMembership(article.id, inReadingList)
                     isBookmarked != null -> ApiClient.setBookmarkMembership(article.id, isBookmarked)
                     else -> return@launch
                 }
                 articles = articles.mapNotNull {
                     if (it.id != article.id) it
+                    else if (readFilter != null && state.isRead != readFilter) null
                     else it.copy(userState = state)
                 }
             } catch (e: Exception) {
@@ -133,8 +176,8 @@ fun SubscriptionDetailScreen(
 
     LaunchedEffect(Unit) { reload() }
     // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
-    LaunchedEffect(articles, translations.isEnabled) { translations.register(articles) }
-    LaunchedEffect(sort) {
+    LaunchedEffect(articles, translations.isEnabled, translations.languages) { translations.register(articles) }
+    LaunchedEffect(sort, readFilter) {
         if (!isLoading) reloadArticles()
     }
 
@@ -266,6 +309,20 @@ fun SubscriptionDetailScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
+                                "既読状態",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            FilterChipButton("すべて", readFilter == null) { readFilter = null }
+                            FilterChipButton("未読のみ", readFilter == false) { readFilter = false }
+                            FilterChipButton("既読のみ", readFilter == true) { readFilter = true }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
                                 "並び順",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -309,7 +366,7 @@ fun SubscriptionDetailScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        if (subscription?.initialFetchStatus == "fetching") {
+                        if (readFilter == null && subscription?.initialFetchStatus == "fetching") {
                             CircularProgressIndicator()
                             Text("記事を取得しています…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
@@ -327,6 +384,10 @@ fun SubscriptionDetailScreen(
                                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
                             }
                         },
+                        onToggleRead = { patchState(article, isRead = !article.userState.isRead) },
+                        onToggleReadingList = {
+                            patchState(article, inReadingList = !article.userState.inReadingList)
+                        },
                         onToggleBookmark = { patchState(article, isBookmarked = !article.userState.isBookmarked) },
                     )
                     HorizontalDivider()
@@ -335,18 +396,9 @@ fun SubscriptionDetailScreen(
                     item {
                         TextButton(
                             modifier = Modifier.fillMaxWidth(),
-                            onClick = {
-                                scope.launch {
-                                    try {
-                                        val page = ApiClient.listArticles(filters(), cursor = nextCursor)
-                                        articles = articles + page.articles
-                                        nextCursor = page.nextCursor
-                                    } catch (e: Exception) {
-                                        errorMessage = ErrorMessages.forError(e)
-                                    }
-                                }
-                            },
-                        ) { Text("さらに読み込む") }
+                            enabled = !isLoadingMore,
+                            onClick = ::loadMore,
+                        ) { Text(if (isLoadingMore) "読み込み中…" else "さらに読み込む") }
                     }
                 }
             }

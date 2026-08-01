@@ -12,6 +12,7 @@ struct TagsScreen: View {
     @State private var editColor = ""
     @State private var pendingDelete: [Tag] = []
     @State private var showDeleteConfirm = false
+    @State private var isReordering = false
 
     var body: some View {
         List {
@@ -87,15 +88,13 @@ struct TagsScreen: View {
                         }
                     }
                     .onMove { source, destination in
-                        tags.move(fromOffsets: source, toOffset: destination)
-                        Task {
-                            try? await APIClient.shared.reorderTags(tags.map(\.id))
-                        }
+                        reorderTags(from: source, to: destination)
                     }
                     .onDelete { offsets in
                         pendingDelete = offsets.map { tags[$0] }
                         showDeleteConfirm = true
                     }
+                    .moveDisabled(isReordering)
                 }
             }
         }
@@ -130,6 +129,24 @@ struct TagsScreen: View {
             errorMessage = ErrorMessages.message(for: error)
         }
         await load()
+    }
+
+    private func reorderTags(from source: IndexSet, to destination: Int) {
+        guard !isReordering else { return }
+        let original = tags
+        tags.move(fromOffsets: source, toOffset: destination)
+        let reorderedIds = tags.map(\.id)
+        isReordering = true
+        Task {
+            do {
+                try await APIClient.shared.reorderTags(reorderedIds)
+                errorMessage = nil
+            } catch {
+                tags = original
+                errorMessage = ErrorMessages.message(for: error)
+            }
+            isReordering = false
+        }
     }
 
     private func load() async {

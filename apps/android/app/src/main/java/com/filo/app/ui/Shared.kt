@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -167,6 +168,7 @@ fun FaviconImage(url: String?, siteUrl: String? = null, modifier: Modifier = Mod
 fun ArticleRow(
     article: ArticleListItem,
     onOpen: () -> Unit,
+    onToggleRead: (() -> Unit)? = null,
     onToggleReadingList: (() -> Unit)? = null,
     onToggleBookmark: (() -> Unit)? = null,
     translations: TitleTranslationStore? = null,
@@ -205,6 +207,20 @@ fun ArticleRow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 FaviconImage(url = article.feedFaviconUrl, siteUrl = article.canonicalUrl)
+                if (onToggleRead != null) {
+                    Surface(onClick = onToggleRead, shape = MaterialTheme.shapes.extraSmall, color = Color.Transparent) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = if (article.userState.isRead) "未読にする" else "既読にする",
+                            tint = if (article.userState.isRead) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            modifier = Modifier.size(18.dp).padding(horizontal = 1.dp),
+                        )
+                    }
+                }
                 if (onToggleReadingList != null) {
                     Surface(onClick = onToggleReadingList, shape = MaterialTheme.shapes.extraSmall, color = Color.Transparent) {
                         Icon(
@@ -272,7 +288,7 @@ fun relativeTime(iso: String?): String {
             minutes < 60 -> "${minutes}分前"
             minutes < 60 * 24 -> "${minutes / 60}時間前"
             minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}日前"
-            else -> DateTimeFormatter.ofPattern("yyyy/M/d", Locale.JAPAN)
+            else -> DateTimeFormatter.ofPattern("yyyy/M/d", Locale.getDefault())
                 .format(instant.atZone(java.time.ZoneId.systemDefault()))
         }
     } catch (e: Exception) {

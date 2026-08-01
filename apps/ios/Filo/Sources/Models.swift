@@ -189,7 +189,7 @@ enum DateFormatting {
     static func relative(_ value: String?) -> String {
         guard let date = parse(value) else { return "" }
         let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.locale = .current
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
     }

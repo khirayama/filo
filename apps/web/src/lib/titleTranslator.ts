@@ -320,8 +320,14 @@ function translatorFor(sourceLanguage: string, targetLanguage: string): Promise<
   const cached = translators.get(key);
   if (cached) return cached;
   const created = (async () => {
-    return (await nativeTranslatorFor(sourceLanguage, targetLanguage))
-      ?? (await fallbackTranslatorFor(sourceLanguage, targetLanguage));
+    // Model acquisition is allowed only from the explicit setup action.
+    // List scrolling may instantiate an already-installed engine, but must
+    // never turn a downloadable pair into an implicit download.
+    if (await titleTranslationStatus(sourceLanguage, targetLanguage) !== "installed") return null;
+    const native = await nativeTranslatorFor(sourceLanguage, targetLanguage);
+    if (native) return native;
+    if (await fallbackStatus(sourceLanguage, targetLanguage) !== "installed") return null;
+    return await fallbackTranslatorFor(sourceLanguage, targetLanguage);
   })().catch(() => null);
   translators.set(key, created);
   return created;
@@ -396,20 +402,21 @@ export async function translateTitles({
     const title = item.title.trim();
     if (!title) continue;
 
-    const cacheKey = `${item.id}:${targetLanguage}`;
-    const cached = translated.get(cacheKey);
-    if (cached !== undefined) {
-      onTranslated(item.id, cached);
-      continue;
-    }
-
     // 原文言語はサーバーが決めている。不明な記事は原文のまま出す
     const source = item.sourceLanguage;
     if (!source) continue;
 
-    outcome.attempted++;
     try {
       if (!needsTranslation(source, targetLanguage, readableLanguages)) continue;
+      outcome.attempted++;
+
+      const cacheKey = `${item.id}:${targetLanguage}`;
+      const cached = translated.get(cacheKey);
+      if (cached !== undefined) {
+        onTranslated(item.id, cached);
+        outcome.translated++;
+        continue;
+      }
 
       let translator = await translatorFor(source, targetLanguage);
       if (!translator) continue;
@@ -423,6 +430,7 @@ export async function translateTitles({
         // the browser-independent local engine.
         nativeUnavailable.add(pairKey(source, targetLanguage));
         translators.delete(pairKey(source, targetLanguage));
+        if (await fallbackStatus(source, targetLanguage) !== "installed") continue;
         translator = await fallbackTranslatorFor(source, targetLanguage);
         if (!translator) continue;
         result = (await translator.translate(title)).trim();

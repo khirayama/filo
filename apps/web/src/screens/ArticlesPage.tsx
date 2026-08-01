@@ -18,7 +18,7 @@ function ArticlesListPage() {
   const isDesktop = useIsDesktop();
   const api = useApi();
   const { tags, subscriptions, error: sideError, refresh: refreshAppData, language, t } = useAppData();
-  const { tagId, bookmarkedOnly, readingListOnly, clearTag } = useArticleFilterParams();
+  const { tagId, bookmarkedOnly, readingListOnly, read, setRead, clearTag } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
@@ -26,18 +26,24 @@ function ArticlesListPage() {
   const apiFilters = useMemo(
     () => ({
       tagId,
+      read,
       readingList: readingListOnly ? (true as const) : undefined,
       bookmarked: bookmarkedOnly ? (true as const) : undefined,
     }),
-    [tagId, readingListOnly, bookmarkedOnly],
+    [tagId, read, readingListOnly, bookmarkedOnly],
   );
 
   const list = useArticleList(api, apiFilters);
 
   const hasSubscriptions = subscriptions.length > 0;
-  const hasFetchingSubscription = subscriptions.some((s) => s.initialFetchStatus === "fetching");
+  const hasArticleFilter = tagId !== undefined || read !== undefined || readingListOnly || bookmarkedOnly;
+  const hasFetchingSubscription = read === undefined && !readingListOnly && !bookmarkedOnly && subscriptions.some(
+    (subscription) =>
+      subscription.initialFetchStatus === "fetching"
+      && (tagId === undefined || subscription.tagIds.includes(tagId)),
+  );
 
-  const emptyContent = !hasSubscriptions ? (
+  const emptyContent = !hasSubscriptions && !hasArticleFilter ? (
     <EmptyState>
       <p>{t("まだ購読がありません。")}</p>
       <Link to="/feeds/new" style={{ color: "inherit" }}>
@@ -134,6 +140,12 @@ function ArticlesListPage() {
             <FilterChip label={`タグ: ${selectedTag.name} ✕`} active onClick={clearTag} />
           </div>
         ) : null}
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 0 4px" }}>
+          <FilterChip label={t("全ての記事")} active={read === undefined} onClick={() => setRead(undefined)} />
+          <FilterChip label={t("未読")} active={read === false} onClick={() => setRead(false)} />
+          <FilterChip label={t("既読")} active={read === true} onClick={() => setRead(true)} />
+        </div>
 
         {sideError ? <ErrorBox message={sideError} /> : null}
         {markAllError ? <ErrorBox message={markAllError} /> : null}

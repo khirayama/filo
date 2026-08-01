@@ -79,6 +79,10 @@ struct ArticleRowView: View {
             }
             HStack(spacing: 4) {
                 FaviconView(url: article.feed.faviconUrl, fallbackSiteUrl: article.canonicalUrl)
+                if article.userState.inReadingList {
+                    Image(systemName: "text.badge.checkmark")
+                        .foregroundStyle(.blue)
+                }
                 if article.userState.isBookmarked {
                     Image(systemName: "bookmark.fill")
                         .foregroundStyle(.yellow)

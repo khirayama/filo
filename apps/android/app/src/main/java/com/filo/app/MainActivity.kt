@@ -455,9 +455,16 @@ private fun RssNavigation(onSignOut: () -> Unit) {
     }
 
     NavHost(navController = navController, startDestination = "articles") {
-        composable("articles") {
+        composable("articles") { entry ->
+            val selectedTagId by entry.savedStateHandle
+                .getStateFlow<Int?>("selectedTagId", null)
+                .collectAsState()
             com.filo.app.ui.ArticlesScreen(
                 translations = titleTranslations,
+                initialSelectedTagId = selectedTagId,
+                onInitialSelectedTagConsumed = {
+                    entry.savedStateHandle.remove<Int>("selectedTagId")
+                },
                 onOpenSubscription = { navController.navigate("subscription/$it") },
                 onOpenSubscriptions = { navController.navigate("subscriptions") },
                 onOpenAddFeed = { navController.navigate("addFeed") },

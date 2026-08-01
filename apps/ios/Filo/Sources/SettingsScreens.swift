@@ -182,7 +182,13 @@ struct SettingsScreen: View {
         errorMessage = nil
         do {
             settings = try await APIClient.shared.getSettings()
-            if let settings { ThemeManager.shared.theme = settings.theme }
+            if let settings {
+                ThemeManager.shared.theme = settings.theme
+                TitleTranslationStore.shared.configure(
+                    language: settings.language,
+                    readableLanguages: settings.readableLanguages
+                )
+            }
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
@@ -199,7 +205,13 @@ struct SettingsScreen: View {
                 openInBrowserByDefault: openInBrowserByDefault
             )
             if let language { languageManager.language = language }
-            if let settings { ThemeManager.shared.theme = settings.theme }
+            if let settings {
+                ThemeManager.shared.theme = settings.theme
+                TitleTranslationStore.shared.configure(
+                    language: settings.language,
+                    readableLanguages: settings.readableLanguages
+                )
+            }
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }

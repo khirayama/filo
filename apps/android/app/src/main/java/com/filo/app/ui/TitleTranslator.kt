@@ -185,9 +185,11 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
 
     // 表示言語と「原文のまま読む言語」を反映する。表示言語が変われば翻訳結果は使えない。
     fun configure(language: String, readable: List<String>) {
+        val readableChanged = readable != readableLanguages
+        val languageChanged = language != target
+        if (!readableChanged && !languageChanged) return
         readableLanguages = readable
-        if (language == target) return
-        target = language
+        if (languageChanged) target = language
         reset()
     }
 
@@ -211,6 +213,14 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
 
     private suspend fun translate(articles: List<ArticleListItem>) {
         val targetLanguage = TranslateLanguage.fromLanguageTag(target) ?: return
+        val downloaded = runCatching {
+            RemoteModelManager.getInstance()
+                .getDownloadedModels(TranslateRemoteModel::class.java)
+                .await()
+                ?.mapNotNull { it.language }
+                ?.toSet()
+                ?: emptySet()
+        }.getOrDefault(emptySet())
         // ML Kit の translator は言語ペアごとなので、原文言語でまとめる
         val bySource = mutableMapOf<String, MutableList<ArticleListItem>>()
         for (article in articles) {
@@ -224,6 +234,12 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
 
         for ((source, items) in bySource) {
             val sourceLanguage = TranslateLanguage.fromLanguageTag(source) ?: continue
+            // モデル取得は設定の「翻訳の準備」だけで行う。一覧表示中は、準備できて
+            // いない言語ペアを原文のまま残し、準備完了後に再登録できるようにする。
+            if (!downloaded.contains(sourceLanguage) || !downloaded.contains(targetLanguage)) {
+                requested.removeAll(items.map { it.id }.toSet())
+                continue
+            }
             val translator = Translation.getClient(
                 TranslatorOptions.Builder()
                     .setSourceLanguage(sourceLanguage)
@@ -231,9 +247,6 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
                     .build(),
             )
             try {
-                // 初回は言語モデルのダウンロードが要る。トグルという明示操作が起点なので
-                // ここでダウンロードが始まるのは自然なタイミングになる。
-                translator.downloadModelIfNeeded().await()
                 for (article in items) {
                     // 翻訳できなかったタイトルは原文のまま残す
                     val translated = runCatching { translator.translate(article.title).await() }.getOrNull()

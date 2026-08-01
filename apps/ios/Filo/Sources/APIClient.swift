@@ -123,8 +123,14 @@ final class APIClient: Sendable {
         var all: [Subscription] = []
         var cursor: String?
         repeat {
-            var path = "/api/v1/subscriptions?limit=100"
-            if let cursor { path += "&cursor=\(cursor)" }
+            var components = URLComponents()
+            components.path = "/api/v1/subscriptions"
+            components.queryItems = [URLQueryItem(name: "limit", value: "100")]
+            if let cursor { components.queryItems?.append(URLQueryItem(name: "cursor", value: cursor)) }
+            // URLComponents は query value 内の "+" をそのまま残すが、server 側の
+            // URLSearchParams は space として解釈するため明示的に escape する。
+            components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+            guard let path = components.string else { throw APIError.network }
             let envelope = try JSONDecoder().decode(ListEnvelope<Subscription>.self, from: await request("GET", path))
             all.append(contentsOf: envelope.data)
             cursor = envelope.meta?.nextCursor

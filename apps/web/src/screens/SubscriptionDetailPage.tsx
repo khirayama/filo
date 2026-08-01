@@ -26,15 +26,16 @@ export function SubscriptionDetailPage() {
   const [gone, setGone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const { sort, setSort } = useArticleFilterParams();
+  const { read, sort, setRead, setSort } = useArticleFilterParams();
   // sort 未指定時は server が current user の articleSortOrder を適用する
   const effectiveSort = sort ?? settings?.articleSortOrder ?? "published_at_desc";
   const filters = useMemo(
     () => ({
       subscriptionId,
+      read,
       sort,
     }),
-    [subscriptionId, sort]
+    [subscriptionId, read, sort]
   );
   const list = useArticleList(api, filters);
 
@@ -258,6 +259,9 @@ export function SubscriptionDetailPage() {
             </div>
 
             <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 0 4px" }}>
+              <FilterChip label="全ての記事" active={read === undefined} onClick={() => setRead(undefined)} />
+              <FilterChip label="未読" active={read === false} onClick={() => setRead(false)} />
+              <FilterChip label="既読" active={read === true} onClick={() => setRead(true)} />
               <span style={{ color: palette.muted, fontSize: "13px", marginLeft: "auto" }}>並び順</span>
               <select
                 value={effectiveSort}

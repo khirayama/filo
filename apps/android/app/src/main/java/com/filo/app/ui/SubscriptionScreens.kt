@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -111,13 +113,19 @@ fun SubscriptionsScreen(
         }
     }
 
-    fun move(subscriptionId: Int, direction: Int) {
+    fun move(subscriptionId: Int, direction: Int, groupSubscriptionIds: List<Int>) {
+        val groupIndex = groupSubscriptionIds.indexOf(subscriptionId)
+        val targetGroupIndex = groupIndex + direction
+        if (groupIndex < 0 || targetGroupIndex !in groupSubscriptionIds.indices) return
+
+        val targetSubscriptionId = groupSubscriptionIds[targetGroupIndex]
         val index = subscriptions.indexOfFirst { it.id == subscriptionId }
-        val target = index + direction
-        if (index < 0 || target < 0 || target >= subscriptions.size) return
+        val target = subscriptions.indexOfFirst { it.id == targetSubscriptionId }
+        if (index < 0 || target < 0) return
         val next = subscriptions.toMutableList()
-        val item = next.removeAt(index)
-        next.add(target, item)
+        val item = next[index]
+        next[index] = next[target]
+        next[target] = item
         subscriptions = next
         scope.launch {
             try {
@@ -205,7 +213,13 @@ fun SubscriptionsScreen(
                     }
                     if (!collapsed.contains(key)) {
                         items(items, key = { "sub-$key-${it.id}" }) { subscription ->
-                            SubscriptionListRow(subscription, allTags = tags, onOpen = { onOpenSubscription(subscription.id) }, onMove = ::move, onTagsChange = ::updateSubscriptionTags)
+                            SubscriptionListRow(
+                                subscription,
+                                allTags = tags,
+                                onOpen = { onOpenSubscription(subscription.id) },
+                                onMove = { id, direction -> move(id, direction, items.map { it.id }) },
+                                onTagsChange = ::updateSubscriptionTags,
+                            )
                             HorizontalDivider()
                         }
                     }
@@ -220,7 +234,13 @@ fun SubscriptionsScreen(
                         )
                     }
                     items(untagged, key = { "sub-untagged-${it.id}" }) { subscription ->
-                        SubscriptionListRow(subscription, allTags = tags, onOpen = { onOpenSubscription(subscription.id) }, onMove = ::move, onTagsChange = ::updateSubscriptionTags)
+                        SubscriptionListRow(
+                            subscription,
+                            allTags = tags,
+                            onOpen = { onOpenSubscription(subscription.id) },
+                            onMove = { id, direction -> move(id, direction, untagged.map { it.id }) },
+                            onTagsChange = ::updateSubscriptionTags,
+                        )
                         HorizontalDivider()
                     }
                 }
@@ -374,7 +394,10 @@ fun AddFeedScreen(onBack: () -> Unit) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("タグ", style = MaterialTheme.typography.labelLarge)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             tags.forEach { tag ->
                                 FilterChipButton(tag.name, selectedTagIds.contains(tag.id)) {
                                     selectedTagIds = if (selectedTagIds.contains(tag.id)) {

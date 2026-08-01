@@ -271,7 +271,7 @@ function useIsActive(to: string): boolean {
   const [path, query] = to.split("?");
   if (location.pathname !== path) return false;
   const target = new URLSearchParams(query ?? "");
-  const keys = ["unread", "readingList", "bookmarked", "tagId"];
+  const keys = ["read", "readingList", "bookmarked", "tagId"];
   return keys.every((key) => (target.get(key) ?? null) === (searchParams.get(key) ?? null));
 }
 

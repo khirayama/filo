@@ -23,11 +23,14 @@ final class SubscriptionsViewModel: ObservableObject {
         isLoading = false
     }
 
-    func move(_ subscriptionId: Int, direction: Int) async {
-        guard let index = subscriptions.firstIndex(where: { $0.id == subscriptionId }) else { return }
-        let target = index + direction
-        guard target >= 0, target < subscriptions.count else { return }
-        subscriptions.swapAt(index, target)
+    func move(_ subscriptionId: Int, direction: Int, within groupIds: [Int]) async {
+        guard let groupIndex = groupIds.firstIndex(of: subscriptionId) else { return }
+        let targetGroupIndex = groupIndex + direction
+        guard targetGroupIndex >= 0, targetGroupIndex < groupIds.count else { return }
+        let targetId = groupIds[targetGroupIndex]
+        guard let index = subscriptions.firstIndex(where: { $0.id == subscriptionId }),
+              let targetIndex = subscriptions.firstIndex(where: { $0.id == targetId }) else { return }
+        subscriptions.swapAt(index, targetIndex)
         do {
             try await APIClient.shared.reorderSubscriptions(subscriptions.map(\.id))
         } catch {
@@ -88,7 +91,7 @@ struct SubscriptionsScreen: View {
                 if !untagged.isEmpty {
                     Section("タグなし") {
                         ForEach(untagged) { subscription in
-                            subscriptionRow(subscription)
+                            subscriptionRow(subscription, groupIds: untagged.map(\.id))
                         }
                     }
                 }
@@ -127,7 +130,7 @@ struct SubscriptionsScreen: View {
         Section {
             if !collapsed.contains(tag.id) {
                 ForEach(items) { subscription in
-                    subscriptionRow(subscription)
+                    subscriptionRow(subscription, groupIds: items.map(\.id))
                 }
             }
         } header: {
@@ -157,7 +160,7 @@ struct SubscriptionsScreen: View {
     }
 
     @ViewBuilder
-    private func subscriptionRow(_ subscription: Subscription) -> some View {
+    private func subscriptionRow(_ subscription: Subscription, groupIds: [Int]) -> some View {
         NavigationLink(value: AppRoute.subscriptionDetail(subscription.id)) {
             HStack(spacing: 8) {
                 FaviconView(url: subscription.feed.faviconUrl, fallbackSiteUrl: subscription.feed.siteUrl)
@@ -172,8 +175,12 @@ struct SubscriptionsScreen: View {
             }
         }
         .swipeActions(edge: .leading) {
-            Button("上へ") { Task { await model.move(subscription.id, direction: -1) } }
-            Button("下へ") { Task { await model.move(subscription.id, direction: 1) } }
+            if let index = groupIds.firstIndex(of: subscription.id), index > 0 {
+                Button("上へ") { Task { await model.move(subscription.id, direction: -1, within: groupIds) } }
+            }
+            if let index = groupIds.firstIndex(of: subscription.id), index < groupIds.count - 1 {
+                Button("下へ") { Task { await model.move(subscription.id, direction: 1, within: groupIds) } }
+            }
         }
         .contextMenu {
             if !model.tags.isEmpty {

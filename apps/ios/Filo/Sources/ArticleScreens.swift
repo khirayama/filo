@@ -12,10 +12,22 @@ final class ArticlesViewModel: ObservableObject {
     @Published var tags: [Tag] = []
     @Published var subscriptions: [Subscription] = []
 
-    @Published var selectedTagId: Int?
-    @Published var readingListOnly = false
-    @Published var bookmarkedOnly = false
+    @Published var selectedTagId: Int? {
+        didSet { if selectedTagId != oldValue { invalidateArticleRequests() } }
+    }
+    @Published var readFilter: Bool? {
+        didSet { if readFilter != oldValue { invalidateArticleRequests() } }
+    }
+    @Published var readingListOnly = false {
+        didSet { if readingListOnly != oldValue { invalidateArticleRequests() } }
+    }
+    @Published var bookmarkedOnly = false {
+        didSet { if bookmarkedOnly != oldValue { invalidateArticleRequests() } }
+    }
     @Published var settings: UserSettings?
+
+    private var articleGeneration = 0
+    private var loadGeneration = 0
 
     var viewTitle: String {
         if let tagId = selectedTagId, let tag = tags.first(where: { $0.id == tagId }) {
@@ -30,12 +42,17 @@ final class ArticlesViewModel: ObservableObject {
         ArticleListFilters(
             subscriptionId: nil,
             tagId: selectedTagId,
+            read: readFilter,
             readingList: readingListOnly ? true : nil,
             bookmarked: bookmarkedOnly ? true : nil
         )
     }
 
     func load() async {
+        loadGeneration += 1
+        let currentLoadGeneration = loadGeneration
+        invalidateArticleRequests()
+        let currentArticleGeneration = articleGeneration
         isLoading = true
         errorMessage = nil
         do {
@@ -44,27 +61,40 @@ final class ArticlesViewModel: ObservableObject {
             async let subscriptionsTask = APIClient.shared.listSubscriptions()
             async let settingsTask = APIClient.shared.getSettings()
             let result = try await articlesTask
-            articles = result.articles
-            nextCursor = result.nextCursor
-            tags = (try? await tagsTask) ?? tags
-            subscriptions = (try? await subscriptionsTask) ?? subscriptions
-            settings = (try? await settingsTask) ?? settings
+            if articleGeneration == currentArticleGeneration {
+                articles = result.articles
+                nextCursor = result.nextCursor
+            }
+            let loadedTags = try? await tagsTask
+            let loadedSubscriptions = try? await subscriptionsTask
+            let loadedSettings = try? await settingsTask
+            guard loadGeneration == currentLoadGeneration else { return }
+            tags = loadedTags ?? tags
+            subscriptions = loadedSubscriptions ?? subscriptions
+            settings = loadedSettings ?? settings
             // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
             if let settings { ThemeManager.shared.theme = settings.theme }
         } catch {
-            errorMessage = ErrorMessages.message(for: error)
+            if loadGeneration == currentLoadGeneration, articleGeneration == currentArticleGeneration {
+                errorMessage = ErrorMessages.message(for: error)
+            }
         }
-        isLoading = false
+        if loadGeneration == currentLoadGeneration { isLoading = false }
     }
 
     func reloadArticles() async {
+        invalidateArticleRequests()
+        let currentGeneration = articleGeneration
         do {
             let result = try await APIClient.shared.listArticles(filters: filters)
+            guard articleGeneration == currentGeneration else { return }
             articles = result.articles
             nextCursor = result.nextCursor
             errorMessage = nil
         } catch {
-            errorMessage = ErrorMessages.message(for: error)
+            if articleGeneration == currentGeneration {
+                errorMessage = ErrorMessages.message(for: error)
+            }
         }
     }
 
@@ -111,14 +141,23 @@ final class ArticlesViewModel: ObservableObject {
 
     func loadMore() async {
         guard let cursor = nextCursor, !isLoadingMore else { return }
+        let currentGeneration = articleGeneration
         isLoadingMore = true
         do {
             let result = try await APIClient.shared.listArticles(filters: filters, cursor: cursor)
+            guard articleGeneration == currentGeneration else { return }
             articles.append(contentsOf: result.articles)
             nextCursor = result.nextCursor
         } catch {
-            errorMessage = ErrorMessages.message(for: error)
+            if articleGeneration == currentGeneration {
+                errorMessage = ErrorMessages.message(for: error)
+            }
         }
+        if articleGeneration == currentGeneration { isLoadingMore = false }
+    }
+
+    private func invalidateArticleRequests() {
+        articleGeneration += 1
         isLoadingMore = false
     }
 
@@ -152,7 +191,9 @@ final class ArticlesViewModel: ObservableObject {
                 return
             }
             if let index = articles.firstIndex(where: { $0.id == articleId }) {
-                let remainsInList = (!readingListOnly || state.inReadingList) && (!bookmarkedOnly || state.isBookmarked)
+                let remainsInList = (!readingListOnly || state.inReadingList)
+                    && (!bookmarkedOnly || state.isBookmarked)
+                    && (readFilter == nil || state.isRead == readFilter)
                 if !remainsInList {
                     articles.remove(at: index)
                 } else {
@@ -219,8 +260,11 @@ struct ArticlesScreen: View {
         .refreshable { await model.refreshFeedsAndReload() }
         .task {
             await model.load()
+            registerTitlesForTranslation()
+            await translations.refreshLanguages()
         }
         .onChange(of: model.selectedTagId) { Task { await model.reloadArticles() } }
+        .onChange(of: model.readFilter) { Task { await model.reloadArticles() } }
         .onChange(of: model.bookmarkedOnly) { Task { await model.reloadArticles() } }
         .onChange(of: model.readingListOnly) { Task { await model.reloadArticles() } }
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
@@ -264,6 +308,12 @@ struct ArticlesScreen: View {
             Section {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        FilterChip(label: "未読", isOn: model.readFilter == false) {
+                            model.readFilter = model.readFilter == false ? nil : false
+                        }
+                        FilterChip(label: "既読", isOn: model.readFilter == true) {
+                            model.readFilter = model.readFilter == true ? nil : true
+                        }
                         ForEach(model.tags) { tag in
                             FilterChip(label: tag.name, isOn: model.selectedTagId == tag.id) {
                                 model.selectedTagId = model.selectedTagId == tag.id ? nil : tag.id
@@ -324,6 +374,17 @@ struct ArticlesScreen: View {
                         }
                         .tint(.yellow)
                     }
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
+                        } label: {
+                            Label(
+                                article.userState.isRead ? "未読にする" : "既読にする",
+                                systemImage: article.userState.isRead ? "circle" : "checkmark.circle"
+                            )
+                        }
+                        .tint(.green)
+                    }
                     .onAppear {
                         if article.id == model.articles.last?.id {
                             Task { await model.loadMore() }
@@ -349,7 +410,15 @@ struct ArticlesScreen: View {
                     Text("フィードを追加して始めましょう")
                 }
             }
-        } else if model.subscriptions.contains(where: { $0.initialFetchStatus == "fetching" }) {
+        } else if model.readingListOnly {
+            EmptyStateView { Text("リーディングリストに保存した記事はありません。") }
+        } else if model.bookmarkedOnly {
+            EmptyStateView { Text("ブックマークした記事はありません。") }
+        } else if model.readFilter == false {
+            EmptyStateView { Text("未読の記事はありません。") }
+        } else if model.readFilter == true {
+            EmptyStateView { Text("既読の記事はありません。") }
+        } else if relevantSubscriptions.contains(where: { $0.initialFetchStatus == "fetching" }) {
             EmptyStateView {
                 ProgressView()
                 Text("記事を取得しています…")
@@ -358,6 +427,11 @@ struct ArticlesScreen: View {
         } else {
             EmptyStateView { Text("表示できる記事がありません。") }
         }
+    }
+
+    private var relevantSubscriptions: [Subscription] {
+        guard let tagId = model.selectedTagId else { return model.subscriptions }
+        return model.subscriptions.filter { $0.tagIds.contains(tagId) }
     }
 
     // MARK: Sources drawer (Feedly-style left menu)

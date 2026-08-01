@@ -31,8 +31,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  const activeUserId = useRef<string | null | undefined>(undefined);
 
   const refresh = useCallback(async () => {
+    if (!userId || activeUserId.current !== userId) return;
+    const refreshUserId = userId;
     const gen = ++generation.current;
     try {
       const [tagList, subscriptionList, userSettings] = await Promise.all([
@@ -40,23 +43,32 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         api.listSubscriptions(),
         api.getSettings(),
       ]);
-      if (generation.current !== gen) return;
+      if (generation.current !== gen || activeUserId.current !== refreshUserId) return;
       setTags(tagList);
       setSubscriptions(subscriptionList);
       setSettingsState(userSettings);
       applyTheme(userSettings.theme);
       setError(null);
     } catch (e) {
-      if (generation.current !== gen) return;
+      if (generation.current !== gen || activeUserId.current !== refreshUserId) return;
       setError(errorMessage(e, normalizeLanguage(settings?.language ?? navigator.language)));
     } finally {
-      if (generation.current === gen) setLoading(false);
+      if (generation.current === gen && activeUserId.current === refreshUserId) setLoading(false);
     }
-  }, [api]);
+  }, [api, userId]);
 
   useEffect(() => {
-    if (!isLoaded || !userId) return;
-    void refresh();
+    const userChanged = activeUserId.current !== userId;
+    if (!userId || userChanged) {
+      ++generation.current;
+      activeUserId.current = userId;
+      setTags([]);
+      setSubscriptions([]);
+      setSettingsState(null);
+      setError(null);
+      setLoading(Boolean(userId));
+    }
+    if (isLoaded && userId) void refresh();
   }, [isLoaded, userId, refresh]);
 
   const setSettings = useCallback((next: Settings) => {
@@ -64,12 +76,30 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     applyTheme(next.theme);
   }, []);
 
-  const language = normalizeLanguage(settings?.language ?? navigator.language);
+  // Auth can change between render and the clearing effect. Never expose state
+  // unless it belongs to the user currently reported by Clerk.
+  const hasCurrentUserData = Boolean(userId) && activeUserId.current === userId;
+  const visibleTags = hasCurrentUserData ? tags : [];
+  const visibleSubscriptions = hasCurrentUserData ? subscriptions : [];
+  const visibleSettings = hasCurrentUserData ? settings : null;
+  const visibleError = hasCurrentUserData ? error : null;
+  const visibleLoading = Boolean(userId) && (!hasCurrentUserData || loading);
+  const language = normalizeLanguage(visibleSettings?.language ?? navigator.language);
   const t = useCallback((source: string, values?: Record<string, string | number>) => translate(source, language, values), [language]);
 
   const value = useMemo(
-    () => ({ tags, subscriptions, settings, loading, error, refresh, setSettings, language, t }),
-    [tags, subscriptions, settings, loading, error, refresh, setSettings, language, t],
+    () => ({
+      tags: visibleTags,
+      subscriptions: visibleSubscriptions,
+      settings: visibleSettings,
+      loading: visibleLoading,
+      error: visibleError,
+      refresh,
+      setSettings,
+      language,
+      t,
+    }),
+    [visibleTags, visibleSubscriptions, visibleSettings, visibleLoading, visibleError, refresh, setSettings, language, t],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
