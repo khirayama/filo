@@ -51,6 +51,15 @@ targets:
     platform: iOS
     info:
       path: FiloShare/Info.plist
+      properties:
+        CFBundleDisplayName: FiloShare
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
     sources:
       - path: FiloShare
     settings:
