@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type { Env, JobMessage } from "./env";
 import { runAccountDeletion } from "./jobs/accountDeletion";
 import { runFetchFeed } from "./jobs/fetchFeed";
+import { runExtractContent } from "./jobs/extractContent";
 import { runOpmlImport } from "./jobs/opmlImport";
 import { requireAdmin, requireUser, requireUserOrSystem, type AppContext, type OpsContext } from "./lib/auth";
 import { ApiError } from "./lib/errors";
@@ -10,7 +11,9 @@ import { nowIso } from "./lib/util";
 import { accountRoutes } from "./routes/account";
 import { adminRoutes } from "./routes/admin";
 import { articleRoutes } from "./routes/articles";
+import { contentRoutes } from "./routes/content";
 import { opmlRoutes } from "./routes/opml";
+import { playbackQueueRoutes } from "./routes/playbackQueue";
 import { settingsRoutes } from "./routes/settings";
 import { statusRoutes } from "./routes/status";
 import { subscriptionRoutes } from "./routes/subscriptions";
@@ -68,6 +71,8 @@ authed.route("/settings", settingsRoutes);
 authed.route("/subscriptions", subscriptionRoutes);
 authed.route("/tags", tagRoutes);
 authed.route("/articles", articleRoutes);
+authed.route("/articles", contentRoutes);
+authed.route("/playback-queue", playbackQueueRoutes);
 authed.route("/opml", opmlRoutes);
 
 const admin = new Hono<AppContext>();
@@ -85,6 +90,9 @@ app.route("/api/v1", ops);
 
 async function handleJob(env: Env, message: JobMessage): Promise<void> {
   switch (message.jobType) {
+    case "extract_content":
+      await runExtractContent(env, message.articleId);
+      return;
     case "fetch_feed":
       await runFetchFeed(env, message.feedId, message.reason);
       return;

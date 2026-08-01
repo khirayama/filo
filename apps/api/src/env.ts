@@ -9,5 +9,6 @@ export interface Env {
 
 export type JobMessage =
   | { jobType: "fetch_feed"; feedId: number; reason: "initial" | "refresh" | "retry_initial"; attempt: number }
+  | { jobType: "extract_content"; articleId: number }
   | { jobType: "opml_import"; opmlJobId: number; attempt: number }
   | { jobType: "account_deletion"; deletionJobId: number; attempt: number };

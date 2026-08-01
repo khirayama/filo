@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "@clerk/backend": "^2.6.2",
+    "@mozilla/readability": "^0.6.0",
     "fast-xml-parser": "^5.2.5",
     "franc-min": "^6.2.0",
-    "hono": "^4.9.1"
+    "hono": "^4.9.1",
+    "linkedom": "^0.18.12"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250620.0",
