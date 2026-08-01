@@ -81,17 +81,13 @@ import androidx.compose.material3.AlertDialog
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArticlesScreen(
-    tts: TtsPlayerController,
+    translations: TitleTranslationStore,
     onOpenSubscription: (Int) -> Unit,
     onOpenSubscriptions: () -> Unit,
     onOpenAddFeed: () -> Unit,
     onOpenTags: () -> Unit,
     onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenArticle: (articleId: Int) -> Unit,
-    onOpenReadingList: () -> Unit = {},
-    readingListOnly: Boolean = false,
-    onBack: () -> Unit = {},
 ) {
     val vm: ArticlesViewModel = viewModel()
     val scope = rememberCoroutineScope()
@@ -118,21 +114,23 @@ fun ArticlesScreen(
     DisposableEffect(Unit) {
         onDispose { vm.resetLoadState() }
     }
-    LaunchedEffect(readingListOnly) {
-        vm.readingListOnly = readingListOnly
-        vm.resetLoadState()
-    }
-    LaunchedEffect(selectedTagId, readingListOnly, bookmarkedOnly) {
+    LaunchedEffect(selectedTagId, bookmarkedOnly) {
         vm.loadIfNeeded()
     }
     // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
+    // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
+    LaunchedEffect(vm.articles, vm.language, vm.readableLanguages, vm.subscriptions, translations.isEnabled) {
+        translations.configure(vm.language, vm.readableLanguages)
+        // 準備画面の候補は「購読に実在する言語」
+        translations.setCandidates(vm.subscriptions)
+        translations.register(vm.articles)
+    }
     LaunchedEffect(vm.theme) {
         vm.theme?.let { ThemePreference.set(context, it) }
     }
 
     val viewTitle = when {
         selectedTagId != null -> tags.firstOrNull { it.id == selectedTagId }?.name ?: "タグ"
-        readingListOnly -> "リーディングリスト"
         bookmarkedOnly -> "ブックマーク"
         else -> "全ての記事"
     }
@@ -175,10 +173,6 @@ fun ArticlesScreen(
                         scope.launch { drawerState.close() }
                         onOpenSettings()
                     },
-                    onOpenReadingList = {
-                        scope.launch { drawerState.close() }
-                        onOpenReadingList()
-                    },
                 )
             }
         },
@@ -189,16 +183,17 @@ fun ArticlesScreen(
                     title = { Text(viewTitle) },
                     navigationIcon = {
                         IconButton(onClick = {
-                            if (readingListOnly) onBack() else scope.launch { drawerState.open() }
+                            scope.launch { drawerState.open() }
                         }) {
                             Icon(
-                                if (readingListOnly) Icons.AutoMirrored.Filled.ArrowBack else Icons.Default.Menu,
-                                contentDescription = if (readingListOnly) "戻る" else "フィードメニュー",
+                                Icons.Default.Menu,
+                                contentDescription = "フィードメニュー",
                             )
                         }
                     },
                     actions = {
-                        if (!readingListOnly && !bookmarkedOnly) {
+                        TitleTranslationToggle(translations)
+                        if (!bookmarkedOnly) {
                             IconButton(onClick = { showMarkAllRead = true }) {
                                 Icon(Icons.Default.CheckCircle, contentDescription = "すべて既読にする")
                             }
@@ -322,16 +317,14 @@ fun ArticlesScreen(
                     }
                 } else {
                     items(articles, key = { it.id }) { article ->
-                        SwipeableArticleRow(
+                        ArticleRow(
                             article = article,
+                            translations = translations,
                             onOpen = {
-                                if (openInBrowserByDefault && article.canonicalUrl != null) {
-                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, article.canonicalUrl.toUri())) }
-                                } else {
-                                    onOpenArticle(article.id)
+                                article.canonicalUrl?.let { url ->
+                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
                                 }
                             },
-                            onToggleReadingList = { vm.patchState(article, inReadingList = !article.userState.inReadingList) },
                             onToggleBookmark = { vm.patchState(article, isBookmarked = !article.userState.isBookmarked) },
                         )
                         HorizontalDivider()
@@ -387,7 +380,6 @@ private fun SourcesDrawerContent(
     onOpenTags: () -> Unit,
     onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenReadingList: () -> Unit,
 ) {
     var expandedTags by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var untaggedExpanded by remember { mutableStateOf(false) }
@@ -418,13 +410,6 @@ private fun SourcesDrawerContent(
             icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
             selected = noViewFilter,
             onClick = { onSelectView(null, false) },
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text("リーディングリスト") },
-            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-            selected = false,
-            onClick = onOpenReadingList,
             modifier = Modifier.padding(horizontal = 12.dp),
         )
         NavigationDrawerItem(

@@ -57,10 +57,13 @@ struct FilterChip: View {
 
 struct ArticleRowView: View {
     let article: ArticleListItem
+    @ObservedObject private var translations = TitleTranslationStore.shared
     @State private var showOriginal = false
 
-    private var isTranslated: Bool { article.isTranslated }
-    private var displayTitle: String { showOriginal ? article.title : article.displayTitle }
+    // 翻訳は端末内で走るので、届いた分から順に差し替わる
+    private var translatedTitle: String? { translations.title(for: article.id) }
+    private var isTranslated: Bool { translatedTitle != nil }
+    private var displayTitle: String { (showOriginal ? nil : translatedTitle) ?? article.title }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -79,10 +82,6 @@ struct ArticleRowView: View {
                 if article.userState.isBookmarked {
                     Image(systemName: "bookmark.fill")
                         .foregroundStyle(.yellow)
-                }
-                if article.userState.inReadingList {
-                    Image(systemName: "list.bullet")
-                        .foregroundStyle(.blue)
                 }
                 if isTranslated {
                     Button {

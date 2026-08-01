@@ -31,6 +31,8 @@ export interface FeedSummary {
   siteUrl?: string | null;
   feedUrl?: string;
   faviconUrl: string | null;
+  // サーバーが決めた feed の言語。翻訳の準備画面の候補に使う
+  language?: string | null;
   latestPublishedAt?: string | null;
 }
 
@@ -60,15 +62,12 @@ export interface Tag {
 
 export interface ArticleUserState {
   isRead: boolean;
-  inReadingList: boolean;
   isBookmarked: boolean;
 }
 
 export interface ArticleListItem {
   id: number;
   title: string;
-  translatedTitle: string | null;
-  titleTranslationPending: boolean;
   sourceLanguage: string | null;
   canonicalUrl: string | null;
   rssSummary: string | null;
@@ -76,25 +75,6 @@ export interface ArticleListItem {
   publishedAt: string | null;
   fetchedAt: string;
   feed: FeedSummary;
-  subscriptionContext: { subscriptionIds: number[]; tagIds: number[] };
-  userState: ArticleUserState;
-}
-
-export type ContentStatus = "not_requested" | "pending" | "ready" | "error";
-
-export interface ArticleDetail {
-  id: number;
-  title: string;
-  translatedTitle: string | null;
-  titleTranslationPending: boolean;
-  sourceLanguage: string | null;
-  canonicalUrl: string | null;
-  author: string | null;
-  rssSummary: string | null;
-  rssContentHtml: string | null;
-  publishedAt: string | null;
-  fetchedAt: string;
-  feed: FeedSummary | null;
   subscriptionContext: { subscriptionIds: number[]; tagIds: number[] };
   userState: ArticleUserState;
 }
@@ -111,15 +91,6 @@ export interface RefreshResult {
   skipped: number;
   queuedAt: string;
 }
-
-export interface ArticleContent {
-  status: ContentStatus;
-  sourceLanguage?: string | null;
-  text?: string | null;
-  html?: string | null;
-  errorMessage?: string | null;
-}
-
 
 export interface ListMeta {
   nextCursor: string | null;
@@ -149,28 +120,6 @@ export interface DeletionStatus {
   errorCode?: string;
 }
 
-// Translation progress is derived from stored translation rows, not from job
-// records: every (article, target language) pair is missing, pending, ready,
-// or failed, so the numbers always match reality.
-export interface TranslationCoverage {
-  articles: number;
-  untranslatable: number;
-  needed: number;
-  ready: number;
-  failed: number;
-  // queued (順番待ち) + processing (翻訳中 / LLM応答待ち) = pending.
-  queued: number;
-  processing: number;
-  pending: number;
-  missing: number;
-  lastError: string | null;
-}
-
-export interface TranslatingTitle {
-  title: string;
-  languages: string[];
-}
-
 export interface StatusSubscription {
   subscriptionId: number;
   feedTitle: string;
@@ -180,7 +129,6 @@ export interface StatusSubscription {
   lastError: string | null;
   lastFetchedAt: string | null;
   consecutiveFailures: number;
-  translation: TranslationCoverage;
   fetchJob: FeedJob | null;
 }
 
@@ -193,52 +141,15 @@ export interface StatusOverview {
     lastFetchedAt: string | null;
   };
   articles: { total: number };
-  translator: { pending: number; current: TranslatingTitle[] };
   subscriptionStatuses: StatusSubscription[];
-}
-
-export interface PlaybackQueueArticle {
-  id: number;
-  title: string;
-  translatedTitle: string | null;
-  sourceLanguage: string | null;
-  canonicalUrl: string | null;
-  publishedAt: string | null;
-  feed: { id: number; title: string; faviconUrl: string | null };
-}
-
-export interface PlaybackQueueItem {
-  articleId: number;
-  sortOrder: number;
-  article: PlaybackQueueArticle;
-  createdAt: string | null;
-}
-
-export interface PlaybackState {
-  currentArticleId: number | null;
-  contentLanguage: string | null;
-  positionPercent: number;
-  updatedAt: string | null;
-}
-
-export interface PlaybackQueue {
-  items: PlaybackQueueItem[];
-  playbackState: PlaybackState | null;
 }
 
 export interface ArticleListFilters {
   subscriptionId?: number;
   tagId?: number;
   read?: boolean;
-  readingList?: true;
   bookmarked?: true;
   sort?: ArticleSortOrder;
   cursor?: string;
   limit?: number;
-}
-
-// `title` is always the original and `translatedTitle` is set only when the
-// server decided the user needs it, so this is the title to show by default.
-export function displayTitle(article: { title: string; translatedTitle: string | null }): string {
-  return article.translatedTitle ?? article.title;
 }

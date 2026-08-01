@@ -1,9 +1,6 @@
 package com.filo.app.ui
 
 import android.content.Context
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
-import android.speech.tts.Voice
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -171,13 +168,13 @@ fun ArticleRow(
     article: ArticleListItem,
     onOpen: () -> Unit,
     onToggleBookmark: (() -> Unit)? = null,
+    translations: TitleTranslationStore? = null,
 ) {
     var showOriginal by remember { mutableStateOf(false) }
-    // The server only sends translatedTitle when the original is in a language
-    // the user does not read, so its presence is the whole translated/original
-    // decision; the row toggle lets the user see the original anyway.
-    val isTranslated = article.translatedTitle != null
-    val displayTitle = if (showOriginal) article.title else article.translatedTitle ?: article.title
+    // 翻訳は端末内で走るので、届いた分から順に差し替わる。行のトグルで原文に戻せる。
+    val translatedTitle = translations?.titleFor(article.id)
+    val isTranslated = translatedTitle != null
+    val displayTitle = if (showOriginal) article.title else translatedTitle ?: article.title
 
     Surface(onClick = onOpen, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -234,13 +231,6 @@ fun ArticleRow(
                         )
                     }
                 }
-                if (article.titleTranslationPending) {
-                    Text(
-                        "翻訳中…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
                 Text(
                     article.feedTitle,
                     style = MaterialTheme.typography.labelSmall,
@@ -254,59 +244,7 @@ fun ArticleRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (article.userState.inReadingList) {
-                    Text(
-                        "リーディングリスト",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
-        }
-    }
-}
-
-// Feedly-style swipe: right swipe toggles read, left swipe toggles the reading list.
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SwipeableArticleRow(
-    article: ArticleListItem,
-    onOpen: () -> Unit,
-    onToggleReadingList: () -> Unit,
-    onToggleBookmark: () -> Unit,
-) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onToggleReadingList()
-                    false
-                }
-                SwipeToDismissBoxValue.StartToEnd -> false
-                SwipeToDismissBoxValue.Settled -> false
-            }
-        },
-    )
-    SwipeToDismissBox(
-        state = dismissState,
-        backgroundContent = {
-            Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(modifier = Modifier.weight(1f))
-                if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.List,
-                        contentDescription = if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-    ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            ArticleRow(article, onOpen = onOpen, onToggleBookmark = onToggleBookmark)
         }
     }
 }
@@ -326,62 +264,5 @@ fun relativeTime(iso: String?): String {
         }
     } catch (e: Exception) {
         ""
-    }
-}
-
-// Device text-to-speech wrapper used for article read-aloud.
-class SpeechPlayer(context: Context) {
-    private var ready = false
-    private val tts = TextToSpeech(context.applicationContext) { status ->
-        ready = status == TextToSpeech.SUCCESS
-    }
-
-    // 指定言語で利用できる音声一覧 (名前順)
-    fun voiceOptions(language: String?): List<Voice> {
-        if (!ready) return emptyList()
-        val key = (language ?: "ja").take(2).lowercase(Locale.ROOT)
-        return runCatching { tts.voices }.getOrNull()
-            .orEmpty()
-            .filter { it.locale.language.lowercase(Locale.ROOT).startsWith(key) }
-            .sortedBy { it.name }
-    }
-
-    suspend fun speak(text: String, language: String?, rate: Float = 1.0f, voiceName: String? = null): Unit = suspendCancellableCoroutine { continuation ->
-        if (!ready) {
-            continuation.resume(Unit)
-            return@suspendCancellableCoroutine
-        }
-        // 音声指定があればそれを使い、無ければ言語からデフォルト音声を選ぶ
-        val voice = voiceName?.let { name ->
-            runCatching { tts.voices }.getOrNull()?.firstOrNull { it.name == name }
-        }
-        if (voice != null) {
-            tts.voice = voice
-        } else {
-            tts.language = if (language == "ja") Locale.JAPANESE else Locale.ENGLISH
-        }
-        tts.setSpeechRate(rate)
-        val utteranceId = "filo-${System.nanoTime()}"
-        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(id: String?) {}
-            override fun onDone(id: String?) {
-                if (id == utteranceId && continuation.isActive) continuation.resume(Unit)
-            }
-            @Deprecated("Deprecated in Java")
-            override fun onError(id: String?) {
-                if (id == utteranceId && continuation.isActive) continuation.resume(Unit)
-            }
-        })
-        tts.speak(text.take(3900), TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-        continuation.invokeOnCancellation { tts.stop() }
-    }
-
-    fun stop() {
-        tts.stop()
-    }
-
-    fun shutdown() {
-        tts.stop()
-        tts.shutdown()
     }
 }

@@ -1,9 +1,6 @@
 import { Hono, type Context } from "hono";
 import type { OpsContext } from "../lib/auth";
 import { errors } from "../lib/errors";
-import { enqueuePendingTranslations } from "../lib/translate";
-import { armTranslationWatchdog } from "../jobs/translationWatchdogPolicy";
-import { emptyCoverage, feedTranslationCoverage } from "../lib/translationCoverage";
 import {
   serializeFeedJob,
   upsertFeedJob,
@@ -56,19 +53,6 @@ function jobFromColumns(
   return serializeFeedJob(row);
 }
 
-// Reset error rows and enqueue every missing (article, language) pair of the
-// given feeds, then kick the global drain. Duplicate drain messages are
-// harmless — a drain without pending work exits after one query.
-async function enqueueTranslations(c: { env: OpsContext["Bindings"] }, feedIds: number[]): Promise<number> {
-  if (feedIds.length === 0) return 0;
-  const enqueued = await enqueuePendingTranslations(c.env, feedIds);
-  await c.env.TRANSLATE_JOBS.send({ jobType: "translate_drain" });
-  // Arm the safety net: if this drain (or its continuation) later dies, the
-  // watchdog's persisted alarm restarts the backlog without user action.
-  await armTranslationWatchdog(c.env);
-  return enqueued;
-}
-
 // Resolve a :feedId path param, rejecting any feed the current user does not
 // subscribe to. Every per-feed operation below is scoped this way.
 async function subscribedFeedId(c: Context<OpsContext>): Promise<{ userId: number; feedId: number }> {
@@ -81,26 +65,6 @@ async function subscribedFeedId(c: Context<OpsContext>): Promise<{ userId: numbe
     .first();
   if (!subscribed) throw errors.notFound("feed_not_found", "Feed not found in your subscriptions");
   return { userId: user.id, feedId };
-}
-
-// Discard queued / in-flight / failed translation rows for the given feeds so
-// the queue empties. Completed (ready) rows are kept. The drain and watchdog
-// wind down on their own once nothing is pending.
-async function discardTranslations(env: OpsContext["Bindings"], feedIds: number[]): Promise<number> {
-  let removed = 0;
-  for (let i = 0; i < feedIds.length; i += 60) {
-    const chunk = feedIds.slice(i, i + 60);
-    const placeholders = chunk.map(() => "?").join(", ");
-    const res = await env.DB.prepare(
-      `DELETE FROM article_listing_translations
-       WHERE status IN ('pending', 'error')
-         AND article_id IN (SELECT id FROM articles WHERE feed_id IN (${placeholders}))`,
-    )
-      .bind(...chunk)
-      .run();
-    removed += res.meta.changes ?? 0;
-  }
-  return removed;
 }
 
 export const statusRoutes = new Hono<OpsContext>()
@@ -131,8 +95,6 @@ export const statusRoutes = new Hono<OpsContext>()
       .bind(userId)
       .first<{ n: number }>();
 
-    const coverageByFeed = await feedTranslationCoverage(c.env.DB, userId);
-
     const { results: subStatusRows } = await c.env.DB.prepare(
       `SELECT s.id AS subscription_id, COALESCE(s.custom_title, f.title) AS feed_title,
               f.id AS feed_id, f.status AS feed_status,
@@ -153,31 +115,6 @@ export const statusRoutes = new Hono<OpsContext>()
       .bind(userId)
       .all<SubscriptionStatusRow>();
 
-    let pendingTotal = 0;
-    for (const entry of coverageByFeed.values()) pendingTotal += entry.pending;
-
-    // Titles currently in flight to the model (順番待ち → 翻訳中), scoped to the
-    // user's own feeds. The drain runs one small batch at a time, so this is a
-    // short live list ("今翻訳中: …").
-    const { results: currentRows } = await c.env.DB.prepare(
-      `SELECT a.title AS title, GROUP_CONCAT(t.language) AS languages
-       FROM article_listing_translations t
-       JOIN articles a ON a.id = t.article_id
-       JOIN subscriptions s ON s.feed_id = a.feed_id AND s.user_id = ?
-       WHERE t.status = 'pending' AND t.processing_at IS NOT NULL
-       GROUP BY a.id
-       ORDER BY MAX(t.processing_at) DESC
-       LIMIT 5`,
-    )
-      .bind(userId)
-      .all<{ title: string | null; languages: string | null }>();
-    const current = currentRows
-      .filter((row) => row.title)
-      .map((row) => ({
-        title: row.title as string,
-        languages: (row.languages ?? "").split(",").filter(Boolean),
-      }));
-
     return c.json({
       data: {
         generatedAt: now,
@@ -188,7 +125,6 @@ export const statusRoutes = new Hono<OpsContext>()
           lastFetchedAt: toIso(feedAgg?.last_fetched_at ?? null),
         },
         articles: { total: articleAgg?.n ?? 0 },
-        translator: { pending: pendingTotal, current },
         subscriptionStatuses: subStatusRows.map((row) => ({
           subscriptionId: row.subscription_id,
           feedTitle: row.feed_title,
@@ -198,7 +134,6 @@ export const statusRoutes = new Hono<OpsContext>()
           lastError: row.last_error,
           lastFetchedAt: toIso(row.last_fetched_at),
           consecutiveFailures: row.consecutive_failures ?? 0,
-          translation: coverageByFeed.get(row.feed_id) ?? emptyCoverage(),
           fetchJob: jobFromColumns(
             row.fetch_status,
             row.fetch_requested_at,
@@ -266,37 +201,4 @@ export const statusRoutes = new Hono<OpsContext>()
     await upsertFeedJob(c.env.DB, userId, feedId, "pending");
     await c.env.JOBS.send({ jobType: "fetch_feed", feedId, reason: "refresh", attempt: 1 });
     return c.json({ data: { accepted: true, enqueued: 1, skipped: 0, queuedAt: nowIso() } }, 202);
-  })
-  .post("/translate", async (c) => {
-    const user = c.get("user");
-    if (!user) throw errors.unauthorized();
-    const { results } = await c.env.DB.prepare(
-      "SELECT feed_id FROM subscriptions WHERE user_id = ?",
-    )
-      .bind(user.id)
-      .all<{ feed_id: number }>();
-    const enqueued = await enqueueTranslations(c, results.map((row) => row.feed_id));
-    return c.json({ data: { accepted: true, enqueued, queuedAt: nowIso() } }, 202);
-  })
-  // Registered before "/translate/:feedId" so the static path is unambiguous.
-  .post("/translate/discard", async (c) => {
-    const user = c.get("user");
-    if (!user) throw errors.unauthorized();
-    const { results } = await c.env.DB.prepare(
-      "SELECT feed_id FROM subscriptions WHERE user_id = ?",
-    )
-      .bind(user.id)
-      .all<{ feed_id: number }>();
-    const removed = await discardTranslations(c.env, results.map((row) => row.feed_id));
-    return c.json({ data: { accepted: true, removed, discardedAt: nowIso() } }, 200);
-  })
-  .post("/translate/:feedId/discard", async (c) => {
-    const { feedId } = await subscribedFeedId(c);
-    const removed = await discardTranslations(c.env, [feedId]);
-    return c.json({ data: { accepted: true, removed, discardedAt: nowIso() } }, 200);
-  })
-  .post("/translate/:feedId", async (c) => {
-    const { feedId } = await subscribedFeedId(c);
-    const enqueued = await enqueueTranslations(c, [feedId]);
-    return c.json({ data: { accepted: true, enqueued, queuedAt: nowIso() } }, 202);
   });

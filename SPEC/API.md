@@ -1,6 +1,6 @@
 # filo API Design
 
-Cloudflare Workers を利用する。タイトル翻訳には LM Studio の OpenAI 互換 API（既定 `http://localhost:1234/v1`、モデル `google/gemma-4-12b-qat`）を利用する。翻訳リクエストは reasoning を無効化し、画像入力と tools は送信しない。
+Cloudflare Workers を利用する。翻訳は API の責務ではない（クライアントが端末内で行う）。
 
 Version: `v1`  
 Base URL: `/api/v1`  
@@ -154,7 +154,8 @@ Returns current user's settings.
 
 - `theme`: optional, `light | dark | system`
 - `language`: optional, `ja | en | zh | ko | es`
-- `readableLanguages`: optional, 表示言語としてサポートする `ja | en | zh | ko | es` の配列。ユーザーが原文のまま読みたい言語。原文言語がこの配列に含まれる記事は一覧とリーディング画面で原文タイトルを優先表示し、それ以外は `language` に対応する翻訳済みタイトルを優先表示してよい。`sourceLanguage` 自体は他の言語コードも返りうる
+- `subscription.feed.language`: サーバーが決めた feed の言語（`null` になりうる）。クライアントは購読全体の distinct な言語を翻訳の準備画面の候補に使う
+- `readableLanguages`: optional, 表示言語としてサポートする `ja | en | zh | ko | es` の配列。ユーザーが原文のまま読みたい言語。クライアントは端末内翻訳の対象をこの配列で絞り込む（判定した原文言語が含まれる記事は翻訳しない）。`sourceLanguage` 自体は他の言語コードも返りうる
 - `articleSortOrder`: optional, `published_at_desc | fetched_at_desc`
 - `openInBrowserByDefault`: optional boolean
 
@@ -359,7 +360,7 @@ Deletes a tag owned by the current user.
 - `readingList=true` または `bookmarked=true` の場合は、`subscriptionId` 未指定の一覧で retained article を返してよい
 - retained article は default list には含めず、リーディングリスト／ブックマーク一覧でのみ返してよい
 - `readingList=true&bookmarked=true` は両方を満たす記事だけを返す
-- `title` は常に原文タイトルを返す。翻訳表示が必要で `article_listing_translations` が ready の場合は `translatedTitle` に翻訳タイトルを返す。`sourceLanguage` は原文言語を返す
+- `title` は常に原文タイトルを返す。翻訳タイトルは返さない（クライアントが端末内で翻訳する）。`sourceLanguage` はサーバーが fetch 時に決めた原文言語で、クライアントは翻訳元としてこの値を使う。判定できない記事は `null` を返し、その記事は翻訳しない
 - `previewText` は `rss_summary` を優先し、無ければ sanitize 済み `rss_content_html` の text 化結果に fallback する
 - retained article は `subscriptionContext` を持たないため、`readingList/bookmarked` と `tagId` を併用した場合は返さない
 - retained article では `subscriptionContext.subscriptionIds` と `subscriptionContext.tagIds` は空配列を返す
@@ -370,7 +371,6 @@ Deletes a tag owned by the current user.
     {
       "id": 5501,
       "title": "Post title",
-      "translatedTitle": "翻訳済みタイトル",
       "sourceLanguage": "en",
       "canonicalUrl": "https://example.com/posts/123",
       "rssSummary": "Short summary",
@@ -431,7 +431,6 @@ Deletes a tag owned by the current user.
   "data": {
     "id": 5501,
     "title": "Post title",
-    "translatedTitle": "翻訳済みタイトル",
     "sourceLanguage": "en",
     "canonicalUrl": "https://example.com/posts/123",
     "author": "Author name",
@@ -460,7 +459,7 @@ Deletes a tag owned by the current user.
 
 ## Article Contents (リーディングパート内部用)
 
-本文抽出はリーディングパート(音読キュー)のためだけに行う。RSSリーダーパートの一覧・詳細では本文を扱わず、本文翻訳のエンドポイントは持たない(本文翻訳は各プラットフォーム / ブラウザの翻訳機能に委ねる)。
+本文抽出はリーディングパート(音読キュー)のためだけに行う。RSSリーダーパートの一覧・詳細では本文を扱わず、翻訳のエンドポイントは持たない(翻訳は各プラットフォーム / ブラウザの翻訳機能に委ねる)。
 
 ### POST /api/v1/articles/{articleId}/content
 
@@ -520,7 +519,7 @@ Returns the current user's playback queue and playback state.
 
 - キュー内の記事は `sort_order ASC, article_id ASC` で返す
 - 記事メタデータ（タイトル、フィード情報）を含めて返すため、表示に追加 API 呼び出しは不要
-- `title` は常に原文タイトルを返す。`translatedTitle` は `readableLanguages` 設定から翻訳が必要と判断され、かつ翻訳が ready の場合のみ返す（記事一覧と同じ規則）
+- `title` は常に原文タイトルを返す（記事一覧と同じ規則。翻訳タイトルは返さない）
 - `playbackState` は未作成の場合 `null` を返す
 
 ```json
@@ -533,8 +532,7 @@ Returns the current user's playback queue and playback state.
         "article": {
           "id": 5501,
           "title": "Post title",
-          "translatedTitle": "翻訳済みタイトル",
-          "sourceLanguage": "en",
+              "sourceLanguage": "en",
           "canonicalUrl": "https://example.com/posts/123",
           "publishedAt": "2026-05-10T22:00:00Z",
           "feed": {
@@ -691,7 +689,7 @@ Returns the current user's playback queue and playback state.
 
 ## Status & Manual Operations
 
-フィード取得とタイトル翻訳はユーザーの明示操作で開始する（自動 cron 巡回は行わない）。フィード取得は enqueue 前に `feed_jobs` へ `pending` 行を記録して即応答する。タイトル翻訳は job 行を持たず、`article_listing_translations` の `pending → ready | error` 状態遷移そのものを進捗として扱う。client は `GET /api/v1/status` をポーリングし、fetch は `fetchJob` の確定、翻訳は `translation.pending` が `0` になることで完了を検知する。
+フィード取得はユーザーの明示操作で開始する（自動 cron 巡回は行わない）。enqueue 前に `feed_jobs` へ `pending` 行を記録して即応答する。client は `GET /api/v1/status` をポーリングし、`fetchJob` の確定で完了を検知する。翻訳はサーバーの責務ではないため、status にも現れない。
 
 ### GET /api/v1/status
 
@@ -700,11 +698,9 @@ Returns the current user's playback queue and playback state.
   - `generatedAt`: 集計時刻
   - `feeds`: `{ total, active, paused, lastFetchedAt }`
   - `articles`: `{ total }`
-  - `translator`: `{ pending, current[] }`。`pending` は current user の購読全体で翻訳キューに残っている pair 数、`current` は今モデルへ送信中のタイトル（`{ title, languages[] }`、最大5件）
-  - `subscriptionStatuses[]`: `{ subscriptionId, feedId, feedTitle, feedStatus, lastResult, lastError, lastFetchedAt, consecutiveFailures, translation, fetchJob }`
+  - `subscriptionStatuses[]`: `{ subscriptionId, feedId, feedTitle, feedStatus, lastResult, lastError, lastFetchedAt, consecutiveFailures, fetchJob }`
   - `fetchJob`: `{ status, requestedAt, startedAt, finishedAt, lastError, updatedAt, stalled } | null`。`stalled` は `pending/running` のまま `10m` 以上更新されていない中断ジョブ
-- `translation`: `{ articles, untranslatable, needed, ready, failed, queued, processing, pending, missing, lastError }`。feed の翻訳カバレッジを保存済みデータから都度算出する。`untranslatable` はタイトルが空で翻訳対象にできない記事数、`needed` は翻訳対象記事 × 対応5言語（`ja/en/zh/ko/es`）、`ready`/`failed` は `article_listing_translations` の該当状態数、`queued` は未着手の `pending`、`processing` はモデルへ送信済みで応答待ちの `pending`、`pending = queued + processing`、`missing = max(needed − ready − failed − pending, 0)` は未投入数、`lastError` は最新の `error` 行の理由。job の主張ではなく実データだけを根拠にするため、状況を常に正確に反映する
-- 手動操作後の完了検知: fetch は `subscriptionStatuses[].fetchJob` が非アクティブになること、翻訳は `translation.pending = 0`（`stalled` なジョブはアクティブ扱いしない）
+- 手動操作後の完了検知: fetch は `subscriptionStatuses[].fetchJob` が非アクティブになること（`stalled` なジョブはアクティブ扱いしない）
 
 ### POST /api/v1/status/refresh
 
@@ -723,36 +719,6 @@ Returns the current user's playback queue and playback state.
 ### POST /api/v1/status/refresh/{feedId}
 
 - 購読中 feed 単体の fetch job を enqueue する（202）。`feed_jobs` 行を `pending` にする
-
-### POST /api/v1/status/translate / POST /api/v1/status/translate/{feedId}
-
-- current user の未翻訳タイトルの翻訳を投入する（202）。set-based SQL で不足している `(article, language)` pair を `article_listing_translations` に `status='pending'` として一括 INSERT し、既存の `error` 行を `pending` に戻し（`attempt_count=0`）、グローバル翻訳 drain を1メッセージ蹴る
-- request body は無し（既存翻訳の強制再生成は提供しない）
-- response: `{ accepted, enqueued, queuedAt }`。`enqueued` は投入した pair 数。翻訳結果は `article_listing_translations` に共有保存され、一覧の `translatedTitle` に反映される
-- 翻訳先サポート言語は `ja` / `en` / `zh` / `ko` / `es`。原文言語（`sourceLanguage`）はこれらに限定せず保存する。翻訳対象は feed の**全記事** × 対応5言語すべてで、原文言語を事前に知らないまま投入する（原文言語はモデルの応答で初めて分かるため、投入時の絞り込みには使えない）。原文言語と一致する行はモデルが翻訳行を省略し、呼び出し側が原文タイトルで補完する。既に `ready` の pair は再翻訳しない
-- listing 翻訳では source language の事前判定値をモデルへ渡さず、`id + title` からモデル自身にタイトルごとの source language を識別させる。複数言語のタイトルは `mixed`、判定不能は `und` とし、値は可能な限り ISO 639-1 へ正規化する。`mixed`/`und` は翻訳対象外ではなく、全ターゲット言語を生成する対象として扱う
-
-### POST /api/v1/status/translate/discard / POST /api/v1/status/translate/{feedId}/discard
-
-- 対象 feed の `pending` / `error` 行を削除し、翻訳キューを空にする（200）。`ready` 行は残すので完了済みの翻訳は失われない
-- request body は無し
-- response: `{ accepted, removed, discardedAt }`。`removed` は削除した pair 数
-- drain と watchdog は `pending` が無くなった時点で自然に停止するため、別途停止操作は持たない
-
-#### 翻訳 drain（`translate_drain` job）
-
-翻訳の実行は feed 単位の job ではなく、**グローバルに1本の drain** が担う。drain は専用 queue（`filo-translate`、`max_concurrency=1`）で直列化され、`pending` 行が唯一の作業台帳になる（メッセージの重複・喪失があっても drain 再投入だけで自己修復する）。
-
-- drain は `pending` 行を新しい順に取得し、**feed 横断で**タイトルを最大 `4` 件まで1バッチに詰め、**1リクエストでそのバッチに pending な言語すべてを翻訳**する。LM Studio の OpenAI 互換 `chat/completions` エンドポイントへ送信する。ローカルモデルではデコードが律速でバッチを大きくしても1件あたりのコストは変わらないため、バッチは1リクエストの所要時間（=タイムアウトで失う量）を抑える側に倒す
-- バッチは **2本まで並行**して投げる（`CONCURRENT_BATCHES`）。デコードは共有された重みに対するメモリ帯域律速なので、2並行で1件あたりの実測が約 10s → 7.9s になる。LM Studio 側も同じ並列数で起動する必要がある（`lms load --parallel 2`）。4並行は2並行より遅い
-- リクエスト/レスポンスは **行フォーマット**: 入力は `Target languages: ja en ...` に続けて `id<TAB>タイトル` を1行ずつ。出力はタイトルごとに `#id<TAB>原文言語` ヘッダ行 + 対象言語ごとの `言語コード<TAB>訳文` 行。通常の単一言語タイトルでは原文言語の行を省略し、`mixed`/`und` では全ターゲット言語の行を出力する。通常の原文言語だけは呼び出し側が原文タイトルで補完するが、`mixed`/`und` は補完しない。突き合わせはヘッダの id で行い、未知の id のヘッダは直前のタイトルに巻き込まれないよう破棄する
-- モデルは稀に原文をそのまま返す（echo）ため、出力を**表示可能性の検証**にかける。空出力、翻訳対象言語が必要なのに原文を完全に echo した結果、明らかに別言語の文章だけで構成された結果は `ready` にせず、修復後も表示不可なら `pending` / `error` とする。一方、文字種の混在、固有名詞・ブランド・URL・型番の残存、短いタイトル、言語ヒューリスティックが不確かな結果は警告扱いとし、非空かつ原文完全 echo でなければ `ready` にする。警告は翻訳失敗数や `error_message` には反映しない。`sourceLang` はモデルのレスポンスに含まれる自己申告値であり、入力として与えない。`mixed` / `und` の場合は全ターゲットの翻訳行を要求し、原文の自動復元は行わない
-- 失敗した pair は `attempt_count` を増やして `pending` に留め、次のパスで別組成のバッチとして自然に再試行する。`3` 回で `error` に確定し理由を `error_message` へ保存する（バッチ分割リトライ機構は持たない）
-- ペーシングは**既定で無効**。LM Studio はローカルサーバでプロバイダのクォータを持たないため、バッチ間の待ちはボトルネックである実機を遊ばせるだけになる。リモートや帯域制限のある OpenAI 互換サーバへ向ける場合のみ `TRANSLATION_TOKENS_PER_MINUTE` を設定すると、各リクエスト後に `usage.total_tokens / TRANSLATION_TOKENS_PER_MINUTE` 分の待ちが入る（`TRANSLATION_PACING_MS` は下限）
-- `429` は worker 内で待たず即中断し、`Retry-After`（`30..300s` に clamp）の `delaySeconds` 付きで drain メッセージを再投入する
-- 1回の drain は**時間予算（約60秒）**で打ち切り、`pending` が残っていれば drain を再投入する（進捗ゼロの場合は 60 秒の遅延付きで、リクエスト枠の浪費を避ける）
-- 完了・失敗の表示はすべて `GET /api/v1/status` の `translation` カバレッジ（実データ集計）から導出する。翻訳の `feed_jobs` 行・continuation カウンタは存在しない
-- 中断・失敗した pair の一括再開 API は持たない。翻訳操作を再実行すると `error` 行が `pending` に戻り再試行される
 
 処理ステータス API は本文抽出の手動起点を持たない。本文抽出が必要な場合は `POST /api/v1/articles/{articleId}/content` を使う。
 

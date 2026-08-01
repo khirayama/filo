@@ -6,6 +6,7 @@ import type { Subscription } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
+import { TitleTranslationToggle } from "../components/TitleTranslationContext";
 import { Badge, Button, EmptyState, ErrorBox, FilterChip, IconButton, MenuItem, Spinner, menuStyle, palette } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
@@ -81,7 +82,7 @@ export function SubscriptionDetailPage() {
 
   const unsubscribe = async () => {
     if (!subscription) return;
-    if (!window.confirm("この購読を解除しますか？リーディングリスト・ブックマークした記事は残ります。")) return;
+    if (!window.confirm("この購読を解除しますか？ブックマークした記事は残ります。")) return;
     try {
       await api.deleteSubscription(subscription.id);
       void refreshAppData();
@@ -177,6 +178,7 @@ export function SubscriptionDetailPage() {
               >
                 {subscription.customTitle ?? subscription.feed.title}
               </h1>
+              <TitleTranslationToggle />
               <IconButton
                 icon="checkCircle"
                 label="すべて既読にする"

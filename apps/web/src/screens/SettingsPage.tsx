@@ -5,11 +5,13 @@ import { useApi } from "../api/useApi";
 import type { OpmlImportJob, Settings } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
+import { useTitleTranslation } from "../components/TitleTranslationContext";
 import {
   Badge,
   Button,
   ErrorBox,
   IconButton,
+  InlineButton,
   Spinner,
   palette,
   sectionStyle,
@@ -20,6 +22,7 @@ export function SettingsPage() {
   const api = useApi();
   const navigate = useNavigate();
   const { settings, loading, error: loadError, refresh, setSettings, language, t } = useAppData();
+  const { supported: translationSupported, setShowSetup } = useTitleTranslation();
   const [error, setError] = useState<string | null>(null);
   const [importJob, setImportJob] = useState<OpmlImportJob | null>(null);
   const [importing, setImporting] = useState(false);
@@ -139,8 +142,13 @@ export function SettingsPage() {
                 </select>
               </SettingRow>
               <p style={{ color: palette.muted, fontSize: "13px", margin: "0 0 8px" }}>
-                {t("表示言語を切り替えると、リーディングリスト内のタイトル翻訳をその言語で表示します。")}
+                {t("一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。")}
               </p>
+              {translationSupported ? (
+                <SettingRow label={t("翻訳の準備")}>
+                  <InlineButton onClick={() => setShowSetup(true)}>{t("言語を確認")}</InlineButton>
+                </SettingRow>
+              ) : null}
               <SettingRow label={t("原文のまま読む言語")}>
                 <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                   {SUPPORTED_LANGUAGES.map((code) => (

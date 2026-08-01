@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -44,11 +45,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -98,7 +103,7 @@ private fun AuthRoot(mainViewModel: MainViewModel = viewModel()) {
     }
 
     if (uiState.isSignedIn) {
-        AppNavigation(onSignOut = mainViewModel::signOut)
+        RssNavigation(onSignOut = mainViewModel::signOut)
         return
     }
 
@@ -437,287 +442,71 @@ private fun secondFactorLabel(method: SecondFactorMethod): String =
     }
 
 @Composable
-private fun AppNavigation(onSignOut: () -> Unit) {
+private fun RssNavigation(onSignOut: () -> Unit) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val titleTranslations = remember { com.filo.app.ui.TitleTranslationStore(context, scope) }
 
-    val tts = remember { com.filo.app.ui.TtsPlayerController(context, scope) }
-    var showQueueSheet by remember { mutableStateOf(false) }
-
-    var viewingArticleUrl by remember { mutableStateOf<String?>(null) }
-    var viewingArticleTitle by remember { mutableStateOf<String?>(null) }
-    var viewingArticleText by remember { mutableStateOf<String?>(null) }
-    var viewingArticleLang by remember { mutableStateOf<String?>(null) }
-    var viewingArticleExtractionFailed by remember { mutableStateOf(false) }
-
-    val isViewingUnqueuedArticle = viewingArticleUrl != null && tts.queue.none { it.url == viewingArticleUrl }
-    val shouldShowPlayerBar = tts.hasArticle || viewingArticleUrl != null
-
-    // サーバー共有キューの取り込み(iOS / Web / Extension と同期)
-    LaunchedEffect(Unit) { tts.syncWithServer() }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            tts.shutdown()
-            TtsMediaService.onPlayPause = null
-            TtsMediaService.onNext = null
-            TtsMediaService.onPrev = null
-            TtsMediaService.onDismiss = null
-            context.stopService(Intent(context, TtsMediaService::class.java))
+    if (titleTranslations.isShowingSetup) {
+        com.filo.app.ui.TitleTranslationSetupSheet(titleTranslations) {
+            titleTranslations.isShowingSetup = false
         }
     }
 
-    SideEffect {
-        TtsMediaService.onPlayPause = { tts.playPause() }
-        TtsMediaService.onNext = {
-            val next = tts.currentIndex + 1
-            if (next < tts.queue.size) tts.skipTo(next)
-        }
-        TtsMediaService.onPrev = {
-            val prev = tts.currentIndex - 1
-            if (prev >= 0) tts.skipTo(prev)
-        }
-        TtsMediaService.onDismiss = { tts.dismiss() }
-    }
-
-    LaunchedEffect(tts.hasArticle, tts.playState, tts.currentChunk, tts.totalChunks, tts.articleTitle, tts.currentIndex, tts.queue.size) {
-        if (tts.hasArticle) {
-            val intent = Intent(context, TtsMediaService::class.java).apply {
-                action = TtsMediaService.ACTION_UPDATE
-                putExtra("title", tts.articleTitle)
-                putExtra("playState", tts.playState)
-                putExtra("chunk", tts.currentChunk)
-                putExtra("total", tts.totalChunks)
-                putExtra("hasNext", tts.currentIndex + 1 < tts.queue.size)
-                putExtra("hasPrev", tts.currentIndex > 0)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        } else {
-            context.stopService(Intent(context, TtsMediaService::class.java))
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        NavHost(
-            navController = navController,
-            startDestination = "articles",
-            modifier = Modifier.weight(1f),
-            enterTransition = {
-                slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(300))
-            },
-            exitTransition = {
-                slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(300))
-            },
-            popEnterTransition = {
-                slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(300))
-            },
-            popExitTransition = {
-                slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300))
-            },
-        ) {
-            composable("articles") {
-                com.filo.app.ui.ArticlesScreen(
-                    tts = tts,
-                    onOpenSubscription = { navController.navigate("subscription/$it") },
-                    onOpenSubscriptions = { navController.navigate("subscriptions") },
-                    onOpenAddFeed = { navController.navigate("addFeed") },
-                    onOpenTags = { navController.navigate("tags") },
-                    onOpenStatus = { navController.navigate("status") },
-                    onOpenSettings = { navController.navigate("settings") },
-                    onOpenReadingList = { navController.navigate("reading-list") },
-                    onOpenArticle = { articleId -> navController.navigate("article/$articleId") },
-                )
-            }
-            composable("reading-list") {
-                com.filo.app.ui.ArticlesScreen(
-                    tts = tts,
-                    onOpenSubscription = { navController.navigate("subscription/$it") },
-                    onOpenSubscriptions = { navController.navigate("subscriptions") },
-                    onOpenAddFeed = { navController.navigate("addFeed") },
-                    onOpenTags = { navController.navigate("tags") },
-                    onOpenStatus = { navController.navigate("status") },
-                    onOpenSettings = { navController.navigate("settings") },
-                    onOpenArticle = { articleId -> navController.navigate("article/$articleId") },
-                    readingListOnly = true,
-                    onBack = { navController.navigateUp() },
-                )
-            }
-            composable("subscriptions") {
-                com.filo.app.ui.SubscriptionsScreen(
-                    onBack = { navController.navigateUp() },
-                    onOpenSubscription = { navController.navigate("subscription/$it") },
-                    onOpenAddFeed = { navController.navigate("addFeed") },
-                    onOpenTags = { navController.navigate("tags") },
-                    onOpenSettings = { navController.navigate("settings") },
-                    onSelectTag = { tagId ->
-                        // 記事一覧(バックスタック上の articles エントリ)にタグ絞り込みを適用して戻る
-                        val articlesEntry = navController.getBackStackEntry("articles")
-                        ViewModelProvider(articlesEntry)[com.filo.app.ui.ArticlesViewModel::class.java].apply {
-                            selectedTagId = tagId
-                            bookmarkedOnly = false
-                        }
-                        navController.popBackStack("articles", inclusive = false)
-                    },
-                )
-            }
-            composable("addFeed") {
-                com.filo.app.ui.AddFeedScreen(onBack = { navController.navigateUp() })
-            }
-            composable("tags") {
-                com.filo.app.ui.TagsScreen(onBack = { navController.navigateUp() })
-            }
-            composable("status") {
-                com.filo.app.ui.StatusScreen(
-                    onBack = { navController.navigateUp() },
-                    onOpenSubscription = { navController.navigate("subscription/$it") },
-                )
-            }
-            composable("settings") {
-                com.filo.app.ui.SettingsScreen(
-                    onBack = { navController.navigateUp() },
-                    onSignOut = onSignOut,
-                    onDeletionAccepted = { token -> navController.navigate("accountDeletion?token=$token") },
-                )
-            }
-            composable("subscription/{id}") { backStackEntry ->
-                val id = backStackEntry.arguments?.getString("id")?.toIntOrNull() ?: return@composable
-                com.filo.app.ui.SubscriptionDetailScreen(
-                    subscriptionId = id,
-                    tts = tts,
-                    onBack = { navController.navigateUp() },
-                    onOpenArticle = { articleId -> navController.navigate("article/$articleId") },
-                )
-            }
-            composable("article/{id}") { backStackEntry ->
-                val id = backStackEntry.arguments?.getString("id")?.toIntOrNull() ?: return@composable
-                val isInQueue = viewingArticleUrl != null && tts.queue.any { it.url == viewingArticleUrl }
-
-                DisposableEffect(id) {
-                    onDispose {
-                        viewingArticleUrl = null
-                        viewingArticleTitle = null
-                        viewingArticleText = null
-                        viewingArticleLang = null
-                        viewingArticleExtractionFailed = false
-                    }
-                }
-
-                LaunchedEffect(viewingArticleText, isInQueue) {
-                    val url = viewingArticleUrl
-                    val text = viewingArticleText
-                    if (isInQueue && url != null && text != null) {
-                        tts.prepareArticle(url, text, viewingArticleLang)
-                    }
-                }
-                LaunchedEffect(viewingArticleExtractionFailed, isInQueue) {
-                    val url = viewingArticleUrl
-                    if (isInQueue && url != null && viewingArticleExtractionFailed) {
-                        tts.markExtractionFailed(url)
-                    }
-                }
-
-                com.filo.app.ui.ArticleReadingScreen(
-                    articleId = id,
-                    onBack = { navController.navigateUp() },
-                    onArticleLoaded = { url, title ->
-                        viewingArticleUrl = url
-                        viewingArticleTitle = title
-                        viewingArticleText = null
-                        viewingArticleLang = null
-                        viewingArticleExtractionFailed = false
-                    },
-                    onTextExtracted = { text, lang ->
-                        viewingArticleText = text
-                        viewingArticleLang = lang
-                    },
-                    onExtractionFailed = { viewingArticleExtractionFailed = true },
-                )
-            }
-            composable("accountDeletion?token={token}") { backStackEntry ->
-                val token = backStackEntry.arguments?.getString("token")
-                com.filo.app.ui.AccountDeletionScreen(deletionToken = token, onSignOut = onSignOut)
-            }
-        }
-
-        if (shouldShowPlayerBar) {
-            val barDisplayUrl = viewingArticleUrl ?: tts.currentItem?.url ?: ""
-            val barDisplayTitle = if (viewingArticleUrl != null) viewingArticleTitle ?: "" else tts.articleTitle
-            val barIsPlaying = barDisplayUrl == tts.currentItem?.url && tts.playState == "playing"
-            val barCanPlay = when {
-                isViewingUnqueuedArticle -> viewingArticleText != null
-                viewingArticleUrl != null -> tts.queue.firstOrNull { it.url == viewingArticleUrl }?.extractionState == "ready"
-                else -> tts.extractionState == "ready"
-            }
-
-            fun handleBarPlay() {
-                if (isViewingUnqueuedArticle) {
-                    val url = viewingArticleUrl ?: return
-                    val title = viewingArticleTitle ?: return
-                    tts.markArticleActive(url, title)
-                    val text = viewingArticleText
-                    if (text != null) tts.prepareArticle(url, text, viewingArticleLang)
-                    val idx = tts.queue.indexOfFirst { it.url == url }
-                    if (idx >= 0) tts.skipTo(idx)
-                    return
-                }
-                val vUrl = viewingArticleUrl
-                if (vUrl != null) {
-                    val idx = tts.queue.indexOfFirst { it.url == vUrl }
-                    if (idx >= 0 && idx != tts.currentIndex) {
-                        tts.skipTo(idx)
-                        return
-                    }
-                }
-                tts.playPause()
-            }
-
-            fun handleBarAdd() {
-                val url = viewingArticleUrl ?: return
-                val title = viewingArticleTitle ?: return
-                tts.markArticleActive(url, title)
-                val text = viewingArticleText
-                if (text != null) {
-                    tts.prepareArticle(url, text, viewingArticleLang)
-                } else if (viewingArticleExtractionFailed) {
-                    tts.markExtractionFailed(url)
-                }
-            }
-
-            // 音声メニューの対象言語。再生中(または表示中)記事の言語に従う
-            val speechLang = tts.currentItem?.lang ?: viewingArticleLang
-            com.filo.app.ui.TtsPlayerBar(
-                displayUrl = barDisplayUrl,
-                displayTitle = barDisplayTitle,
-                isPlaying = barIsPlaying,
-                canPlay = barCanPlay,
-                queueCount = tts.queue.size,
-                showAddButton = isViewingUnqueuedArticle && !viewingArticleExtractionFailed,
-                speechRate = tts.speechRate,
-                voiceOptions = tts.voiceOptions(speechLang).map { it.name },
-                selectedVoice = tts.voicePrefs[tts.voiceLangKey(speechLang)],
-                onSelectVoice = { tts.setVoice(speechLang, it) },
-                onPlayPause = { handleBarPlay() },
-                onAdd = { handleBarAdd() },
-                onShowQueue = { showQueueSheet = true },
-                onCycleRate = { tts.cycleRate() },
+    NavHost(navController = navController, startDestination = "articles") {
+        composable("articles") {
+            com.filo.app.ui.ArticlesScreen(
+                translations = titleTranslations,
+                onOpenSubscription = { navController.navigate("subscription/$it") },
+                onOpenSubscriptions = { navController.navigate("subscriptions") },
+                onOpenAddFeed = { navController.navigate("addFeed") },
+                onOpenTags = { navController.navigate("tags") },
+                onOpenStatus = { navController.navigate("status") },
+                onOpenSettings = { navController.navigate("settings") },
             )
         }
-
-        if (showQueueSheet) {
-            com.filo.app.ui.TtsQueueSheet(
-                queue = tts.queue,
-                currentIndex = tts.currentIndex,
-                playState = tts.playState,
-                onSkipTo = { tts.skipTo(it) },
-                onRemove = { tts.removeFromQueue(it) },
-                onMove = { index, direction -> tts.moveInQueue(index, direction) },
-                onClearAll = { tts.clearAll() },
-                onDismiss = { showQueueSheet = false },
+        composable("subscriptions") {
+            com.filo.app.ui.SubscriptionsScreen(
+                onBack = { navController.navigateUp() },
+                onOpenSubscription = { navController.navigate("subscription/$it") },
+                onOpenAddFeed = { navController.navigate("addFeed") },
+                onOpenTags = { navController.navigate("tags") },
+                onOpenSettings = { navController.navigate("settings") },
+                onSelectTag = { tagId ->
+                    navController.previousBackStackEntry?.savedStateHandle?.set("selectedTagId", tagId)
+                    navController.navigateUp()
+                },
+            )
+        }
+        composable("addFeed") { com.filo.app.ui.AddFeedScreen(onBack = { navController.navigateUp() }) }
+        composable("tags") { com.filo.app.ui.TagsScreen(onBack = { navController.navigateUp() }) }
+        composable("status") {
+            com.filo.app.ui.StatusScreen(
+                onBack = { navController.navigateUp() },
+                onOpenSubscription = { navController.navigate("subscription/$it") },
+            )
+        }
+        composable("settings") {
+            com.filo.app.ui.SettingsScreen(
+                translations = titleTranslations,
+                onBack = { navController.navigateUp() },
+                onSignOut = onSignOut,
+                onDeletionAccepted = { token -> navController.navigate("accountDeletion?token=$token") },
+            )
+        }
+        composable("subscription/{id}") { entry ->
+            val id = entry.arguments?.getString("id")?.toIntOrNull() ?: return@composable
+            com.filo.app.ui.SubscriptionDetailScreen(
+                translations = titleTranslations,
+                subscriptionId = id,
+                onBack = { navController.navigateUp() },
+            )
+        }
+        composable("accountDeletion?token={token}") { entry ->
+            com.filo.app.ui.AccountDeletionScreen(
+                deletionToken = entry.arguments?.getString("token"),
+                onSignOut = onSignOut,
             )
         }
     }

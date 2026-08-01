@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
-import type { FeedJob, StatusOverview, StatusSubscription, TranslatingTitle, TranslationCoverage } from "../api/types";
+import type { FeedJob, StatusOverview, StatusSubscription } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import {
@@ -21,10 +21,10 @@ const POLL_INTERVAL_MS = 5000;
 
 // One busy marker for all manual operations: which operation, and for which
 // feed ("all" for the bulk buttons).
-type BusyOp = { kind: "refresh" | "translate" | "discard"; target: number | "all" } | null;
-type StatusSortKey = "status" | "feedTitle" | "fetchStatus" | "translation" | "lastFetchedAt";
+type BusyOp = { kind: "refresh"; target: number | "all" } | null;
+type StatusSortKey = "status" | "feedTitle" | "fetchStatus" | "lastFetchedAt";
 type SortDirection = "asc" | "desc";
-type StatusFilter = "all" | "attention" | "fetching" | "translation" | "paused";
+type StatusFilter = "all" | "attention" | "fetching" | "paused";
 
 export function StatusPage() {
   const api = useApi();
@@ -95,54 +95,13 @@ export function StatusPage() {
         : t("取得対象のフィードがありません。");
     });
 
-  const translateAll = () =>
-    run({ kind: "translate", target: "all" }, async () => {
-      const result = await api.translateAll();
-      return result.enqueued > 0
-        ? `${result.enqueued}${t("件のタイトル翻訳をキューに追加しました。完了すると一覧に反映されます。")}`
-        : t("翻訳が必要なタイトルはありません。");
-    });
-
   const refreshFeed = (feedId: number) =>
     run({ kind: "refresh", target: feedId }, async () => {
       await api.refreshFeed(feedId);
       return t("フィードの取得を開始しました。");
     });
 
-  const translateFeed = (feedId: number) =>
-    run({ kind: "translate", target: feedId }, async () => {
-      const result = await api.translateFeed(feedId);
-      return result.enqueued > 0
-        ? `${result.enqueued}${t("件のタイトル翻訳をキューに追加しました。")}`
-        : t("翻訳が必要なタイトルはありません。");
-    });
-
-  const discardOutcome = (removed: number) =>
-    removed > 0 ? `${removed}${t("件を破棄しました。")}` : t("破棄する項目がありません。");
-
-  const discardAll = () => {
-    if (!window.confirm(t("翻訳キューを破棄しますか？完了した翻訳は残ります。"))) return;
-    void run({ kind: "discard", target: "all" }, async () =>
-      discardOutcome((await api.discardTranslations()).removed),
-    );
-  };
-
-  const discardFeed = (feedId: number) => {
-    if (!window.confirm(t("このフィードの翻訳待ち・失敗を破棄しますか？完了した翻訳は残ります。"))) return;
-    void run({ kind: "discard", target: feedId }, async () =>
-      discardOutcome((await api.discardFeedTranslations(feedId)).removed),
-    );
-  };
-
   const refreshing = busy?.kind === "refresh";
-  const translating = busy?.kind === "translate";
-  const discarding = busy?.kind === "discard";
-  const translationTotal = status
-    ? status.subscriptionStatuses.reduce(
-        (total, sub) => addCoverage(total, sub.translation),
-        emptyCoverage(),
-      )
-    : emptyCoverage();
   const visibleSubscriptions = useMemo(() => {
     if (!status) return [];
     const query = filterText.trim().toLocaleLowerCase();
@@ -151,7 +110,6 @@ export function StatusPage() {
         if (query && !sub.feedTitle.toLocaleLowerCase().includes(query)) return false;
         if (statusFilter === "attention") return hasAttention(sub);
         if (statusFilter === "fetching") return isFetching(sub);
-        if (statusFilter === "translation") return sub.translation.pending > 0;
         if (statusFilter === "paused") return sub.feedStatus === "paused";
         return true;
       })
@@ -194,20 +152,7 @@ export function StatusPage() {
                 <Button kind="primary" disabled={refreshing} onClick={() => void refreshAll()}>
                   {refreshing && busy?.target === "all" ? t("取得中…") : t("すべて取得")}
                 </Button>
-                <Button
-                  disabled={translating || translationTotal.ready >= translationTotal.needed}
-                  onClick={() => void translateAll()}
-                >
-                  {translating && busy?.target === "all" ? t("翻訳中…") : t("すべて翻訳")}
-                </Button>
-                <Button
-                  disabled={discarding || translationTotal.pending + translationTotal.failed === 0}
-                  onClick={() => discardAll()}
-                >
-                  {t("キューを破棄")}
-                </Button>
               </div>
-              <TranslationProgress total={translationTotal} current={status.translator.current} t={t} />
               {notice ? (
                 <p style={{ color: palette.muted, fontSize: "13px", margin: "12px 0 0" }}>{notice}</p>
               ) : null}
@@ -246,7 +191,6 @@ export function StatusPage() {
                         <option value="all">{t("すべて")}</option>
                         <option value="attention">{t("問題あり")}</option>
                         <option value="fetching">{t("取得中")}</option>
-                        <option value="translation">{t("翻訳待ち")}</option>
                         <option value="paused">{t("停止")}</option>
                       </select>
                     </label>
@@ -264,7 +208,6 @@ export function StatusPage() {
                             <SortableHeader label={t("状態")} sortKey="status" sort={sort} onSort={changeSort} />
                             <SortableHeader label={t("購読")} sortKey="feedTitle" sort={sort} onSort={changeSort} />
                             <SortableHeader label={t("取得")} sortKey="fetchStatus" sort={sort} onSort={changeSort} />
-                            <SortableHeader label={t("翻訳")} sortKey="translation" sort={sort} onSort={changeSort} />
                             <SortableHeader label={t("最終取得")} sortKey="lastFetchedAt" sort={sort} onSort={changeSort} />
                             <th scope="col" style={{ padding: "8px", whiteSpace: "nowrap" }}>{t("操作")}</th>
                           </tr>
@@ -273,10 +216,6 @@ export function StatusPage() {
                           {visibleSubscriptions.map((sub) => {
                             const isError = hasAttention(sub);
                             const fetchBusy = isActiveJob(sub.fetchJob) || (refreshing && busy?.target === sub.feedId);
-                            // Pending rows keep the action available so a stalled queue
-                            // can be re-kicked, but completed feeds do not need a
-                            // translation action.
-                            const translateInFlight = translating && busy?.target === sub.feedId;
                             const rowError = sub.fetchJob?.status === "failed" ? sub.fetchJob.lastError ?? sub.lastError : hasFetchAttention(sub) ? sub.lastError : null;
                             return (
                               <tr key={sub.subscriptionId} style={{ background: isError ? palette.dangerBg : undefined, borderBottom: `1px solid ${palette.mutedBorder}`, verticalAlign: "top" }}>
@@ -304,17 +243,6 @@ export function StatusPage() {
                                 <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
                                   <JobBadge label={t("取得")} job={sub.fetchJob} fallback={fetchFallbackBadge(sub.lastResult, t)} t={t} />
                                 </td>
-                                <td style={{ minWidth: "210px", padding: "10px 8px" }}>
-                                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                                    <TranslationBadge coverage={sub.translation} t={t} />
-                                    <span style={{ color: palette.muted, fontSize: "12px" }}>{coverageLine(sub.translation, t)}</span>
-                                  </div>
-                                  {sub.translation.failed > 0 && sub.translation.lastError ? (
-                                    <p style={{ color: palette.danger, fontSize: "12px", margin: "5px 0 0", overflowWrap: "anywhere" }}>
-                                      {t("翻訳失敗")}: {sub.translation.lastError}
-                                    </p>
-                                  ) : null}
-                                </td>
                                 <td style={{ color: palette.muted, fontSize: "12px", padding: "10px 8px", whiteSpace: "nowrap" }}>
                                   {sub.lastFetchedAt ? formatTime(sub.lastFetchedAt) : "—"}
                                 </td>
@@ -325,18 +253,6 @@ export function StatusPage() {
                                       title={t("このフィードを取得")}
                                       disabled={refreshing || fetchBusy}
                                       onClick={() => void refreshFeed(sub.feedId)}
-                                    />
-                                    <RowAction
-                                      label={translateInFlight ? t("翻訳中…") : t("翻訳")}
-                                      title={t("このフィードの未翻訳タイトルを翻訳")}
-                                      disabled={translating || sub.translation.ready >= sub.translation.needed}
-                                      onClick={() => void translateFeed(sub.feedId)}
-                                    />
-                                    <RowAction
-                                      label={t("破棄")}
-                                      title={t("このフィードのキューを破棄")}
-                                      disabled={discarding || sub.translation.pending + sub.translation.failed === 0}
-                                      onClick={() => discardFeed(sub.feedId)}
                                     />
                                   </div>
                                 </td>
@@ -358,7 +274,7 @@ export function StatusPage() {
 }
 
 function hasAttention(sub: StatusSubscription): boolean {
-  return hasFetchAttention(sub) || sub.translation.failed > 0;
+  return hasFetchAttention(sub);
 }
 
 function hasFetchAttention(sub: StatusSubscription): boolean {
@@ -388,8 +304,6 @@ function compareSubscriptions(
     comparison = a.feedTitle.localeCompare(b.feedTitle, language);
   } else if (sort.key === "fetchStatus") {
     comparison = fetchStatusRank(a) - fetchStatusRank(b);
-  } else if (sort.key === "translation") {
-    comparison = translationProgress(a) - translationProgress(b);
   } else {
     comparison = new Date(a.lastFetchedAt ?? 0).getTime() - new Date(b.lastFetchedAt ?? 0).getTime();
   }
@@ -414,16 +328,8 @@ function overallStatusRank(sub: StatusSubscription): number {
   if (sub.fetchJob?.stalled) return 1;
   if (sub.fetchJob?.status === "running") return 2;
   if (sub.fetchJob?.status === "pending") return 3;
-  if (sub.translation.processing > 0) return 4;
-  if (sub.translation.queued > 0) return 5;
-  if (sub.feedStatus === "paused") return 6;
-  if (sub.translation.missing > 0) return 7;
-  return 8;
-}
-
-function translationProgress(sub: StatusSubscription): number {
-  if (sub.translation.needed === 0) return 1;
-  return sub.translation.ready / sub.translation.needed;
+  if (sub.feedStatus === "paused") return 4;
+  return 5;
 }
 
 function SortableHeader({
@@ -461,10 +367,7 @@ function StatusBadge({ sub, t }: { sub: StatusSubscription; t: (source: string) 
   if (sub.fetchJob?.stalled) return <Badge tone="danger">{t("中断")}</Badge>;
   if (sub.fetchJob?.status === "running") return <Badge tone="warn">{t("取得中")}</Badge>;
   if (sub.fetchJob?.status === "pending") return <Badge tone="warn">{t("取得待ち")}</Badge>;
-  if (sub.translation.processing > 0) return <Badge tone="warn">{t("翻訳中")}</Badge>;
-  if (sub.translation.queued > 0) return <Badge tone="warn">{t("順番待ち")}</Badge>;
   if (sub.feedStatus === "paused") return <Badge tone="muted">{t("停止")}</Badge>;
-  if (sub.translation.missing > 0) return <Badge tone="muted">{t("未リクエスト")}</Badge>;
   return <Badge tone="ok">{t("完了")}</Badge>;
 }
 
@@ -484,94 +387,6 @@ function JobBadge({ label, job, fallback, t }: { label: string; job: FeedJob | n
   if (job.status === "failed") return <Badge tone="danger">{label}{t("失敗")}</Badge>;
   if (job.status === "running") return <Badge tone="warn">{label}{t("中")}</Badge>;
   return <Badge tone="warn">{label}{t("待ち")}</Badge>;
-}
-
-// Per-feed translation state, most urgent first: something in flight to the
-// model (翻訳中), then work waiting in line (順番待ち), then failures.
-function TranslationBadge({ coverage, t }: { coverage: TranslationCoverage; t: (source: string) => string }) {
-  if (coverage.processing > 0) return <Badge tone="warn">{t("翻訳中")} {coverage.processing}</Badge>;
-  if (coverage.queued > 0) return <Badge tone="warn">{t("順番待ち")} {coverage.queued}</Badge>;
-  if (coverage.failed > 0) return <Badge tone="danger">{t("翻訳失敗")} {coverage.failed}</Badge>;
-  return null;
-}
-
-// Full per-feed translation picture: how much is done, and if incomplete,
-// exactly why (in flight / queued / failed / not yet requested / not translatable).
-function coverageLine(coverage: TranslationCoverage, t: (source: string) => string): string {
-  if (coverage.articles === 0) return `${t("翻訳")}: ${t("記事なし")}`;
-  const bits = [`${t("翻訳")}: ${t("完了")} ${coverage.ready}/${coverage.needed}`];
-  if (coverage.processing > 0) bits.push(`${t("翻訳中")} ${coverage.processing}`);
-  if (coverage.queued > 0) bits.push(`${t("順番待ち")} ${coverage.queued}`);
-  if (coverage.failed > 0) bits.push(`${t("失敗")} ${coverage.failed}`);
-  if (coverage.missing > 0) bits.push(`${t("未リクエスト")} ${coverage.missing}`);
-  if (coverage.untranslatable > 0) bits.push(`${t("対象外")} ${coverage.untranslatable}`);
-  return bits.join("・");
-}
-
-// Overall translation queue progress: a done/needed bar, the live state
-// breakdown, and the titles currently in flight to the model.
-function TranslationProgress({
-  total,
-  current,
-  t,
-}: {
-  total: TranslationCoverage;
-  current: TranslatingTitle[];
-  t: (source: string) => string;
-}) {
-  if (total.needed === 0) return null;
-  const percent = Math.min(100, Math.round((total.ready / total.needed) * 100));
-  return (
-    <div style={{ margin: "12px 0 0" }}>
-      <div style={{ alignItems: "baseline", display: "flex", flexWrap: "wrap", gap: "8px" }}>
-        <span style={{ fontSize: "13px", fontWeight: 600 }}>{t("翻訳の進行状況")}</span>
-        <span style={{ color: palette.muted, fontSize: "12px" }}>
-          {t("完了")} {total.ready.toLocaleString()} / {total.needed.toLocaleString()}（{percent}%）
-        </span>
-      </div>
-      <div
-        role="progressbar"
-        aria-valuenow={percent}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        style={{ background: palette.mutedBorder, borderRadius: "999px", height: "8px", margin: "6px 0", overflow: "hidden" }}
-      >
-        <div style={{ background: palette.accent, height: "100%", transition: "width 0.3s ease", width: `${percent}%` }} />
-      </div>
-      <p style={{ color: palette.muted, fontSize: "12px", margin: 0 }}>
-        {t("翻訳中")} {total.processing.toLocaleString()}・{t("順番待ち")} {total.queued.toLocaleString()}
-        ・{t("失敗")} {total.failed.toLocaleString()}
-        {total.missing > 0 ? `・${t("未リクエスト")} ${total.missing.toLocaleString()}` : ""}
-      </p>
-      {current.length > 0 ? (
-        <p style={{ color: palette.muted, fontSize: "12px", margin: "4px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {t("今翻訳中")}:{" "}
-          {current
-            .map((c) => (c.languages.length > 0 ? `${c.title}（${c.languages.join("/")}）` : c.title))
-            .join("　")}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function emptyCoverage(): TranslationCoverage {
-  return { articles: 0, untranslatable: 0, needed: 0, ready: 0, failed: 0, queued: 0, processing: 0, pending: 0, missing: 0, lastError: null };
-}
-
-function addCoverage(a: TranslationCoverage, b: TranslationCoverage): TranslationCoverage {
-  return {
-    articles: a.articles + b.articles,
-    untranslatable: a.untranslatable + b.untranslatable,
-    needed: a.needed + b.needed,
-    ready: a.ready + b.ready,
-    failed: a.failed + b.failed,
-    queued: a.queued + b.queued,
-    processing: a.processing + b.processing,
-    pending: a.pending + b.pending,
-    missing: a.missing + b.missing,
-    lastError: a.lastError ?? b.lastError,
-  };
 }
 
 function fetchFallbackBadge(lastResult: string | null, t: (source: string) => string) {

@@ -8,10 +8,8 @@ enum AppRoute: Hashable {
     case status
     case addFeed
     case tags
-    case readingList
     case subscriptionDetail(Int)
     case accountDeletionStatus(String?)
-    case articleDetail(Int)
 }
 
 // settings.theme を描画へ反映する。サーバー設定が届く前のフラッシュを防ぐため、
@@ -70,9 +68,9 @@ struct ContentView: View {
 
 struct AppNavigationView: View {
     @State private var path = NavigationPath()
-    @StateObject private var tts = TTSPlayerManager()
     @StateObject private var articlesModel = ArticlesViewModel()
     @ObservedObject private var languageManager = LanguageManager.shared
+    @ObservedObject private var titleTranslations = TitleTranslationStore.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,7 +78,6 @@ struct AppNavigationView: View {
                 ArticlesScreen(
                     path: $path,
                     model: articlesModel,
-                    onOpenReadingList: { path.append(AppRoute.readingList) },
                 )
                     .navigationDestination(for: AppRoute.self) { route in
                         switch route {
@@ -97,29 +94,22 @@ struct AppNavigationView: View {
                             AddFeedScreen()
                         case .tags:
                             TagsScreen()
-                        case .readingList:
-                            ReadingListScreen(path: $path)
                         case .subscriptionDetail(let id):
                             SubscriptionDetailScreen(subscriptionId: id)
                         case .accountDeletionStatus(let token):
                             AccountDeletionStatusScreen(deletionToken: token)
-                        case .articleDetail(let id):
-                            ArticleReadingScreen(articleId: id)
                         }
                     }
             }
-            .environmentObject(tts)
-
-            if tts.shouldShowPlayerBar {
-                TTSPlayerBar(tts: tts)
-            }
+            // 翻訳セッションはアプリ全体で 1 つ。画面ごとに付けると同じバッチに
+            // 複数のセッションが張られて互いを畳み合う。
+            .titleTranslation(store: titleTranslations)
         }
-        .sheet(isPresented: $tts.showQueue) {
-            TTSQueueSheet(tts: tts)
+        .sheet(isPresented: $titleTranslations.isShowingSetup) {
+            TitleTranslationSetupView(store: titleTranslations)
         }
         .environment(\.locale, languageManager.locale)
         .task {
-            await tts.syncWithServer()
             if let settings = try? await APIClient.shared.getSettings() {
                 languageManager.language = settings.language
             }

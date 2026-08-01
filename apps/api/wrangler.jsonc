@@ -13,20 +13,15 @@
       "migrations_dir": "migrations"
     }
   ],
-  // Safety-net watchdog that restarts a stalled translation drain (its alarm is
-  // persisted, so the backlog resumes after a crash or a local dev restart).
-  "durable_objects": {
-    "bindings": [
-      { "name": "TRANSLATION_WATCHDOG", "class_name": "TranslationWatchdog" }
-    ]
-  },
+  // Title translation runs on-device, so the worker no longer owns a
+  // translation drain, its queue, or the watchdog that restarted it.
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["TranslationWatchdog"] }
+    { "tag": "v1", "new_sqlite_classes": ["TranslationWatchdog"] },
+    { "tag": "v2", "deleted_classes": ["TranslationWatchdog"] }
   ],
   "queues": {
     "producers": [
-      { "binding": "JOBS", "queue": "filo-jobs" },
-      { "binding": "TRANSLATE_JOBS", "queue": "filo-translate" }
+      { "binding": "JOBS", "queue": "filo-jobs" }
     ],
     "consumers": [
       {
@@ -34,15 +29,6 @@
         "max_batch_size": 5,
         "max_retries": 5,
         "max_batch_timeout": 5
-      },
-      // Translation drains run strictly one at a time: the provider's rate
-      // limit is account-global, so parallel consumers would starve each other.
-      {
-        "queue": "filo-translate",
-        "max_batch_size": 1,
-        "max_concurrency": 1,
-        "max_retries": 5,
-        "max_batch_timeout": 0
       }
     ]
   },
@@ -55,8 +41,5 @@
   // Secrets (set via `wrangler secret put`):
   //   CLERK_SECRET_KEY    - Clerk backend API key (token verification + account deletion)
   //   CURSOR_SECRET       - HMAC key for tamper-evident pagination cursors
-  //   LM_STUDIO_API_KEY   - optional auth token for the OpenAI-compatible translation endpoint
-  //   LM_STUDIO_API_URL   - LM Studio base URL (optional, defaults to http://localhost:1234/v1)
-  //   TRANSLATION_MODEL   - LM Studio model identifier to use for translation
   //   CRON_SECRET         - Bearer token for internal cron → API calls
 }

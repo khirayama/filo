@@ -3,6 +3,7 @@ import { faviconUrlFor, resolveCanonicalFeedUrl } from "../lib/discovery";
 import { dedupeKeyFor, parseFeed, type ParsedFeed } from "../lib/feed";
 import { settleFetchJobs } from "../lib/feedJobs";
 import { CADENCE_SAMPLE_SIZE, refreshIntervalMinutes } from "../lib/fetchSchedule";
+import { detectArticleLanguage, detectFeedLanguage } from "../lib/languageDetect";
 import {
   alternateTrailingSlashUrl,
   canonicalizeFeedUrl,
@@ -17,6 +18,8 @@ interface FeedRow {
   id: number;
   feed_url: string;
   status: string;
+  language: string | null;
+  language_source: string | null;
 }
 
 interface FetchStateRow {
@@ -173,12 +176,72 @@ async function writeLog(env: Env, feedId: number, startedAt: string, result: str
     .run();
 }
 
+// フィード言語が未設定なら、保存済み記事のタイトルと説明文から決める。
+// 304 が返るフィードは文書が手に入らないので、判定材料はこれしかない。
+// 単独のタイトルでは誤判定するが、数十件を連結すれば安定して当たる。
+async function ensureFeedLanguage(
+  env: Env,
+  feedId: number,
+  current: string | null,
+  now: string,
+): Promise<string | null> {
+  if (current) return current;
+  const { results } = await env.DB.prepare(
+    `SELECT title, rss_summary FROM articles WHERE feed_id = ? ORDER BY id DESC LIMIT 60`,
+  )
+    .bind(feedId)
+    .all<{ title: string; rss_summary: string | null }>();
+  if (results.length === 0) return null;
+
+  const detected = detectFeedLanguage(
+    null,
+    results.map((row) => ({ title: row.title, summary: row.rss_summary })),
+  );
+  if (detected.confidence !== "high" || !detected.language) return null;
+  await env.DB.prepare(
+    "UPDATE feeds SET language = ?, language_source = 'detected', updated_at = ? WHERE id = ?",
+  )
+    .bind(detected.language, now, feedId)
+    .run();
+  return detected.language;
+}
+
+// source_language が未設定の記事を、保存済みのタイトルと説明文から埋める
+async function backfillArticleLanguages(
+  env: Env,
+  feedId: number,
+  feedLanguage: string | null,
+  now: string,
+): Promise<void> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, title, rss_summary FROM articles
+     WHERE feed_id = ? AND source_language IS NULL
+     ORDER BY id DESC LIMIT 500`,
+  )
+    .bind(feedId)
+    .all<{ id: number; title: string; rss_summary: string | null }>();
+  if (results.length === 0) return;
+
+  const updates = [];
+  for (const row of results) {
+    const language = detectArticleLanguage(`${row.title} ${row.rss_summary ?? ""}`, feedLanguage).language;
+    if (!language) continue;
+    updates.push(
+      env.DB.prepare("UPDATE articles SET source_language = ?, updated_at = ? WHERE id = ?")
+        .bind(language, now, row.id),
+    );
+  }
+  for (let i = 0; i < updates.length; i += 50) {
+    await env.DB.batch(updates.slice(i, i + 50));
+  }
+}
+
 export async function runFetchFeed(
   env: Env,
   feedId: number,
   reason: "initial" | "refresh" | "retry_initial"
 ): Promise<void> {
-  const feed = await env.DB.prepare("SELECT id, feed_url, status FROM feeds WHERE id = ?")
+  const feed = await env.DB.prepare("SELECT id, feed_url, status, language, language_source FROM feeds WHERE id = ?")
     .bind(feedId)
     .first<FeedRow>();
   if (!feed) {
@@ -226,6 +289,10 @@ export async function runFetchFeed(
         .bind(feedId, now, now, isoOffset(interval), now)
         .run();
       await writeLog(env, feedId, startedAt, "not_modified", 0, null);
+      // 304 でも言語の埋め直しは進めたい。保存済みのタイトルと説明文だけで足りるので、
+      // フィードの中身が変わっていなくても実行できる
+      const language = await ensureFeedLanguage(env, feedId, feed.language, now);
+      await backfillArticleLanguages(env, feedId, language, now);
       // a 304 means the feed was fetched successfully before; waiting subscriptions are ready
       await markWaitingSubscriptions(env, feedId, "ready", null);
       await settleFetchJobs(env.DB, feedId, "completed", { finishedAt: now });
@@ -253,13 +320,28 @@ export async function runFetchFeed(
     } catch {
       // favicon refresh failure should not block feed ingestion
     }
+    // フィード言語は発行者の申告を最優先し、無ければ全 item を連結した長文から判定する。
+    // 単独のタイトルでは誤判定するが、連結すれば安定して当たる(lib/languageDetect.ts)。
+    const detectedFeed = detectFeedLanguage(
+      parsed.language,
+      parsed.items.map((item) => ({ title: item.title, summary: item.summary })),
+    );
+    // 申告済みのフィードを判定結果で上書きしない。判定結果も確度が低ければ据え置く
+    const keepExisting = feed.language_source === "declared" && !parsed.language;
+    const nextLanguage = keepExisting || detectedFeed.confidence !== "high" ? null : detectedFeed.language;
+    const nextLanguageSource = nextLanguage == null ? null : (parsed.language ? "declared" : "detected");
     await env.DB.prepare(
       `UPDATE feeds SET title = ?, site_url = COALESCE(?, site_url), description = ?,
-       favicon_url = COALESCE(?, favicon_url), updated_at = ?
+       favicon_url = COALESCE(?, favicon_url), language = COALESCE(?, language),
+       language_source = COALESCE(?, language_source), updated_at = ?
        WHERE id = ?`,
     )
-      .bind(parsed.title, parsed.siteUrl, parsed.description, faviconUrl, now, feedId)
+      .bind(
+        parsed.title, parsed.siteUrl, parsed.description, faviconUrl,
+        nextLanguage, nextLanguageSource, now, feedId,
+      )
       .run();
+    const feedLanguage = nextLanguage ?? feed.language;
 
     const newArticleIds: number[] = [];
     for (const item of parsed.items.slice(0, 200)) {
@@ -273,14 +355,22 @@ export async function runFetchFeed(
             }
           })()
         : null;
-      const existing = await env.DB.prepare("SELECT id FROM articles WHERE feed_id = ? AND dedupe_key = ?")
+      // 記事の言語はフィード言語を事前確率とし、明確に違うときだけ上書きする。
+      // 判定材料はタイトルだけでは短すぎるので、説明文まで含める(lib/languageDetect.ts)
+      const articleLanguage = detectArticleLanguage(
+        `${item.title} ${item.summary ?? ""}`,
+        feedLanguage,
+      ).language;
+      const existing = await env.DB.prepare("SELECT id, source_language FROM articles WHERE feed_id = ? AND dedupe_key = ?")
         .bind(feedId, dedupeKey)
-        .first<{ id: number }>();
+        .first<{ id: number; source_language: string | null }>();
       if (existing) {
+        // 既存記事の言語は、まだ入っていないときだけ埋める。判定規則を変えるたびに
+        // 全記事を書き換えると、既読・キューなどの下流が理由なく揺れる
         await env.DB.prepare(
           `UPDATE articles SET title = ?, author = ?, rss_summary = ?, rss_content_html = ?,
              canonical_url = COALESCE(?, canonical_url), published_at = COALESCE(?, published_at),
-             updated_at = ?
+             source_language = COALESCE(source_language, ?), updated_at = ?
            WHERE id = ?`
         )
           .bind(
@@ -290,14 +380,15 @@ export async function runFetchFeed(
             item.contentHtml,
             canonicalUrl,
             item.publishedAt,
+            articleLanguage,
             now,
             existing.id,
           )
           .run();
       } else {
         const inserted = await env.DB.prepare(
-          `INSERT INTO articles (feed_id, guid, canonical_url, dedupe_key, title, author, rss_summary, rss_content_html, published_at, fetched_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+          `INSERT INTO articles (feed_id, guid, canonical_url, dedupe_key, title, author, rss_summary, rss_content_html, source_language, published_at, fetched_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
         )
           .bind(
             feedId,
@@ -308,6 +399,7 @@ export async function runFetchFeed(
             item.author,
             item.summary,
             item.contentHtml,
+            articleLanguage,
             item.publishedAt,
             now,
             now,
@@ -317,6 +409,16 @@ export async function runFetchFeed(
         if (inserted) newArticleIds.push(inserted.id);
       }
     }
+
+    // 言語がまだ入っていない記事を埋める。フィードから消えた古い記事は上の upsert で
+    // 触られないので、ここで拾う。埋まった行は次回以降の対象から外れるため、
+    // このクエリは feed が新鮮になるにつれて 0 件に収束する。
+    await backfillArticleLanguages(
+      env,
+      feedId,
+      await ensureFeedLanguage(env, feedId, feedLanguage, now),
+      now,
+    );
 
     const etag = response.headers.get("ETag");
     const lastModified = response.headers.get("Last-Modified");
@@ -336,10 +438,6 @@ export async function runFetchFeed(
     await writeLog(env, feedId, startedAt, "success", newArticleIds.length, null);
     await markWaitingSubscriptions(env, feedId, "ready", null);
     await settleFetchJobs(env.DB, feedId, "completed", { finishedAt: now });
-
-    // Fetching never enqueues title translation: translation is user-triggered
-    // only (status page or subscriptions page), because it draws on a serialized
-    // provider budget that a per-fetch trigger would exhaust.
 
     // user-driven one-shot recovery reactivates a paused feed on success
     if (feed.status === "paused" && reason === "retry_initial") {

@@ -1,4 +1,6 @@
-// Languages the app can generate UI/listing translations into.
+// Display languages the app supports. Title translation itself happens
+// on-device, so this list only drives settings validation and the language the
+// clients translate into.
 export const SUPPORTED_LANGUAGES = ["ja", "en", "zh", "ko", "es"] as const;
 
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
@@ -25,41 +27,13 @@ const ISO639_3_TO_1: ReadonlyMap<string, string> = new Map([
   ["ukr", "uk"], ["vie", "vi"], ["zho", "zh"], ["chi", "zh"], ["cmn", "zh"],
 ]);
 
-// AI source_lang values are normalized only for storage and client language
-// selection; no local language inference is performed.
+// Normalizes a feed's declared language (RSS <language> / Atom xml:lang) into a
+// bare ISO 639-1 code. It is a hint for read-aloud voice selection; clients that
+// translate on-device run their own detection instead.
 export function normalizeSourceLanguage(value: string | null | undefined): string | null {
   const lower = normalizeLanguageCode(value);
   if (!lower) return null;
   return ISO639_3_TO_1.get(lower) ?? (lower.startsWith("zh-") ? "zh" : lower.split("-")[0] ?? null);
-}
-
-export function isLikelyVerbatimProperNoun(title: string): boolean {
-  const trimmed = title.trim();
-  if (!trimmed) return false;
-  if (/[぀-ヿ一-鿿㐀-䶿]/.test(trimmed)) return false;
-  if (/[0-9]/.test(trimmed)) return true;
-  if (/[\/&#:._+\-]/.test(trimmed)) return true;
-  if (/\b[A-Z]{2,}\b/.test(trimmed)) return true;
-  if (/\b[A-Za-z]*[a-z][A-Z][A-Za-z]*\b/.test(trimmed)) return true;
-  if (/\b[A-Z][a-z]+(?:[A-Z][A-Za-z]*)+\b/.test(trimmed)) return true;
-  return false;
-}
-
-// Lightweight output sanity checks. Source-language decisions are made by AI;
-// this only rejects an obviously incompatible target script.
-export function matchesTargetLanguage(text: string, targetLang: SupportedLanguage): boolean {
-  const counts = {
-    kana: text.match(/[぀-ヿ]/g)?.length ?? 0,
-    han: text.match(/[一-鿿㐀-䶿]/g)?.length ?? 0,
-    hangul: text.match(/[가-힣ᄀ-ᇿ]/g)?.length ?? 0,
-    cyrillic: text.match(/[Ѐ-ӿ]/g)?.length ?? 0,
-    arabic: text.match(/[؀-ۿ]/g)?.length ?? 0,
-  };
-  if (targetLang === "ja") return counts.hangul < 2 && (counts.kana > 0 || counts.han > 0 || isLikelyVerbatimProperNoun(text));
-  if (targetLang === "zh") return counts.hangul === 0 && counts.kana === 0 && counts.han >= 2;
-  if (targetLang === "ko") return counts.hangul >= 2 && counts.kana === 0;
-  if (counts.kana >= 2 || counts.hangul >= 2 || counts.han >= 2 || counts.cyrillic >= 4 || counts.arabic >= 4) return false;
-  return true;
 }
 
 export function parseReadableLanguages(raw: string | null | undefined): SupportedLanguage[] {

@@ -21,16 +21,14 @@ function captureStatement() {
 }
 
 describe("article user state", () => {
-  it("serializes the canonical collection names", () => {
+  it("serializes the article state", () => {
     const state = serializeUserState({
       is_read: 1,
-      in_reading_list: 1,
       is_bookmarked: 0,
     });
 
     expect(state).toEqual({
       isRead: true,
-      inReadingList: true,
       isBookmarked: false,
     });
   });
@@ -38,7 +36,6 @@ describe("article user state", () => {
   it("returns false collection membership when no rows exist", () => {
     expect(serializeUserState(null)).toEqual({
       isRead: false,
-      inReadingList: false,
       isBookmarked: false,
     });
   });
@@ -61,11 +58,11 @@ describe("article user state", () => {
     expect(captured.binds).toEqual([4, 9, "bookmark", "2026-07-21T10:00:00Z", "2026-07-21T10:00:00Z"]);
   });
 
-  it("deletes only the requested collection membership", () => {
+  it("deletes bookmark membership", () => {
     const { captured, db } = captureStatement();
-    collectionMutation(db, 4, 9, "reading_list", false, "2026-07-21T10:00:00Z");
+    collectionMutation(db, 4, 9, "bookmark", false, "2026-07-21T10:00:00Z");
 
     expect(captured.sql).toContain("DELETE FROM article_user_collections");
-    expect(captured.binds).toEqual([4, 9, "reading_list"]);
+    expect(captured.binds).toEqual([4, 9, "bookmark"]);
   });
 });

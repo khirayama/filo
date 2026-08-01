@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { requireArticleAccess, subscriptionContextFor, subscriptionContextsForFeeds } from "../lib/articleAccess";
+import { requireArticleAccess, subscriptionContextsForFeeds } from "../lib/articleAccess";
 import { effectiveArticleState, readStateMutation, setArticleCollection } from "../lib/articleState";
 import type { AppContext } from "../lib/auth";
 import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { errors } from "../lib/errors";
-import { isSupportedLanguage, normalizeSourceLanguage, parseReadableLanguages } from "../lib/languages";
+import { normalizeSourceLanguage } from "../lib/languages";
 import { EFFECTIVE_IS_READ } from "../lib/readCursor";
 import { serializeUserState } from "../lib/serialize";
 import { htmlToText, nowIso, parseId, parseLimit, previewFrom, sanitizeHtml, toIso } from "../lib/util";
@@ -25,7 +25,6 @@ function parseCollectionQuery(raw: string | undefined, name: string): true | und
 interface ArticleListRow {
   id: number;
   title: string;
-  translated_title: string | null;
   canonical_url: string | null;
   rss_summary: string | null;
   rss_content_html: string | null;
@@ -36,41 +35,10 @@ interface ArticleListRow {
   feed_title: string;
   feed_favicon_url: string | null;
   is_read: number | null;
-  in_reading_list: number | null;
   is_bookmarked: number | null;
-  title_translation_status: string | null;
 }
 
 export const articleRoutes = new Hono<AppContext>()
-  .get("/lookup", async (c) => {
-    const user = c.get("user");
-    const url = c.req.query("url");
-    if (!url) throw errors.validation("url is required");
-
-    const article = await c.env.DB.prepare(
-      `SELECT a.id, a.title, a.canonical_url, a.source_language
-       FROM articles a
-       WHERE a.canonical_url = ?
-       AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = ? AND s.feed_id = a.feed_id)
-       LIMIT 1`
-    ).bind(url, user.id).first<{ id: number; title: string; canonical_url: string; source_language: string | null }>();
-
-    if (!article) throw errors.notFound("article_not_found", "Article not found");
-
-    const inQueue = await c.env.DB.prepare(
-      "SELECT 1 FROM playback_queue_items WHERE user_id = ? AND article_id = ?"
-    ).bind(user.id, article.id).first();
-
-    return c.json({
-      data: {
-        id: article.id,
-        title: article.title,
-        canonicalUrl: article.canonical_url,
-        sourceLanguage: normalizeSourceLanguage(article.source_language),
-        inQueue: !!inQueue,
-      },
-    });
-  })
   .get("/", async (c) => {
     const user = c.get("user");
     let limit: number;
@@ -81,16 +49,13 @@ export const articleRoutes = new Hono<AppContext>()
     }
 
     const read = parseBoolQuery(c.req.query("read"), "read");
-    const readingList = parseCollectionQuery(c.req.query("readingList"), "readingList");
     const bookmarked = parseCollectionQuery(c.req.query("bookmarked"), "bookmarked");
     const subscriptionIdRaw = c.req.query("subscriptionId");
     const tagIdRaw = c.req.query("tagId");
 
-    const settings = await c.env.DB.prepare("SELECT article_sort_order, language, readable_languages FROM user_settings WHERE user_id = ?")
+    const settings = await c.env.DB.prepare("SELECT article_sort_order FROM user_settings WHERE user_id = ?")
       .bind(user.id)
-      .first<{ article_sort_order: string; language: string | null; readable_languages: string | null }>();
-    const userLang = settings?.language ?? "ja";
-    const readableLanguages = parseReadableLanguages(settings?.readable_languages);
+      .first<{ article_sort_order: string }>();
 
     let sort = c.req.query("sort");
     if (sort !== undefined && sort !== "published_at_desc" && sort !== "fetched_at_desc") {
@@ -126,7 +91,7 @@ export const articleRoutes = new Hono<AppContext>()
     }
 
     // Retained articles only appear in unscoped collection lists, and never under read=false.
-    const includeRetained = (readingList === true || bookmarked === true) && !scopedToSubscription && read !== false;
+    const includeRetained = bookmarked === true && !scopedToSubscription && read !== false;
     if (!includeRetained) {
       conditions.push("EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = ? AND s.feed_id = a.feed_id)");
       binds.push(user.id);
@@ -161,7 +126,6 @@ export const articleRoutes = new Hono<AppContext>()
       sort === "fetched_at_desc"
         ? `(${EFFECTIVE_IS_READ}) ASC, a.fetched_at DESC, a.id DESC`
         : `(${EFFECTIVE_IS_READ}) ASC, (a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC`;
-    const readingListJoin = readingList === true ? "JOIN" : "LEFT JOIN";
     const bookmarkJoin = bookmarked === true ? "JOIN" : "LEFT JOIN";
 
     const sql = `
@@ -170,26 +134,19 @@ export const articleRoutes = new Hono<AppContext>()
         a.published_at, a.fetched_at, a.source_language,
         f.id AS feed_id, f.title AS feed_title, f.favicon_url AS feed_favicon_url,
         (${EFFECTIVE_IS_READ}) AS is_read,
-        CASE WHEN rli.user_id IS NULL THEN 0 ELSE 1 END AS in_reading_list,
-        CASE WHEN ab.user_id IS NULL THEN 0 ELSE 1 END AS is_bookmarked,
-        alt.title AS translated_title,
-        altp.status AS title_translation_status
+        CASE WHEN ab.user_id IS NULL THEN 0 ELSE 1 END AS is_bookmarked
       FROM articles a
       JOIN feeds f ON f.id = a.feed_id
       LEFT JOIN article_read_states ars ON ars.article_id = a.id AND ars.user_id = ?
-      ${readingListJoin} article_user_collections rli
-        ON rli.article_id = a.id AND rli.user_id = ? AND rli.kind = 'reading_list'
       ${bookmarkJoin} article_user_collections ab
         ON ab.article_id = a.id AND ab.user_id = ? AND ab.kind = 'bookmark'
       LEFT JOIN feed_read_cursors frc ON frc.feed_id = a.feed_id AND frc.user_id = ?
-      LEFT JOIN article_listing_translations alt ON alt.article_id = a.id AND alt.language = ? AND alt.status = 'ready'
-      LEFT JOIN article_listing_translations altp ON altp.article_id = a.id AND altp.language = ? AND altp.status = 'pending'
       WHERE ${conditions.length > 0 ? conditions.join(" AND ") : "1 = 1"}
       ORDER BY ${orderBy}
       LIMIT ?
     `;
     const { results } = await c.env.DB.prepare(sql)
-      .bind(user.id, user.id, user.id, user.id, userLang, userLang, ...binds, limit + 1)
+      .bind(user.id, user.id, user.id, ...binds, limit + 1)
       .all<ArticleListRow>();
 
     const hasMore = results.length > limit;
@@ -205,15 +162,10 @@ export const articleRoutes = new Hono<AppContext>()
         ? (contentText.length > summaryText.length ? contentText : summaryText)
         : (summaryText ?? contentText);
       const preview = previewFrom(bestText);
-      const sourceLanguage = normalizeSourceLanguage(row.source_language);
-      const needsTranslation = sourceLanguage != null
-        && (!isSupportedLanguage(sourceLanguage) || !readableLanguages.includes(sourceLanguage));
       data.push({
         id: row.id,
         title: row.title,
-        translatedTitle: needsTranslation ? row.translated_title : null,
-        titleTranslationPending: needsTranslation && row.title_translation_status === "pending",
-        sourceLanguage,
+        sourceLanguage: normalizeSourceLanguage(row.source_language),
         canonicalUrl: row.canonical_url,
         rssSummary: row.rss_summary ? sanitizeHtml(row.rss_summary) : null,
         previewText: preview,
@@ -284,70 +236,6 @@ export const articleRoutes = new Hono<AppContext>()
     ]);
 
     return c.json({ data: { updatedFeeds: upsert?.meta.changes ?? 0 } });
-  })
-  .get("/:articleId", async (c) => {
-    const user = c.get("user");
-    const articleId = parseId(c.req.param("articleId"));
-    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
-
-    const feed = await c.env.DB.prepare("SELECT id, title, site_url, favicon_url FROM feeds WHERE id = ?")
-      .bind(article.feed_id)
-      .first<{ id: number; title: string; site_url: string | null; favicon_url: string | null }>();
-    const context = await subscriptionContextFor(c.env.DB, user.id, article.feed_id);
-    const state = await effectiveArticleState(c.env.DB, user.id, articleId, article.feed_id);
-
-    const settings = await c.env.DB.prepare(
-      "SELECT language, readable_languages FROM user_settings WHERE user_id = ?",
-    )
-      .bind(user.id)
-      .first<{ language: string | null; readable_languages: string | null }>();
-    const userLang = settings?.language ?? "ja";
-    const readableLanguages = parseReadableLanguages(settings?.readable_languages);
-    const sourceLanguage = normalizeSourceLanguage(article.source_language);
-    const needsTranslation = sourceLanguage != null
-      && (!isSupportedLanguage(sourceLanguage) || !readableLanguages.includes(sourceLanguage));
-    const listingTranslation = needsTranslation
-      ? await c.env.DB.prepare(
-          "SELECT title, status FROM article_listing_translations WHERE article_id = ? AND language = ?",
-        )
-          .bind(articleId, userLang)
-          .first<{ title: string | null; status: string }>()
-      : null;
-
-    return c.json({
-      data: {
-        id: article.id,
-        title: article.title,
-        translatedTitle: listingTranslation?.status === "ready" ? listingTranslation.title : null,
-        titleTranslationPending: needsTranslation && listingTranslation?.status === "pending",
-        sourceLanguage,
-        canonicalUrl: article.canonical_url,
-        author: article.author,
-        rssSummary: article.rss_summary ? sanitizeHtml(article.rss_summary) : null,
-        rssContentHtml: article.rss_content_html ? sanitizeHtml(article.rss_content_html) : null,
-        publishedAt: toIso(article.published_at),
-        fetchedAt: toIso(article.fetched_at),
-        feed: feed
-          ? { id: feed.id, title: feed.title, siteUrl: feed.site_url, faviconUrl: feed.favicon_url }
-          : null,
-        subscriptionContext: context,
-        userState: serializeUserState(state),
-      },
-    });
-  })
-  .put("/:articleId/reading-list", async (c) => {
-    const user = c.get("user");
-    const articleId = parseId(c.req.param("articleId"));
-    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
-    const state = await setArticleCollection(c.env.DB, user.id, articleId, article.feed_id, "reading_list", true);
-    return c.json({ data: serializeUserState(state) });
-  })
-  .delete("/:articleId/reading-list", async (c) => {
-    const user = c.get("user");
-    const articleId = parseId(c.req.param("articleId"));
-    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
-    const state = await setArticleCollection(c.env.DB, user.id, articleId, article.feed_id, "reading_list", false);
-    return c.json({ data: serializeUserState(state) });
   })
   .put("/:articleId/bookmark", async (c) => {
     const user = c.get("user");

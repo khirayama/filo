@@ -1,6 +1,4 @@
 import type {
-  ArticleContent,
-  ArticleDetail,
   ArticleListFilters,
   ArticleListItem,
   ArticleUserState,
@@ -10,8 +8,6 @@ import type {
   ListMeta,
   MarkAllReadResult,
   OpmlImportJob,
-  PlaybackQueue,
-  PlaybackState,
   Settings,
   StatusOverview,
   Subscription,
@@ -87,14 +83,6 @@ export function createApiClient(getToken: TokenGetter) {
       (await send<RefreshResult>("POST", "/api/v1/status/refresh", { force })).data,
     refreshFeed: async (feedId: number) =>
       (await send<RefreshResult>("POST", `/api/v1/status/refresh/${feedId}`)).data,
-    translateAll: async () =>
-      (await send<{ accepted: boolean; enqueued: number; queuedAt: string }>("POST", "/api/v1/status/translate")).data,
-    translateFeed: async (feedId: number) =>
-      (await send<{ accepted: boolean; enqueued: number; queuedAt: string }>("POST", `/api/v1/status/translate/${feedId}`)).data,
-    discardTranslations: async () =>
-      (await send<{ accepted: boolean; removed: number; discardedAt: string }>("POST", "/api/v1/status/translate/discard")).data,
-    discardFeedTranslations: async (feedId: number) =>
-      (await send<{ accepted: boolean; removed: number; discardedAt: string }>("POST", `/api/v1/status/translate/${feedId}/discard`)).data,
     listSubscriptions: async (tagId?: number) => {
       const all: Subscription[] = [];
       let cursor: string | null = null;
@@ -142,7 +130,6 @@ export function createApiClient(getToken: TokenGetter) {
       if (filters.subscriptionId !== undefined) params.set("subscriptionId", String(filters.subscriptionId));
       if (filters.tagId !== undefined) params.set("tagId", String(filters.tagId));
       if (filters.read !== undefined) params.set("read", String(filters.read));
-      if (filters.readingList !== undefined) params.set("readingList", String(filters.readingList));
       if (filters.bookmarked !== undefined) params.set("bookmarked", String(filters.bookmarked));
       if (filters.sort) params.set("sort", filters.sort);
       if (filters.cursor) params.set("cursor", filters.cursor);
@@ -152,35 +139,10 @@ export function createApiClient(getToken: TokenGetter) {
     },
     markAllArticlesRead: async (tagId?: number) =>
       (await send<{ updatedFeeds: number }>("POST", "/api/v1/articles/mark-all-read", tagId === undefined ? {} : { tagId })).data,
-    getArticle: async (id: number) => (await get<ArticleDetail>(`/api/v1/articles/${id}`)).data,
     setArticleRead: async (id: number, isRead: boolean) =>
       (await send<ArticleUserState>("PATCH", `/api/v1/articles/${id}/state`, { isRead })).data,
-    setReadingListMembership: async (id: number, active: boolean) =>
-      (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/reading-list`)).data,
     setBookmarkMembership: async (id: number, active: boolean) =>
       (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/bookmark`)).data,
-    requestContent: async (id: number, force = false) =>
-      (await send<ArticleContent>("POST", `/api/v1/articles/${id}/content`, { force })).data,
-    getContent: async (id: number) =>
-      (await get<ArticleContent>(`/api/v1/articles/${id}/content`)).data,
-
-    getPlaybackQueue: async () => (await get<PlaybackQueue>("/api/v1/playback-queue")).data,
-    addPlaybackQueueItems: async (articleIds: number[]) =>
-      (await send<{ itemCount: number }>("POST", "/api/v1/playback-queue/items", { articleIds })).data,
-    removePlaybackQueueItem: async (articleId: number) => {
-      await send<unknown>("DELETE", `/api/v1/playback-queue/items/${articleId}`);
-    },
-    reorderPlaybackQueue: async (articleIds: number[]) => {
-      await send<unknown>("PUT", "/api/v1/playback-queue/order", { articleIds });
-    },
-    clearPlaybackQueue: async () => {
-      await send<unknown>("DELETE", "/api/v1/playback-queue");
-    },
-    updatePlaybackState: async (patch: {
-      currentArticleId?: number | null;
-      contentLanguage?: string | null;
-      positionPercent?: number;
-    }) => (await send<PlaybackState>("PATCH", "/api/v1/playback-queue/state", patch)).data,
 
     importOpml: async (file: File) => {
       const formData = new FormData();

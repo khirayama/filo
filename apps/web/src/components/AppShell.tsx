@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import type { Subscription } from "../api/types";
 import { groupSubscriptionsByTag } from "../lib/grouping";
 import { useAppData } from "./AppDataContext";
-import { PlayerBar } from "./PlayerBar";
 import { Icon, IconButton, palette } from "./ui";
 
 const SIDEBAR_WIDTH = 280;
@@ -71,7 +70,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </aside>
         <div style={{ flex: 1, minWidth: 0 }}>
           {children}
-          <PlayerBar />
         </div>
       </div>
     );
@@ -132,7 +130,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       ) : null}
       <div>{children}</div>
-      <PlayerBar />
     </div>
   );
 }
@@ -184,7 +181,6 @@ function SidebarNav() {
         {t("フィードを追加")}
       </button>
       <SidebarLink to="/articles" icon="list" label={t("全ての記事")} />
-      <SidebarLink to="/reading-list" icon="queueAdd" label={t("リーディングリスト")} />
       <SidebarLink to="/articles?bookmarked=1" icon="bookmark" label={t("ブックマーク")} />
 
       <p

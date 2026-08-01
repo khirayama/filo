@@ -58,9 +58,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun SubscriptionDetailScreen(
     subscriptionId: Int,
-    tts: TtsPlayerController,
+    translations: TitleTranslationStore,
     onBack: () -> Unit,
-    onOpenArticle: (articleId: Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -97,12 +96,11 @@ fun SubscriptionDetailScreen(
         }
     }
 
-    fun patchState(article: ArticleListItem, isRead: Boolean? = null, inReadingList: Boolean? = null, isBookmarked: Boolean? = null) {
+    fun patchState(article: ArticleListItem, isRead: Boolean? = null, isBookmarked: Boolean? = null) {
         scope.launch {
             try {
                 val state = when {
                     isRead != null -> ApiClient.setArticleRead(article.id, isRead)
-                    inReadingList != null -> ApiClient.setReadingListMembership(article.id, inReadingList)
                     isBookmarked != null -> ApiClient.setBookmarkMembership(article.id, isBookmarked)
                     else -> return@launch
                 }
@@ -134,6 +132,8 @@ fun SubscriptionDetailScreen(
     }
 
     LaunchedEffect(Unit) { reload() }
+    // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
+    LaunchedEffect(articles, translations.isEnabled) { translations.register(articles) }
     LaunchedEffect(sort) {
         if (!isLoading) reloadArticles()
     }
@@ -167,6 +167,7 @@ fun SubscriptionDetailScreen(
                     }
                 },
                 actions = {
+                    TitleTranslationToggle(translations)
                     IconButton(
                         enabled = !isRefreshingFeed,
                         onClick = { scope.launch { refreshFeed() } },
@@ -318,10 +319,14 @@ fun SubscriptionDetailScreen(
                 }
                 } else {
                     items(articles, key = { it.id }) { article ->
-                    SwipeableArticleRow(
+                    ArticleRow(
                         article = article,
-                        onOpen = { onOpenArticle(article.id) },
-                        onToggleReadingList = { patchState(article, inReadingList = !article.userState.inReadingList) },
+                        translations = translations,
+                        onOpen = {
+                            article.canonicalUrl?.let { url ->
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
+                            }
+                        },
                         onToggleBookmark = { patchState(article, isBookmarked = !article.userState.isBookmarked) },
                     )
                     HorizontalDivider()
@@ -420,7 +425,7 @@ fun SubscriptionDetailScreen(
         AlertDialog(
             onDismissRequest = { showUnsubscribe = false },
             title = { Text("この購読を解除しますか？") },
-                            text = { Text("リーディングリスト・ブックマークした記事は残ります。") },
+                            text = { Text("ブックマークした記事は残ります。") },
             confirmButton = {
                 TextButton(onClick = {
                     showUnsubscribe = false

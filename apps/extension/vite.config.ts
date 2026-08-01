@@ -39,8 +39,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           popup: resolve(__dirname, "popup.html"),
-          background: resolve(__dirname, "src/background.ts"),
-          offscreen: resolve(__dirname, "offscreen.html"),
         },
         output: {
           entryFileNames: "[name].js",

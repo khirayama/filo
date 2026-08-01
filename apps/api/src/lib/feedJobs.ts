@@ -1,8 +1,6 @@
 import { nowIso, toIso } from "./util";
 
-// feed_jobs tracks user-requested feed fetches only. Title translation has no
-// job row; its state is derived from article_listing_translations
-// (see lib/translationCoverage.ts).
+// feed_jobs tracks user-requested feed fetches only.
 export type FeedJobStatus = "pending" | "running" | "completed" | "failed";
 
 // A pending/running job whose row has not been touched for this long is

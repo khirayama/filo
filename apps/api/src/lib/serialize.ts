@@ -13,6 +13,7 @@ export interface SubscriptionRow {
   feed_site_url: string | null;
   feed_url: string;
   feed_favicon_url: string | null;
+  feed_language: string | null;
   feed_status: string;
   last_success_fetched_at: string | null;
   latest_published_at: string | null;
@@ -23,7 +24,8 @@ export const SUBSCRIPTION_SELECT = `
     s.id, s.custom_title, s.sort_order, s.initial_fetch_status, s.initial_fetch_error_code,
     s.created_at, s.updated_at,
     f.id AS feed_id, f.title AS feed_title, f.site_url AS feed_site_url,
-    f.feed_url AS feed_url, f.favicon_url AS feed_favicon_url, f.status AS feed_status,
+    f.feed_url AS feed_url, f.favicon_url AS feed_favicon_url, f.language AS feed_language,
+    f.status AS feed_status,
     fs.last_success_fetched_at AS last_success_fetched_at,
     (SELECT MAX(a.published_at) FROM articles a WHERE a.feed_id = f.id) AS latest_published_at
   FROM subscriptions s
@@ -56,6 +58,8 @@ export function serializeSubscription(row: SubscriptionRow, tagIds: number[], un
       siteUrl: row.feed_site_url,
       feedUrl: row.feed_url,
       faviconUrl: row.feed_favicon_url,
+      // 翻訳の準備画面が「購読に実在する言語」を出すために使う
+      language: row.feed_language,
       latestPublishedAt: toIso(row.latest_published_at),
     },
     tagIds,
@@ -88,14 +92,12 @@ export function serializeTag(row: TagRow) {
 
 export interface ArticleStateRow {
   is_read: number | null;
-  in_reading_list: number | null;
   is_bookmarked: number | null;
 }
 
 export function serializeUserState(row: ArticleStateRow | null | undefined) {
   return {
     isRead: intToBool(row?.is_read ?? 0),
-    inReadingList: intToBool(row?.in_reading_list ?? 0),
     isBookmarked: intToBool(row?.is_bookmarked ?? 0),
   };
 }

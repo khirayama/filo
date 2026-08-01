@@ -1,6 +1,6 @@
 # Filo
 
-RSS で記事を見つけ、読む・聴くことに集中する RSS リーダー。一覧タイトルの翻訳と、端末をまたいで共有される音読キューを備える。
+RSS で記事を見つけ、一覧タイトルを端末内で翻訳して読む RSS リーダー。
 
 プロダクト方針は [CONCEPT.md](./CONCEPT.md) を正とする。
 
@@ -10,7 +10,7 @@ RSS で記事を見つけ、読む・聴くことに集中する RSS リーダ�
 | --- | --- |
 | `apps/api` | Cloudflare Workers + D1 + Queues + Durable Objects の API |
 | `apps/web` | React + Vite の Web クライアント |
-| `apps/extension` | Web を補完する Browser Extension（記事解決・読み上げ） |
+| `apps/extension` | Browser Extension（旧コンポーネント。RSSリーダー本体の対象外） |
 | `apps/ios` | SwiftUI アプリ |
 | `apps/android` | Jetpack Compose アプリ |
 
@@ -24,7 +24,7 @@ RSS で記事を見つけ、読む・聴くことに集中する RSS リーダ�
 - [SPEC/DATABASE.md](./SPEC/DATABASE.md) — D1 の意図・不変条件（DDL の正は migration）
 - [SPEC/SCREENS.md](./SPEC/SCREENS.md) — 画面とナビゲーション
 - [SPEC/OPERATIONS.md](./SPEC/OPERATIONS.md) — 環境、デプロイ、ジョブ運用、障害対応
-- [docs/rss-pipeline.html](./docs/rss-pipeline.html) — フィード取得と翻訳パイプラインの図解
+- [docs/rss-pipeline.html](./docs/rss-pipeline.html) — フィード取得パイプラインの図解
 
 推奨参照順は `CONCEPT.md -> SPEC/APP.md -> API.md / DATABASE.md / SCREENS.md -> OPERATIONS.md`。
 
@@ -37,7 +37,6 @@ just api          # apps/api の dev server (http://localhost:8787)
 just web          # apps/web の dev server (http://localhost:5173)
 just ios          # iOS をビルドしてシミュレータで起動
 just android      # Android をビルドしてエミュレータで起動
-just lm-studio    # 翻訳用のローカル LM Studio を起動しモデルをロード
 ```
 
-翻訳はローカルの LM Studio（OpenAI 互換 API）へ委譲する。未起動でも他の機能は動く。
+翻訳は端末内で行う（iOS: Translation framework、Android: ML Kit、Web: ブラウザ組み込みの Translator API）。サーバーは翻訳を生成も保存もしない。対象機能は、購読管理、RSS記事一覧、既読／ブックマーク、一覧タイトル翻訳です。

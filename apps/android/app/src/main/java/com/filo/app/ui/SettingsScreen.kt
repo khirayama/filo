@@ -52,6 +52,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    translations: TitleTranslationStore,
     onBack: () -> Unit,
     onSignOut: () -> Unit,
     onDeletionAccepted: (String) -> Unit,
@@ -180,6 +181,9 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                TextButton(onClick = { translations.isShowingSetup = true }) {
+                    Text(stringResource(com.filo.app.R.string.prepare_translation))
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(com.filo.app.R.string.readable_languages), style = MaterialTheme.typography.labelLarge)
                     Text(

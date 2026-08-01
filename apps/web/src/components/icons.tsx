@@ -80,40 +80,6 @@ const iconPaths: Record<string, ReactNode> = {
     </>
   ),
   play: <polygon points="6 4 20 12 6 20 6 4" />,
-  pause: (
-    <>
-      <path d="M8 5v14" />
-      <path d="M16 5v14" />
-    </>
-  ),
-  skipNext: (
-    <>
-      <polygon points="5 4 15 12 5 20 5 4" />
-      <path d="M19 5v14" />
-    </>
-  ),
-  skipPrev: (
-    <>
-      <polygon points="19 4 9 12 19 20 19 4" />
-      <path d="M5 5v14" />
-    </>
-  ),
-  speaker: (
-    <>
-      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-    </>
-  ),
-  queueAdd: (
-    <>
-      <path d="M3 6h13" />
-      <path d="M3 12h13" />
-      <path d="M3 18h9" />
-      <path d="M18 15v6" />
-      <path d="M15 18h6" />
-    </>
-  ),
   trash: (
     <>
       <path d="M3 6h18" />

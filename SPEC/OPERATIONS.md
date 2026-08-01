@@ -1,6 +1,6 @@
 # filo Production Operations
 
-filo は Cloudflare Workers、Cloudflare D1、Cloudflare Queues、Durable Objects、Workers Cron、Clerk を前提に運用する。タイトル翻訳は OpenAI 互換 API（既定はローカルの LM Studio）へ委譲する。
+filo は Cloudflare Workers、Cloudflare D1、Cloudflare Queues、Workers Cron、Clerk を前提に運用する。翻訳はクライアントが端末内で行うため、運用対象に含まれない。
 
 本書は実装済みの運用挙動を正とし、未実装の運用要件は `Not yet implemented` として明示する。仕様として掲げてはいるが動いていないものを、動いているかのように書かない。
 
@@ -20,7 +20,7 @@ filo は Cloudflare Workers、Cloudflare D1、Cloudflare Queues、Durable Object
 
 ## Environments
 
-- `local`: ローカル開発。D1 local database（`wrangler dev`）、Clerk development instance、ローカル LM Studio を使う
+- `local`: ローカル開発。D1 local database（`wrangler dev`）と Clerk development instance を使う
 - `production`: 実ユーザー環境
 
 現時点で staging 環境は存在しない。`wrangler.jsonc` の `database_id` は placeholder のままで、リモート D1 は未作成である。production data を local にコピーしない。
@@ -33,8 +33,6 @@ Bindings（`wrangler.jsonc`）:
 
 - `DB`: D1 database `filo-db`
 - `JOBS`: Queue `filo-jobs`（feed fetch、本文抽出、OPML import、account deletion）
-- `TRANSLATE_JOBS`: Queue `filo-translate`（タイトル翻訳 drain、`max_concurrency: 1`）
-- `TRANSLATION_WATCHDOG`: Durable Object。停止した翻訳 drain を再開する safety net
 
 Vars（`wrangler.jsonc`）:
 
@@ -45,14 +43,6 @@ Secrets（`wrangler secret put`）:
 - `CLERK_SECRET_KEY`: Clerk backend API key（token 検証と account deletion）
 - `CURSOR_SECRET`: pagination cursor の HMAC 鍵
 - `CRON_SECRET`: 内部 cron → API 呼び出しの Bearer token
-
-翻訳（すべて optional。未設定ならローカル LM Studio の既定値で動く）:
-
-- `LM_STUDIO_API_URL`: 既定 `http://localhost:1234/v1`
-- `LM_STUDIO_API_KEY`: OpenAI 互換サーバが認証を要求する場合のみ
-- `TRANSLATION_MODEL`: 既定 `google/gemma-4-12b-qat`
-- `TRANSLATION_TOKENS_PER_MINUTE`: 既定 `0`（=ペーシング無効）
-- `TRANSLATION_PACING_MS`: リクエスト間隔の下限、既定 `0`
 
 secret は Git にコミットしない。ローカルは `.dev.vars`（`.dev.vars.example` を複製）を使う。
 
@@ -82,16 +72,6 @@ feed fetch:
 - `feed_fetch_states` 未作成または `last_success_fetched_at IS NULL` の新規購読は、`initial_fetch_status=fetching` の間 `healthy` として扱う
 - `stale` は更新異常の断定ではなく「しばらく更新がない」通知として扱い、user-facing copy もそれに合わせる
 
-タイトル翻訳:
-
-- 翻訳対象は一覧表示用タイトルのみ。本文翻訳は提供しない（各プラットフォーム / ブラウザの翻訳機能に委ねる）
-- 翻訳先は `ja` / `en` / `zh` / `ko` / `es` の 5 言語。`article_listing_translations` には記事 × 5 言語ぶんの行を投入する
-- source language は入力として与えない。モデルがタイトルごとに識別して返し、その値を `articles.source_language` に保存する。`mixed` / `und` もそのまま保持する
-- 1 バッチ最大 `4` 件のタイトル、同時 `2` バッチ。1 リクエストでそのバッチに pending な全言語を翻訳する
-- 1 pair の試行上限は `3` 回。到達すると `error` を確定する
-- 1 回の drain の時間予算は約 `60` 秒。`pending` が残れば drain を再投入する
-- `429` は worker 内で待たず、`Retry-After`（`30..300s` に clamp）付きで drain を再投入する
-
 ## Deployment
 
 初回セットアップ（リモート D1 は未作成なので必須）:
@@ -100,7 +80,6 @@ feed fetch:
 cd apps/api
 wrangler d1 create filo-db          # 返ってきた database_id を wrangler.jsonc に書く
 npx wrangler queues create filo-jobs
-npx wrangler queues create filo-translate
 npm run db:migrate:remote           # placeholder のままなら script が止める
 wrangler secret put CLERK_SECRET_KEY
 wrangler secret put CURSOR_SECRET
@@ -108,18 +87,16 @@ wrangler secret put CRON_SECRET
 npm run deploy
 ```
 
-- migration は `migrations/0001_init.sql` の 1 本に集約されている。スキーマ変更は新しい migration ファイルを追加して行う
+- スキーマ変更は新しい migration ファイルを追加して行う
 - D1 の破壊的 migration と対応 Worker は一括適用し、旧 Worker への rollback は行わず forward-fix を優先する
 - DB schema を変更しない deploy に失敗した場合は直前の Worker version へ rollback する
 - deploy 後に `/api/v1/health`、`/api/v1/settings`、`/api/v1/subscriptions`、`/api/v1/articles`、`/api/v1/status` の疎通を確認する
-
-翻訳を有効にするには、Worker から到達できる OpenAI 互換サーバが必要になる。ローカル LM Studio のままリモート Worker を deploy しても翻訳だけが失敗する。
 
 ## Background Jobs
 
 すべてのジョブは少なくとも1回実行される前提で冪等にする。キューの `max_retries` は `5`、リトライは `60` 秒遅延で再投入する。
 
-cron（毎時）は失敗した account deletion job の再投入だけを行う。**feed fetch と翻訳を cron が起動することはない**。コンテンツの取得・生成はすべてユーザーの明示操作から始まる。
+cron（毎時）は失敗した account deletion job の再投入だけを行う。**feed fetch を cron が起動することはない**。コンテンツの取得・生成はすべてユーザーの明示操作から始まる。
 
 ### feed fetch
 
@@ -135,26 +112,22 @@ cron（毎時）は失敗した account deletion job の再投入だけを行う
 - `failed` 、および `10m` 以上更新の無い `pending/running`（中断）は行の取得操作で再実行できる。中断はアクティブ扱いせず操作を塞がない
 - queue message が失われてもジョブ行が中断として残るため、ユーザーが再実行で回復できる
 
-### タイトル翻訳
-
-翻訳は `feed_jobs` を使わない。`article_listing_translations` の `pending → ready | error` という状態遷移そのものが作業台帳であり、進捗・完了・失敗はすべてこの実データの集計（coverage）として表示する。
-
-- 明示操作で不足 `(article, language)` pair を `pending` に一括 INSERT し、既存の `error` 行を `pending`（`attempt_count=0`）に戻してから、グローバル drain を 1 メッセージ蹴る
-- drain は `filo-translate`（`max_concurrency=1`）で直列化する。並列実行はプロバイダのレート制限を互いに奪い合うだけになる
-- `pending` 行が唯一の状態なので、メッセージの重複・喪失があっても drain 再投入だけで自己修復する
-- `processing_at` は「モデルへ送信済み・応答待ち」を表す。drain 開始時に前回の残骸を NULL に戻すので、クラッシュした drain の pair は 順番待ち へ戻る
-- 出力検証は品質採点ではなく、表示できない結果を排除するガードレールとする。空出力と、正当化できない原文 echo だけが表示不可。文字種の混在や言語ヒューリスティックの不確かさは警告に留め、worker ログにのみ記録する
-- 中断・失敗した pair の一括再開 API は持たない。翻訳操作の再実行で `error` 行が `pending` に戻る
-- `TranslationWatchdog`（Durable Object）が safety net として drain の鎖を監視し、途切れていれば再開する。alarm は永続化されるのでプロセス再起動後も効く
-
 ### 本文抽出
 
-リーディングパート（音読キュー）専用の on-demand 処理で、RSS リーダーの管理 UI からは起動しない。
+リーディングパート専用の on-demand 処理で、RSS リーダーの管理 UI からは起動しない。読み上げの第一経路はクライアント側の可視 DOM 抽出であり、このサーバー抽出は fallback として使う（`READING.md`）。
 
 - `POST /api/v1/articles/{articleId}/content` で起動する
 - `article_contents` の行の存在自体が「抽出を要求済み」を意味する。`pending` 行があれば重複 job を作らない
 - RSS 本文からの抽出を先に試し、取れなければ canonical URL を fetch して Readability で抽出する
 - 抽出できなければ `status='error'` を確定する。指数バックオフによる自動再試行は行わず、`force=true` の再要求で回復する
+
+publisher 尊重ルール:
+
+- fetch 時の User-Agent に filo であることと連絡先 URL を含める
+- `noarchive` / `noindex` を指定するページはサーバー抽出の対象外とし、`status='error'` として扱う。可視 DOM 経由でのみ読み上げられる
+- paywall / 認証壁を検出した場合（抽出テキストが極端に短い、既知のパターン）も同様に抽出しない
+- feed が full content を配信している記事は canonical URL を fetch しない
+- publisher からの停止要請を受け付ける窓口を用意し、feed 単位で抽出を無効化できるようにする
 
 ### OPML import
 
@@ -171,14 +144,12 @@ cron（毎時）は失敗した account deletion job の再投入だけを行う
 
 ## Observability
 
-`observability.enabled` を有効にした Workers logs を使う。現状のログは構造化 JSON ではなく、`[translate]` などのプレフィックス付きテキストである。
+`observability.enabled` を有効にした Workers logs を使う。現状のログは構造化 JSON ではなく、`[fetch]` などのプレフィックス付きテキストである。
 
 - 全 API response に `X-Request-Id` を返す。client が送ってこなければ server が生成する
-- 翻訳 drain は `translated / failed / remaining / rateLimited` を 1 行で出す
-- 表示可能だが疑わしい翻訳は `accepted output with validation warning` として article / language / 理由つきで残る
-- ログに本文、AI 生成結果、Clerk secret、Authorization header を出力しない
+- ログに本文、Clerk secret、Authorization header を出力しない
 
-運用状況の第一の窓口は dashboard ではなく `GET /api/v1/status` である。購読行ごとの fetch job 状態と翻訳 coverage（`ready` / `failed` / `queued` / `processing` / `missing`）を実データの集計として返す。
+運用状況の第一の窓口は dashboard ではなく `GET /api/v1/status` である。購読行ごとの fetch job 状態を実データの集計として返す。
 
 ## Security
 
@@ -195,11 +166,13 @@ cron（毎時）は失敗した account deletion job の再投入だけを行う
 ## Data Retention
 
 - user-owned data: `users` `user_settings` `subscriptions` `tags` `subscription_tags` `article_read_states` `article_user_collections` `feed_read_cursors` `feed_jobs` `playback_queue_items` `playback_states` `opml_import_jobs`
-- shared data: `feeds` `articles` `article_contents` `article_listing_translations` `feed_fetch_states` `feed_fetch_logs`
+- shared data: `feeds` `articles` `article_contents` `feed_fetch_states` `feed_fetch_logs`
 
 アカウント削除は user-owned data のみを削除する。shared data は削除しない。
 
-shared data の自動 retention 削除は導入していない。D1 使用量が `80GB`、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、feed 単位 retention の追加を次リリース優先事項として扱う。
+shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 使用量が `80GB`、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、feed 単位 retention の追加を次リリース優先事項として扱う。
+
+`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。削除の実行手段は未定（`Not yet implemented` を参照）。
 
 ## Incident Runbooks
 
@@ -211,14 +184,6 @@ shared data の自動 retention 削除は導入していない。D1 使用量が
 4. 一時障害なら `next_fetch_after` を調整して再試行する。
 5. `3` 回連続失敗で `paused` になった feed は、原因解消後に `PATCH /api/v1/admin/feeds/{feedId}` で `active` に戻す。
 6. failed subscription の user retry で復旧した場合は、`feeds.status` と `consecutive_failures` の回復も確認する。
-
-### 翻訳が進まない
-
-1. `GET /api/v1/status` の `translator.pending` と、購読行ごとの `translation` coverage を見る。`queued` のまま減らないのか、`processing` で止まっているのかを切り分ける。
-2. `processing` のまま止まっている場合は、モデル側の応答待ちかドレインの死亡を疑う。LM Studio が起動しているか（`lms ps`）、`TRANSLATION_MODEL` が実際にロードされているかを確認する。
-3. drain が完全に止まっていても `TranslationWatchdog` が再開させる。即座に動かしたい場合は翻訳操作を再実行する。
-4. `failed` が増えている場合は coverage の `lastError` を見る。`API error` 系はサーバ側、`model returned` 系は出力品質の問題。
-5. 溜まった `pending` / `error` を捨てて仕切り直す場合は `POST /api/v1/status/translate/discard`。完了済みの翻訳は残る。
 
 ### OPML import failures
 
@@ -238,7 +203,7 @@ shared data の自動 retention 削除は導入していない。D1 使用量が
 - 対象機能ごとに `iOS` `Android` `Web + Extension` の実装と検証がそろうまで完了扱いにしていない
 - `npm run typecheck` と `npm test` が通っている
 - migration を適用し、`GET /api/v1/health` が応答する
-- Queue（`filo-jobs` / `filo-translate`）と Durable Object の疎通を確認している
+- Queue（`filo-jobs`）の疎通を確認している
 - Cron が account deletion retry を実行できることを確認している
 - admin API が非 admin から拒否されることを確認している
 - retained article と unsubscribe の挙動を確認している
@@ -248,7 +213,6 @@ shared data の自動 retention 削除は導入していない。D1 使用量が
 - 購読一覧で `feedHealthStatus` の異常表示が反映されることを確認している
 - `success/not_modified/error` ごとの `next_fetch_after` 更新を確認している
 - `paused` feed 上の failed subscription を user retry で復帰できることを確認している
-- 翻訳の投入 → `pending` 減少 → 一覧の `translatedTitle` 反映まで通ることを確認している
 - Error Codes と主要画面文言の対応を確認している
 
 ## Not yet implemented
@@ -259,6 +223,8 @@ shared data の自動 retention 削除は導入していない。D1 使用量が
 - CI（typecheck / lint / test / migration dry-run はローカル実行のみ）
 - rate limiting。`rate_limited` error code は定義済みだが、返す経路がない
 - 構造化ログ（`jobId` / `userId` / `route` / `durationMs` / `errorCode` などの共通フィールド）
-- メトリクスとアラート（5xx rate、queue backlog、翻訳 pending の滞留、paused feed の増加など）
+- メトリクスとアラート（5xx rate、queue backlog、paused feed の増加など）
 - D1 の定期 backup と復旧手順の検証
 - Clerk webhook（署名検証つきの user 同期）。現在の user 作成は API 呼び出し時の upsert のみ
+- `article_contents` の 7 日 retention 削除。cron は失敗ジョブ復旧のみという方針との整合を含めて実行手段が未決（`READING.md` Q4）
+- 本文抽出の publisher 尊重ルール（User-Agent、`noarchive` 判定、paywall 判定、feed 単位の抽出無効化）

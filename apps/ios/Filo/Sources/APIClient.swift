@@ -99,21 +99,6 @@ final class APIClient: Sendable {
         try await send("POST", "/api/v1/status/refresh/\(feedId)", json: [:])
     }
 
-    func translateAll() async throws -> TranslateResult {
-        try await send("POST", "/api/v1/status/translate", json: [:])
-    }
-
-    func translateFeed(_ feedId: Int) async throws -> TranslateResult {
-        try await send("POST", "/api/v1/status/translate/\(feedId)", json: [:])
-    }
-
-    func discardTranslations() async throws -> DiscardResult {
-        try await send("POST", "/api/v1/status/translate/discard", json: [:])
-    }
-
-    func discardFeedTranslations(_ feedId: Int) async throws -> DiscardResult {
-        try await send("POST", "/api/v1/status/translate/\(feedId)/discard", json: [:])
-    }
 
     // MARK: Settings
 
@@ -216,7 +201,6 @@ final class APIClient: Sendable {
         if let id = filters.subscriptionId { items.append(.init(name: "subscriptionId", value: String(id))) }
         if let id = filters.tagId { items.append(.init(name: "tagId", value: String(id))) }
         if let read = filters.read { items.append(.init(name: "read", value: read ? "true" : "false")) }
-        if filters.readingList == true { items.append(.init(name: "readingList", value: "true")) }
         if filters.bookmarked == true { items.append(.init(name: "bookmarked", value: "true")) }
         if let sort = filters.sort { items.append(.init(name: "sort", value: sort)) }
         if let cursor { items.append(.init(name: "cursor", value: cursor)) }
@@ -230,68 +214,8 @@ final class APIClient: Sendable {
         try await send("PATCH", "/api/v1/articles/\(id)/state", json: ["isRead": isRead])
     }
 
-    func setReadingListMembership(_ id: Int, active: Bool) async throws -> ArticleUserState {
-        try await send(active ? "PUT" : "DELETE", "/api/v1/articles/\(id)/reading-list")
-    }
-
     func setBookmarkMembership(_ id: Int, active: Bool) async throws -> ArticleUserState {
         try await send(active ? "PUT" : "DELETE", "/api/v1/articles/\(id)/bookmark")
-    }
-
-    func getArticle(_ id: Int) async throws -> ArticleDetail {
-        try await get("/api/v1/articles/\(id)")
-    }
-
-    func getArticleContent(_ id: Int) async throws -> ArticleContent {
-        try await get("/api/v1/articles/\(id)/content")
-    }
-
-    func requestArticleContent(_ id: Int, force: Bool = false) async throws {
-        try await sendIgnoringResponse("POST", "/api/v1/articles/\(id)/content", json: ["force": force])
-    }
-
-    // MARK: Playback Queue
-
-    func getPlaybackQueue() async throws -> PlaybackQueueData {
-        try await get("/api/v1/playback-queue")
-    }
-
-    func addPlaybackQueueItems(_ articleIds: [Int]) async throws {
-        try await sendIgnoringResponse("POST", "/api/v1/playback-queue/items", json: ["articleIds": articleIds])
-    }
-
-    func removePlaybackQueueItem(_ articleId: Int) async throws {
-        try await sendIgnoringResponse("DELETE", "/api/v1/playback-queue/items/\(articleId)")
-    }
-
-    func reorderPlaybackQueue(_ articleIds: [Int]) async throws {
-        try await sendIgnoringResponse("PUT", "/api/v1/playback-queue/order", json: ["articleIds": articleIds])
-    }
-
-    func clearPlaybackQueue() async throws {
-        try await sendIgnoringResponse("DELETE", "/api/v1/playback-queue")
-    }
-
-    func updatePlaybackState(
-        currentArticleId: Int? = nil,
-        clearCurrentArticle: Bool = false,
-        contentLanguage: String? = nil,
-        positionPercent: Double? = nil
-    ) async throws {
-        var json: [String: Any?] = [:]
-        if clearCurrentArticle {
-            json["currentArticleId"] = NSNull()
-        } else if let currentArticleId {
-            json["currentArticleId"] = currentArticleId
-        }
-        if let contentLanguage { json["contentLanguage"] = contentLanguage }
-        if let positionPercent { json["positionPercent"] = positionPercent }
-        try await sendIgnoringResponse("PATCH", "/api/v1/playback-queue/state", json: json)
-    }
-
-    func lookupArticle(url: String) async throws -> ArticleLookup {
-        let encoded = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url
-        return try await get("/api/v1/articles/lookup?url=\(encoded)")
     }
 
     // MARK: OPML

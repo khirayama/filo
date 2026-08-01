@@ -4,6 +4,7 @@ import { useApi } from "../api/useApi";
 import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
+import { TitleTranslationToggle } from "../components/TitleTranslationContext";
 import { EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, palette } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage } from "../lib/messages";
@@ -108,6 +109,7 @@ function ArticlesListPage() {
           <h1 style={{ flex: 1, fontSize: "20px", margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {title}
           </h1>
+          <TitleTranslationToggle />
           {!bookmarkedOnly ? (
             <>
               <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />

@@ -68,13 +68,11 @@ final class SubscriptionDetailViewModel: ObservableObject {
         }
     }
 
-    func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
+    func patchState(_ articleId: Int, isRead: Bool? = nil, isBookmarked: Bool? = nil) async {
         do {
             let state: ArticleUserState
             if let isRead {
                 state = try await APIClient.shared.setArticleRead(articleId, isRead: isRead)
-            } else if let inReadingList {
-                state = try await APIClient.shared.setReadingListMembership(articleId, active: inReadingList)
             } else if let isBookmarked {
                 state = try await APIClient.shared.setBookmarkMembership(articleId, active: isBookmarked)
             } else {
@@ -157,6 +155,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
 
 struct SubscriptionDetailScreen: View {
     @StateObject private var model: SubscriptionDetailViewModel
+    @ObservedObject private var translations = TitleTranslationStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var showRename = false
@@ -182,8 +181,16 @@ struct SubscriptionDetailScreen: View {
         }
         .navigationTitle(model.subscription?.displayTitle ?? "購読詳細")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                TitleTranslationToggle(store: translations)
+            }
+        }
         .task { await model.load() }
         .onChange(of: model.sort) { Task { await model.reloadArticles() } }
+        // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
+        .onChange(of: model.articles, initial: true) { translations.register(model.articles) }
+        .onChange(of: translations.isEnabled) { translations.register(model.articles) }
     }
 
     private var contentList: some View {
@@ -238,20 +245,13 @@ struct SubscriptionDetailScreen: View {
                     }
                 } else {
                     ForEach(model.articles) { article in
-                        NavigationLink(value: AppRoute.articleDetail(article.id)) {
+                        Button {
+                            if let value = article.canonicalUrl, let url = URL(string: value) { openURL(url) }
+                        } label: {
                             ArticleRowView(article: article)
                         }
                         .buttonStyle(.plain)
                         .swipeActions(edge: .trailing) {
-                            Button {
-                                Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
-                            } label: {
-                                Label(
-                                    article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
-                                    systemImage: "list.bullet"
-                                )
-                            }
-                            .tint(.blue)
                             Button {
                                 Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
                             } label: {
@@ -284,7 +284,7 @@ struct SubscriptionDetailScreen: View {
         .confirmationDialog("このフィードの記事をすべて既読にしますか？", isPresented: $showMarkAllReadConfirm, titleVisibility: .visible) {
             Button("すべて既読にする") { Task { await model.markAllRead() } }
         }
-        .confirmationDialog("この購読を解除しますか？リーディングリスト・ブックマークした記事は残ります。", isPresented: $showUnsubscribeConfirm, titleVisibility: .visible) {
+        .confirmationDialog("この購読を解除しますか？ブックマークした記事は残ります。", isPresented: $showUnsubscribeConfirm, titleVisibility: .visible) {
             Button("購読解除", role: .destructive) {
                 Task {
                     if await model.unsubscribe() { dismiss() }

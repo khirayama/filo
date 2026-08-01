@@ -2,14 +2,14 @@ import type { ReactNode } from "react";
 import { SignIn, SignUp, useAuth } from "@clerk/clerk-react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppDataProvider } from "./components/AppDataContext";
-import { PlayerProvider } from "./components/PlayerContext";
+import { TitleTranslationProvider } from "./components/TitleTranslationContext";
+import { TitleTranslationSetup } from "./components/TitleTranslationSetup";
 import { pageStyle, sectionStyle, shellStyle } from "./components/ui";
 import { AccountDeletionPage } from "./screens/AccountDeletionPage";
 import { AddFeedPage } from "./screens/AddFeedPage";
 import { ArticlesPage } from "./screens/ArticlesPage";
 import { SettingsPage } from "./screens/SettingsPage";
 import { StatusPage } from "./screens/StatusPage";
-import { ReadingListPage } from "./screens/ReadingListPage";
 import { SubscriptionDetailPage } from "./screens/SubscriptionDetailPage";
 import { SubscriptionsPage } from "./screens/SubscriptionsPage";
 import { TagsPage } from "./screens/TagsPage";
@@ -42,7 +42,7 @@ export function App() {
   return (
     <BrowserRouter>
       <AppDataProvider>
-      <PlayerProvider>
+      <TitleTranslationProvider>
       <Routes>
         <Route path="/" element={<RootRedirect />} />
         <Route
@@ -63,7 +63,6 @@ export function App() {
         />
         {/* Web は記事詳細画面を持たない。一覧から元記事を開くか Extension に引き継ぐ (SPEC/SCREENS.md) */}
         <Route path="/articles" element={<ProtectedRoute><ArticlesPage /></ProtectedRoute>} />
-        <Route path="/reading-list" element={<ProtectedRoute><ReadingListPage /></ProtectedRoute>} />
         <Route path="/subscriptions" element={<ProtectedRoute><SubscriptionsPage /></ProtectedRoute>} />
         <Route path="/subscriptions/:subscriptionId" element={<ProtectedRoute><SubscriptionDetailPage /></ProtectedRoute>} />
         <Route path="/feeds/new" element={<ProtectedRoute><AddFeedPage /></ProtectedRoute>} />
@@ -73,7 +72,9 @@ export function App() {
         <Route path="/settings/account-deletion" element={<AccountDeletionPage />} />
         <Route path="*" element={<RootRedirect />} />
       </Routes>
-      </PlayerProvider>
+      {/* 翻訳の準備はアプリ全体で 1 箇所。どのトグルからでも開ける */}
+      <TitleTranslationSetup />
+      </TitleTranslationProvider>
       </AppDataProvider>
     </BrowserRouter>
   );

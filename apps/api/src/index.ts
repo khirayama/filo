@@ -1,21 +1,16 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import type { Env, JobMessage, TranslateJobMessage } from "./env";
+import type { Env, JobMessage } from "./env";
 import { runAccountDeletion } from "./jobs/accountDeletion";
-import { runExtractContent } from "./jobs/extractContent";
 import { runFetchFeed } from "./jobs/fetchFeed";
 import { runOpmlImport } from "./jobs/opmlImport";
-import { runTranslateDrain } from "./jobs/translateDrain";
-import { TranslationWatchdog } from "./jobs/translationWatchdog";
 import { requireAdmin, requireUser, requireUserOrSystem, type AppContext, type OpsContext } from "./lib/auth";
 import { ApiError } from "./lib/errors";
 import { nowIso } from "./lib/util";
 import { accountRoutes } from "./routes/account";
 import { adminRoutes } from "./routes/admin";
 import { articleRoutes } from "./routes/articles";
-import { contentRoutes } from "./routes/content";
 import { opmlRoutes } from "./routes/opml";
-import { playbackQueueRoutes } from "./routes/playbackQueue";
 import { settingsRoutes } from "./routes/settings";
 import { statusRoutes } from "./routes/status";
 import { subscriptionRoutes } from "./routes/subscriptions";
@@ -73,8 +68,6 @@ authed.route("/settings", settingsRoutes);
 authed.route("/subscriptions", subscriptionRoutes);
 authed.route("/tags", tagRoutes);
 authed.route("/articles", articleRoutes);
-authed.route("/articles", contentRoutes);
-authed.route("/playback-queue", playbackQueueRoutes);
 authed.route("/opml", opmlRoutes);
 
 const admin = new Hono<AppContext>();
@@ -90,16 +83,10 @@ ops.use("*", requireUserOrSystem);
 ops.route("/status", statusRoutes);
 app.route("/api/v1", ops);
 
-async function handleJob(env: Env, message: JobMessage | TranslateJobMessage): Promise<void> {
+async function handleJob(env: Env, message: JobMessage): Promise<void> {
   switch (message.jobType) {
     case "fetch_feed":
       await runFetchFeed(env, message.feedId, message.reason);
-      return;
-    case "translate_drain":
-      await runTranslateDrain(env);
-      return;
-    case "extract_content":
-      await runExtractContent(env, message.articleId);
       return;
     case "opml_import":
       await runOpmlImport(env, message.opmlJobId);
@@ -113,7 +100,7 @@ async function handleJob(env: Env, message: JobMessage | TranslateJobMessage): P
 export default {
   fetch: app.fetch,
 
-  async queue(batch: MessageBatch<JobMessage | TranslateJobMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<JobMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
       try {
         await handleJob(env, message.body);
@@ -139,7 +126,4 @@ export default {
       })(),
     );
   },
-} satisfies ExportedHandler<Env, JobMessage | TranslateJobMessage>;
-
-// Durable Object classes must be exported from the worker entry module.
-export { TranslationWatchdog };
+} satisfies ExportedHandler<Env, JobMessage>;

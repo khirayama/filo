@@ -3,7 +3,6 @@ import SwiftUI
 struct SourcesDrawer: View {
     @ObservedObject var model: ArticlesViewModel
     let onSelect: () -> Void
-    var onOpenReadingList: () -> Void = {}
     @State private var expandedTags: Set<Int> = []
     @State private var untaggedExpanded = false
 
@@ -29,9 +28,6 @@ struct SourcesDrawer: View {
 
                 drawerItem("全ての記事", icon: "list.bullet", isActive: model.selectedTagId == nil && !model.bookmarkedOnly) {
                     model.selectView()
-                }
-                drawerItem("リーディングリスト", icon: "list.bullet", isActive: false) {
-                    onOpenReadingList()
                 }
                 drawerItem("ブックマーク", icon: "bookmark", isActive: model.bookmarkedOnly && model.selectedTagId == nil) {
                     model.selectView(bookmarked: true)

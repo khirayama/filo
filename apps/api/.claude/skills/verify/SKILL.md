@@ -8,8 +8,8 @@ description: Verify apps/api job/fetch changes by driving the real job code agai
 ## Surface
 
 The verification worker at `.wrangler/verify/worker.ts` exposes the real job
-functions (`runFetchFeed`, translate drain, etc.) over HTTP against the local
-D1 state. It compiles fresh from `src/` at startup and hot-reloads on save,
+function `runFetchFeed` over HTTP against the local D1 state. It compiles fresh
+from `src/` at startup and hot-reloads on save,
 same as the main `wrangler dev` on port 8787 (both run current working-tree
 code; check the wrangler terminal for the Reloading line if unsure).
 
@@ -28,8 +28,6 @@ server on 8787 works fine.
 
 ```bash
 curl http://127.0.0.1:8788/fetch/<feedId>     # run runFetchFeed for one feed
-curl http://127.0.0.1:8788/translate/<feedId> # enqueue+drain translations
-# also: /revalidate-all, /probe (see worker.ts usage string)
 ```
 
 The endpoint returns `{"ok":true,...}` even when the fetch job itself settled

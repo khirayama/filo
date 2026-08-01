@@ -95,17 +95,6 @@ object ApiClient {
     suspend fun refreshFeed(feedId: Int): RefreshResult =
         parseRefreshResult(JSONObject(sendJson("POST", "/api/v1/status/refresh/$feedId", JSONObject())).getJSONObject("data"))
 
-    suspend fun translateAll(): TranslateResult =
-        parseTranslateResult(JSONObject(sendJson("POST", "/api/v1/status/translate", JSONObject())).getJSONObject("data"))
-
-    suspend fun translateFeed(feedId: Int): TranslateResult =
-        parseTranslateResult(JSONObject(sendJson("POST", "/api/v1/status/translate/$feedId", JSONObject())).getJSONObject("data"))
-
-    suspend fun discardTranslations(): DiscardResult =
-        parseDiscardResult(JSONObject(sendJson("POST", "/api/v1/status/translate/discard", JSONObject())).getJSONObject("data"))
-
-    suspend fun discardFeedTranslations(feedId: Int): DiscardResult =
-        parseDiscardResult(JSONObject(sendJson("POST", "/api/v1/status/translate/$feedId/discard", JSONObject())).getJSONObject("data"))
 
     // Settings
 
@@ -214,7 +203,6 @@ object ApiClient {
         filters.subscriptionId?.let { params.add("subscriptionId=$it") }
         filters.tagId?.let { params.add("tagId=$it") }
         filters.read?.let { params.add("read=$it") }
-        if (filters.readingList == true) params.add("readingList=true")
         if (filters.bookmarked == true) params.add("bookmarked=true")
         filters.sort?.let { params.add("sort=$it") }
         cursor?.let { params.add("cursor=" + URLEncoder.encode(it, "UTF-8")) }
@@ -225,69 +213,15 @@ object ApiClient {
         )
     }
 
-    suspend fun getArticle(id: Int): ArticleDetail = parseArticleDetail(getData("/api/v1/articles/$id"))
-
-    suspend fun getArticleContent(id: Int): ArticleContent = parseArticleContent(getData("/api/v1/articles/$id/content"))
-
-    suspend fun requestArticleContent(id: Int, force: Boolean = false): String {
-        val data = JSONObject(sendJson("POST", "/api/v1/articles/$id/content", JSONObject().put("force", force))).getJSONObject("data")
-        return data.optString("status", "pending")
-    }
-
     suspend fun setArticleRead(id: Int, isRead: Boolean): ArticleUserState {
         val body = JSONObject().put("isRead", isRead)
         return parseUserState(JSONObject(sendJson("PATCH", "/api/v1/articles/$id/state", body)).getJSONObject("data"))
-    }
-
-    suspend fun setReadingListMembership(id: Int, active: Boolean): ArticleUserState {
-        val method = if (active) "PUT" else "DELETE"
-        return parseUserState(JSONObject(sendJson(method, "/api/v1/articles/$id/reading-list")).getJSONObject("data"))
     }
 
     suspend fun setBookmarkMembership(id: Int, active: Boolean): ArticleUserState {
         val method = if (active) "PUT" else "DELETE"
         return parseUserState(JSONObject(sendJson(method, "/api/v1/articles/$id/bookmark")).getJSONObject("data"))
     }
-
-    // Playback Queue
-
-    suspend fun getPlaybackQueue(): PlaybackQueueData = parsePlaybackQueue(getData("/api/v1/playback-queue"))
-
-    suspend fun addPlaybackQueueItems(articleIds: List<Int>) {
-        sendJson("POST", "/api/v1/playback-queue/items", JSONObject().put("articleIds", JSONArray(articleIds)))
-    }
-
-    suspend fun removePlaybackQueueItem(articleId: Int) {
-        sendJson("DELETE", "/api/v1/playback-queue/items/$articleId")
-    }
-
-    suspend fun reorderPlaybackQueue(articleIds: List<Int>) {
-        sendJson("PUT", "/api/v1/playback-queue/order", JSONObject().put("articleIds", JSONArray(articleIds)))
-    }
-
-    suspend fun clearPlaybackQueue() {
-        sendJson("DELETE", "/api/v1/playback-queue")
-    }
-
-    suspend fun updatePlaybackState(
-        currentArticleId: Int? = null,
-        clearCurrentArticle: Boolean = false,
-        contentLanguage: String? = null,
-        positionPercent: Double? = null,
-    ) {
-        val body = JSONObject()
-        if (clearCurrentArticle) {
-            body.put("currentArticleId", JSONObject.NULL)
-        } else {
-            currentArticleId?.let { body.put("currentArticleId", it) }
-        }
-        contentLanguage?.let { body.put("contentLanguage", it) }
-        positionPercent?.let { body.put("positionPercent", it) }
-        sendJson("PATCH", "/api/v1/playback-queue/state", body)
-    }
-
-    suspend fun lookupArticle(url: String): ArticleLookup =
-        parseArticleLookup(getData("/api/v1/articles/lookup?url=" + URLEncoder.encode(url, "UTF-8")))
 
     // OPML
 

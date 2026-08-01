@@ -9,7 +9,8 @@
     <string name="system">システム</string><string name="light">ライト</string><string name="dark">ダーク</string><string name="language">言語</string>
     <string name="readable_languages">原文のまま読む言語</string><string name="article_order">記事の並び順</string>
     <string name="published_newest">公開が新しい順</string><string name="fetched_newest">取得が新しい順</string>
-    <string name="display_language_help">表示言語を切り替えると、リーディングリスト内のタイトル翻訳をその言語で表示します。</string>
+    <string name="prepare_translation">翻訳の準備</string>
+    <string name="display_language_help">一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。</string>
     <string name="original_language_help">選択した言語の記事は翻訳せず原文で表示します。</string>
     <string name="browser_links">リンクを常にブラウザで開く</string><string name="opml">OPML</string>
     <string name="import_opml">インポート</string><string name="export_opml">エクスポート</string><string name="importing">インポート処理中…</string>

@@ -5,10 +5,10 @@ import type { ArticleListFilters, ArticleListItem } from "../api/types";
 import { errorMessage } from "../lib/messages";
 import { useIsDesktop } from "./AppShell";
 import { useAppData } from "./AppDataContext";
+import { useTitleTranslation } from "./TitleTranslationContext";
 
 type ArticleStateMutation =
   | { isRead: boolean }
-  | { inReadingList: boolean }
   | { isBookmarked: boolean };
 import { ErrorBox, IconButton, Spinner, formatTimeCompact, palette } from "./ui";
 
@@ -63,15 +63,12 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
       try {
         const state = "isRead" in patch
           ? await api.setArticleRead(articleId, patch.isRead)
-          : "inReadingList" in patch
-            ? await api.setReadingListMembership(articleId, patch.inReadingList)
-            : await api.setBookmarkMembership(articleId, patch.isBookmarked);
+          : await api.setBookmarkMembership(articleId, patch.isBookmarked);
         const currentFilters = JSON.parse(filtersKey) as ArticleListFilters;
         setArticles((prev) =>
           prev.flatMap((a) => {
             if (a.id !== articleId) return [a];
             const remainsInList =
-              (currentFilters.readingList === undefined || state.inReadingList === currentFilters.readingList) &&
               (currentFilters.bookmarked === undefined || state.isBookmarked === currentFilters.bookmarked) &&
               (currentFilters.read === undefined || state.isRead === currentFilters.read);
             return remainsInList ? [{ ...a, userState: state }] : [];
@@ -109,6 +106,19 @@ export function ArticleRows({
   emptyContent: React.ReactNode;
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const { enabled: translationEnabled, request: requestTranslations } = useTitleTranslation();
+
+  // 翻訳トグルが ON の間は、表示された記事(スクロールで増えた分も含む)を翻訳対象にする
+  useEffect(() => {
+    if (!translationEnabled || articles.length === 0) return;
+    requestTranslations(
+      articles.map((article) => ({
+        id: article.id,
+        title: article.title,
+        sourceLanguage: article.sourceLanguage,
+      })),
+    );
+  }, [articles, translationEnabled, requestTranslations]);
 
   // Feedly-style infinite scroll: load the next page as the end of the list nears.
   useEffect(() => {
@@ -151,9 +161,10 @@ function ArticleRow({
   const { t } = useAppData();
   const [hovered, setHovered] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
-  const { isRead, inReadingList, isBookmarked } = article.userState;
-  const isTranslated = article.translatedTitle != null;
-  const displayTitle = showOriginal || !isTranslated ? article.title : article.translatedTitle;
+  const { isRead, isBookmarked } = article.userState;
+  const translatedTitle = useTitleTranslation().titleFor(article.id);
+  const isTranslated = translatedTitle != null;
+  const displayTitle = showOriginal || !isTranslated ? article.title : translatedTitle;
   const subscriptionId = article.subscriptionContext.subscriptionIds[0];
 
   const faviconEl = article.feed.faviconUrl ? (
@@ -221,25 +232,6 @@ function ArticleRow({
       {showOriginal ? t("翻訳") : t("原文")}
     </span>
   ) : null;
-  const pendingLabel = article.titleTranslationPending ? (
-    <span
-      style={{
-        border: `1px solid ${palette.border}`,
-        borderRadius: "3px",
-        color: palette.muted,
-        flexShrink: 0,
-        fontSize: "10px",
-        lineHeight: "16px",
-        padding: "0 4px",
-        position: "relative",
-        whiteSpace: "nowrap",
-        zIndex: 1,
-      }}
-    >
-      {t("翻訳中…")}
-    </span>
-  ) : null;
-
   const dateEl = (
     <span style={{ color: palette.muted, flexShrink: 0, fontSize: "12px", whiteSpace: "nowrap" }}>
       {formatTimeCompact(article.publishedAt ?? article.fetchedAt)}
@@ -252,19 +244,12 @@ function ArticleRow({
         alignItems: "center",
         display: "flex",
         gap: "2px",
-        opacity: hovered || inReadingList || isBookmarked ? 1 : 0,
+        opacity: hovered || isBookmarked ? 1 : 0,
         position: "relative",
         transition: "opacity 0.15s",
         zIndex: 1,
       }}
     >
-      <IconButton
-        icon="queueAdd"
-        label={inReadingList ? t("リーディングリストから削除") : t("リーディングリストに追加")}
-        active={inReadingList}
-        color={inReadingList ? palette.accent : undefined}
-        onClick={() => onUpdateState(article.id, { inReadingList: !inReadingList })}
-      />
       <IconButton
         icon="bookmark"
         label={isBookmarked ? t("ブックマークを解除") : t("ブックマーク")}
@@ -296,7 +281,6 @@ function ArticleRow({
             <div style={{ alignItems: "center", display: "flex", flexShrink: 0, gap: "6px", width: "120px" }}>
               {feedNameEl}
               {translationLabel}
-              {pendingLabel}
             </div>
             <span style={{ flexShrink: 0, fontSize: "14px", fontWeight: isRead ? 400 : 600, whiteSpace: "nowrap" }}>
               {displayTitle}
@@ -326,7 +310,6 @@ function ArticleRow({
             {faviconEl}
             {feedNameEl}
             {translationLabel}
-            {pendingLabel}
             <span style={{ flex: 1 }} />
             {dateEl}
             {actions}

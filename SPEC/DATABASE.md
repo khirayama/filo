@@ -43,10 +43,9 @@ shared（ユーザー間で共有。アカウント削除でも消さない）:
 
 | テーブル | 役割 |
 | --- | --- |
-| `feeds` | RSS/Atom の取得元 |
+| `feeds` | RSS/Atom の取得元。宣言言語 `language` を含む |
 | `articles` | feed 配下の記事実体。`source_language` を含む |
 | `article_contents` | 本文抽出結果（リーディングパート専用） |
-| `article_listing_translations` | 一覧表示用タイトル翻訳。翻訳作業の台帳そのもの |
 | `feed_fetch_states` / `feed_fetch_logs` | 取得の現在状態と履歴 |
 
 account deletion 専用:
@@ -76,23 +75,24 @@ account deletion 専用:
 
 ### 言語と翻訳
 
-- `articles.source_language` は原文言語コードを保持し、`ja/en/zh/ko/es` に限定しない。`mixed` / `und` も保持する
-- `articles.source_language` を書けるのは翻訳 drain だけである。ローカルの言語判定は行わないため、翻訳が一度も走っていない記事では `NULL` のままになる。したがって「原文言語で翻訳対象を絞り込む」ことは構造上できない
-- `article_listing_translations` は一覧表示用に RSS タイトルを言語ごとに翻訳して保持する。ステータスページや購読管理から手動トリガーで生成する
-- `article_listing_translations` の行そのものが翻訳作業の台帳である。翻訳のジョブテーブルは持たない
-  - `status`: `pending -> ready | error`。翻訳操作の再実行で `error -> pending`（`attempt_count=0`）に戻す
-  - `attempt_count`: 失敗ごとに加算し、`3` に達した時点で `error` を確定する
-  - `processing_at`: `NULL` なら順番待ち、timestamp ならモデルへ送信済みで応答待ち。drain 開始時に前回の残骸を `NULL` に戻す
-- 記事一覧の翻訳タイトルは、表示言語の `article_listing_translations`（`status='ready'`）があり、かつ `source_language` がユーザーの `readable_languages` に含まれない場合に表示する
-- `user_settings.readable_languages` はユーザーが原文のまま読む言語の JSON 配列（default `'["ja"]'`）であり、表示時のタイトルの原文・翻訳の出し分けにのみ使う。生成パイプラインには影響しない
-- 本文翻訳はアプリでは提供しない（各プラットフォーム / ブラウザの翻訳機能に委ねる）ため、本文翻訳テーブルは持たない
+- 翻訳はすべて端末内で行うため、**サーバーは翻訳を生成も保存もしない**。翻訳テーブルは持たない
+- **原文言語はサーバーが fetch 時に決める。** クライアントは自前の言語判定を持たない（判定器が端末ごとにあると挙動が揃わないため）
+- `feeds.language` は feed の言語。`feeds.language_source` が `declared` なら発行者の申告（RSS `<language>` / Atom `xml:lang`）、`detected` なら全 item を連結した長文からの判定。申告済みのフィードを判定結果で上書きしない
+- `articles.source_language` は記事の言語。フィード言語を事前確率とし、**明確に違うときだけ**上書きする。読み上げ時の音声選択とクライアントの翻訳元にも使うため、`ja/en/zh/ko/es` に限定しない
+  - 仮名・ハングルがあれば文字体系で確定する
+  - 文字体系がフィードと違う場合だけ、タイトル＋説明文（140 字以上）から判定して上書きする
+  - どちらでもなければフィード言語を使う。判定できなければ `NULL`（翻訳しない）
+- 判定精度は文字数でほぼ決まる。タイトル単独では英語の 10 件中 2 件を誤判定するため、**記事単位で言語を当て直そうとしない**（`apps/api/src/lib/languageDetect.ts` に実測値を記載）
+- `user_settings.readable_languages` はユーザーが原文のまま読む言語の JSON 配列（default `'["ja"]'`）であり、クライアントが翻訳対象を絞り込むためだけに使う
+- 本文翻訳もアプリでは生成しない（各プラットフォーム / ブラウザの翻訳機能に委ねる）ため、本文翻訳テーブルも持たない
 
 ### 本文抽出
 
 - `article_contents` は記事ごとに 1:1 で抽出された本文を保持する（`article_id` が PK）。失敗時もレコードを保持して再試行可能にする
 - **行の存在それ自体が「抽出を要求済み」を意味する。** `pending` はジョブが実行中であることを表すので、抽出以外の目的でこの行を作ってはならない（作ると重複起動抑止が誤作動し、抽出が永久に始まらない）
 - `article_contents.status` は `pending -> ready | error` を基本とし、retry 時のみ `error -> pending` を許可する
-- `article_contents` はリーディングパート（音読キュー）のための本文抽出結果であり、音読キュー追加などユーザーの明示操作を起点に on-demand で生成する
+- `article_contents` はリーディングパートのための本文抽出結果であり、ユーザーの明示操作を起点に on-demand で生成する
+- `article_contents` は可視ページからの抽出が失敗したときの fallback 専用であり、読み上げの第一経路ではない（`READING.md`）。最終利用から 7 日を過ぎた行は削除してよい
 - article metadata 更新だけでは既存 `article_contents` を自動 invalidation しない。`article_contents` は stale 許容の shared cache とする
 
 ### 既読

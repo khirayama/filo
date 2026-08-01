@@ -21,8 +21,11 @@ run-clean:
 emulator-list:
   emulator -list-avds
 
+# Quick boot restores a snapshot whose virtual Wi-Fi routing table can come back
+# empty, which silently cuts the app off from the host API on 10.0.2.2. Cold boot
+# instead: slower to start, but the network is always wired up.
 emulator target='':
-  nohup emulator -avd {{target}} > emulator.log 2>&1 &
+  nohup emulator -avd {{target}} -no-snapshot-load > emulator.log 2>&1 &
 
 screenshot target='current':
   adb -s emulator-5554 exec-out screencap -p > android_{{target}}.png

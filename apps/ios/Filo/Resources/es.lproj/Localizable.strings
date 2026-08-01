@@ -33,8 +33,9 @@
 "翻訳" = "Traducción";
 "原文" = "Original";
 "翻訳中…" = "Traduciendo…";
-"キューを破棄" = "Descartar cola";
-"破棄" = "Descartar";
+"タイトルを翻訳" = "Traducir títulos";
+"原文タイトルに戻す" = "Mostrar títulos originales";
+"一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。" = "El conmutador de traducción de la lista traduce los títulos a este idioma.";
 "記事を取得しています…" = "Obteniendo artículos…";
 "表示できる記事がありません。" = "No hay artículos para mostrar.";
 "まだ購読がありません。" = "Aún no tienes suscripciones.";

@@ -33,8 +33,9 @@
 "翻訳" = "Translation";
 "原文" = "Original";
 "翻訳中…" = "Translating…";
-"キューを破棄" = "Discard queue";
-"破棄" = "Discard";
+"タイトルを翻訳" = "Translate titles";
+"原文タイトルに戻す" = "Show original titles";
+"一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。" = "The translate toggle in the list translates titles into this language.";
 "記事を取得しています…" = "Fetching articles…";
 "表示できる記事がありません。" = "No articles to display.";
 "まだ購読がありません。" = "You have no subscriptions yet.";

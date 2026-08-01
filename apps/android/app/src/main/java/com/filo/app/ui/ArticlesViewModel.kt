@@ -23,18 +23,18 @@ class ArticlesViewModel : ViewModel() {
     var errorMessage by mutableStateOf<String?>(null)
     var openInBrowserByDefault by mutableStateOf(false)
     var theme by mutableStateOf<String?>(null)
+    var language by mutableStateOf("ja")
+    var readableLanguages by mutableStateOf(listOf("ja"))
     var isRefreshingFeeds by mutableStateOf(false)
     var refreshNotice by mutableStateOf<String?>(null)
 
     var selectedTagId by mutableStateOf<Int?>(null)
-    var readingListOnly by mutableStateOf(false)
     var bookmarkedOnly by mutableStateOf(false)
 
     private var lastLoadedFilters = ""
 
     private fun filters() = ArticleListFilters(
         tagId = selectedTagId,
-        readingList = if (readingListOnly) true else null,
         bookmarked = if (bookmarkedOnly) true else null,
     )
 
@@ -43,7 +43,7 @@ class ArticlesViewModel : ViewModel() {
     }
 
     fun loadIfNeeded() {
-        val current = "${selectedTagId}|${readingListOnly}|${bookmarkedOnly}"
+        val current = "${selectedTagId}|${bookmarkedOnly}"
         if (lastLoadedFilters == current) return
         lastLoadedFilters = current
         viewModelScope.launch { reload() }
@@ -62,6 +62,8 @@ class ArticlesViewModel : ViewModel() {
                 val settings = ApiClient.getSettings()
                 openInBrowserByDefault = settings.openInBrowserByDefault
                 theme = settings.theme
+                language = settings.language
+                readableLanguages = settings.readableLanguages
             }
         } catch (e: Exception) {
             errorMessage = ErrorMessages.forError(e)
@@ -116,19 +118,17 @@ class ArticlesViewModel : ViewModel() {
         }
     }
 
-    fun patchState(article: ArticleListItem, isRead: Boolean? = null, inReadingList: Boolean? = null, isBookmarked: Boolean? = null) {
+    fun patchState(article: ArticleListItem, isRead: Boolean? = null, isBookmarked: Boolean? = null) {
         viewModelScope.launch {
             try {
                 val state = when {
                     isRead != null -> ApiClient.setArticleRead(article.id, isRead)
-                    inReadingList != null -> ApiClient.setReadingListMembership(article.id, inReadingList)
                     isBookmarked != null -> ApiClient.setBookmarkMembership(article.id, isBookmarked)
                     else -> return@launch
                 }
                 articles = articles.mapNotNull {
                     if (it.id != article.id) it
                     else if (
-                        (readingListOnly && !state.inReadingList) ||
                         (bookmarkedOnly && !state.isBookmarked)
                     ) null
                     else it.copy(userState = state)

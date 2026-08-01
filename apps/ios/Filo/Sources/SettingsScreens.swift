@@ -73,7 +73,7 @@ struct SettingsScreen: View {
         } header: {
             Text("表示")
         } footer: {
-            Text("表示言語を切り替えると、保存済みのタイトル翻訳をその言語で表示します。")
+            Text("一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。")
         }
         Section {
             ForEach([("ja", "日本語"), ("en", "English"), ("zh", "简体中文"), ("ko", "한국어"), ("es", "Español")], id: \.0) { code, name in
@@ -90,6 +90,11 @@ struct SettingsScreen: View {
             Text("原文のまま読む言語")
         } footer: {
             Text("選択した言語の記事は翻訳せず原文で表示します。")
+        }
+        Section {
+            Button("翻訳の準備") { TitleTranslationStore.shared.isShowingSetup = true }
+        } footer: {
+            Text("タイトルの翻訳は端末の中で行います。言語ごとにダウンロードが要ります。")
         }
     }
 

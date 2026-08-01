@@ -45,7 +45,6 @@ import com.filo.app.api.ErrorMessages
 import com.filo.app.api.FeedJob
 import com.filo.app.api.StatusOverview
 import com.filo.app.api.StatusSubscription
-import com.filo.app.api.TranslationCoverage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -60,13 +59,9 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
-    var isTranslating by remember { mutableStateOf(false) }
-    var isDiscarding by remember { mutableStateOf(false) }
     var busyFeedId by remember { mutableStateOf<Int?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var polling by remember { mutableStateOf(true) }
-    var showDiscardAllConfirm by remember { mutableStateOf(false) }
-    var discardFeedTarget by remember { mutableStateOf<Int?>(null) }
 
     suspend fun load(showSpinner: Boolean = false) {
         if (showSpinner) isLoading = true
@@ -81,39 +76,6 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
             }
         }
         if (showSpinner) isLoading = false
-    }
-
-    fun discardOutcome(removed: Int) =
-        if (removed > 0) "${removed}件を破棄しました。" else "破棄する項目がありません。"
-
-    fun runDiscardAll() {
-        scope.launch {
-            isDiscarding = true
-            notice = null
-            try {
-                notice = discardOutcome(ApiClient.discardTranslations().removed)
-                load()
-            } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
-            }
-            isDiscarding = false
-        }
-    }
-
-    fun runDiscardFeed(feedId: Int) {
-        scope.launch {
-            busyFeedId = feedId
-            isDiscarding = true
-            notice = null
-            try {
-                notice = discardOutcome(ApiClient.discardFeedTranslations(feedId).removed)
-                load()
-            } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
-            }
-            isDiscarding = false
-            busyFeedId = null
-        }
     }
 
     LaunchedEffect(Unit) { load(showSpinner = true) }
@@ -186,47 +148,17 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                             }
                         },
                     ) { Text(if (isRefreshing) "取得中…" else "すべて取得") }
-                    OutlinedButton(
-                        enabled = !isTranslating && s.subscriptionStatuses.any {
-                            it.translation.ready < it.translation.needed
-                        },
-                        onClick = {
-                            scope.launch {
-                                isTranslating = true
-                                notice = null
-                                try {
-                                    val result = ApiClient.translateAll()
-                                    notice = if (result.enqueued > 0) {
-                                        "${result.enqueued}件のタイトル翻訳をキューに追加しました。完了すると一覧に反映されます。"
-                                    } else {
-                                        "翻訳が必要なタイトルはありません。"
-                                    }
-                                    load()
-                                } catch (e: Exception) {
-                                    errorMessage = ErrorMessages.forError(e)
-                                }
-                                isTranslating = false
-                            }
-                        },
-                    ) { Text(if (isTranslating) "翻訳中…" else "すべて翻訳") }
-                    val discardable = s.subscriptionStatuses.sumOf { it.translation.pending + it.translation.failed }
-                    OutlinedButton(
-                        enabled = !isDiscarding && discardable > 0,
-                        onClick = { showDiscardAllConfirm = true },
-                    ) { Text("キューを破棄") }
                 }
                 notice?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     "購読 ${s.feeds.total}件・記事 ${s.articleTotal}件" +
-                        (if (s.translatorPending > 0) "・翻訳キュー 残り${s.translatorPending}件" else "") +
                         (s.feeds.lastFetchedAt?.let { "・最終取得 ${relativeTime(it)}" } ?: "") +
                         "・約${POLL_INTERVAL_MS / 1000}秒ごとに自動更新",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TranslationProgress(s)
                 HorizontalDivider()
 
                 // Subscription statuses
@@ -241,10 +173,6 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                     sortedStatusSubscriptions(s.subscriptionStatuses).forEach { sub ->
                         val isError = hasStatusAttention(sub)
                         val fetchBusy = sub.fetchJob?.isActive == true || (busyFeedId == sub.feedId && isRefreshing)
-                        // Pending rows keep the action available so a stalled queue
-                        // can be re-kicked, but completed feeds do not need a
-                        // translation action.
-                        val translateInFlight = busyFeedId == sub.feedId && isTranslating
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -266,33 +194,16 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                     StatusBadge("停止", BadgeTone.Muted)
                                 }
                                 JobBadge("取得", sub.fetchJob, fallbackDanger = sub.lastResult == "error")
-                                TranslationBadge(sub.translation)
                                 Text(
                                     sub.lastFetchedAt?.let { relativeTime(it) } ?: "—",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            Text(
-                                coverageLine(sub.translation),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                             if (isError) {
                                 (sub.fetchJob?.lastError ?: sub.lastError)?.let {
                                     Text(
                                         it,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.error,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                            if (sub.translation.failed > 0) {
-                                sub.translation.lastError?.let {
-                                    Text(
-                                        "翻訳失敗: $it",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.error,
                                         maxLines = 1,
@@ -320,33 +231,6 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                         }
                                     },
                                 ) { Text(if (fetchBusy) "取得中…" else "取得") }
-                                TextButton(
-                                    enabled = !isTranslating && sub.translation.ready < sub.translation.needed,
-                                    onClick = {
-                                        scope.launch {
-                                            busyFeedId = sub.feedId
-                                            isTranslating = true
-                                            notice = null
-                                            try {
-                                                val result = ApiClient.translateFeed(sub.feedId)
-                                                notice = if (result.enqueued > 0) {
-                                                    "${result.enqueued}件のタイトル翻訳をキューに追加しました。"
-                                                } else {
-                                                    "翻訳が必要なタイトルはありません。"
-                                                }
-                                                load()
-                                            } catch (e: Exception) {
-                                                errorMessage = ErrorMessages.forError(e)
-                                            }
-                                            isTranslating = false
-                                            busyFeedId = null
-                                        }
-                                    },
-                                ) { Text(if (translateInFlight) "翻訳中…" else "翻訳") }
-                                TextButton(
-                                    enabled = !isDiscarding && (sub.translation.pending + sub.translation.failed) > 0,
-                                    onClick = { discardFeedTarget = sub.feedId },
-                                ) { Text("破棄") }
                             }
                         }
                         HorizontalDivider()
@@ -355,45 +239,11 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
             }
         }
     }
-
-    if (showDiscardAllConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDiscardAllConfirm = false },
-            title = { Text("キューを破棄") },
-            text = { Text("翻訳キューを破棄しますか？完了した翻訳は残ります。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDiscardAllConfirm = false
-                    runDiscardAll()
-                }) { Text("破棄") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDiscardAllConfirm = false }) { Text("キャンセル") }
-            },
-        )
-    }
-
-    discardFeedTarget?.let { feedId ->
-        AlertDialog(
-            onDismissRequest = { discardFeedTarget = null },
-            title = { Text("キューを破棄") },
-            text = { Text("このフィードの翻訳待ち・失敗を破棄しますか？完了した翻訳は残ります。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    discardFeedTarget = null
-                    runDiscardFeed(feedId)
-                }) { Text("破棄") }
-            },
-            dismissButton = {
-                TextButton(onClick = { discardFeedTarget = null }) { Text("キャンセル") }
-            },
-        )
-    }
 }
 
 // Keep the same actionable-first order as the web and iOS status screens.
 // This is recalculated from every polled snapshot, so rows move when a fetch
-// or translation changes state.
+// changes state.
 private fun sortedStatusSubscriptions(subscriptions: List<StatusSubscription>) =
     subscriptions.sortedWith(
         compareBy<StatusSubscription> { statusRank(it) }
@@ -405,96 +255,14 @@ private fun statusRank(sub: StatusSubscription): Int {
     if (sub.fetchJob?.stalled == true) return 1
     if (sub.fetchJob?.status == "running") return 2
     if (sub.fetchJob?.status == "pending") return 3
-    if (sub.translation.processing > 0) return 4
-    if (sub.translation.queued > 0) return 5
-    if (sub.feedStatus == "paused") return 6
-    if (sub.translation.missing > 0) return 7
-    return 8
+    if (sub.feedStatus == "paused") return 4
+    return 5
 }
 
 private fun hasStatusAttention(sub: StatusSubscription): Boolean =
     sub.consecutiveFailures > 0 ||
         sub.fetchJob?.status == "failed" ||
-        sub.lastResult == "error" ||
-        sub.translation.failed > 0
-
-// Full per-feed translation picture: how much is done, and if incomplete,
-// exactly why (in flight / queued / failed / not yet requested / not translatable).
-private fun coverageLine(t: TranslationCoverage): String {
-    if (t.articles == 0) return "翻訳: 記事なし"
-    val bits = buildList {
-        add("翻訳: 完了 ${t.ready}/${t.needed}")
-        if (t.processing > 0) add("翻訳中 ${t.processing}")
-        if (t.queued > 0) add("順番待ち ${t.queued}")
-        if (t.failed > 0) add("失敗 ${t.failed}")
-        if (t.missing > 0) add("未リクエスト ${t.missing}")
-        if (t.untranslatable > 0) add("対象外 ${t.untranslatable}記事(言語不明等)")
-    }
-    return bits.joinToString("・")
-}
-
-// Per-feed translation state, most urgent first: in flight to the model
-// (翻訳中), then waiting in line (順番待ち), then failures.
-@Composable
-private fun TranslationBadge(t: TranslationCoverage) {
-    when {
-        t.processing > 0 -> StatusBadge("翻訳中 ${t.processing}", BadgeTone.Warn)
-        t.queued > 0 -> StatusBadge("順番待ち ${t.queued}", BadgeTone.Warn)
-        t.failed > 0 -> StatusBadge("翻訳失敗 ${t.failed}", BadgeTone.Danger)
-    }
-}
-
-// Overall translation queue progress: a done/needed bar, the live state
-// breakdown, and the titles currently in flight to the model.
-@Composable
-private fun TranslationProgress(s: StatusOverview) {
-    val subs = s.subscriptionStatuses
-    val needed = subs.sumOf { it.translation.needed }
-    if (needed == 0) return
-    val ready = subs.sumOf { it.translation.ready }
-    val processing = subs.sumOf { it.translation.processing }
-    val queued = subs.sumOf { it.translation.queued }
-    val failed = subs.sumOf { it.translation.failed }
-    val missing = subs.sumOf { it.translation.missing }
-    val fraction = ready.toFloat() / needed.toFloat()
-    val percent = (fraction * 100).roundToInt()
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Text("翻訳の進行状況", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "完了 $ready / $needed（$percent%）",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        LinearProgressIndicator(
-            progress = { fraction },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            "翻訳中 $processing・順番待ち $queued・失敗 $failed" +
-                (if (missing > 0) "・未リクエスト $missing" else ""),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (s.translatorCurrent.isNotEmpty()) {
-            val live = s.translatorCurrent.joinToString("　") { c ->
-                if (c.languages.isEmpty()) c.title else "${c.title}（${c.languages.joinToString("/")}）"
-            }
-            Text(
-                "今翻訳中: $live",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
+        sub.lastResult == "error"
 
 // Per-row job badge: hidden when idle (never requested or completed), so the
 // list stays quiet unless something is queued, running, or broken.

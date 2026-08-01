@@ -218,7 +218,7 @@ export const subscriptionRoutes = new Hono<AppContext>()
     const user = c.get("user");
     const subscriptionId = parseId(c.req.param("subscriptionId"));
     await loadSubscription(c.env.DB, user.id, subscriptionId);
-    // Collection memberships stay; reading-list/bookmarked articles remain retained.
+    // Bookmarked articles remain retained after unsubscribe.
     await c.env.DB.prepare("DELETE FROM subscriptions WHERE id = ? AND user_id = ?")
       .bind(subscriptionId, user.id)
       .run();

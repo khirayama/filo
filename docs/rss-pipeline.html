@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Filo — フィード取得・更新と翻訳</title>
+<title>Filo — フィード取得・更新</title>
 <style>
   :root {
     --bg: #0f1117;
@@ -127,7 +127,6 @@
     padding: 22px 24px;
   }
   .mech.fetch { border-color: rgba(59,130,246,0.4); }
-  .mech.translate { border-color: rgba(139,92,246,0.4); }
   .mech .m-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
   .mech .m-sub { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
   .mech .m-chain {
@@ -366,10 +365,10 @@
 <body>
 <div class="container">
 
-<h1>Filo — フィード取得・更新と翻訳</h1>
+<h1>Filo — フィード取得・更新</h1>
 <p class="subtitle">
-  RSS の取得・更新と、一覧タイトルの翻訳。この2つは<strong>互いに独立した仕組み</strong>で、
-  どちらもユーザーの明示操作で始まる。cron はコンテンツに触れない。
+  RSS の取得・更新。ユーザーの明示操作で始まり、cron はコンテンツに触れない。
+  <strong>翻訳はサーバーの仕事ではない</strong> — 一覧タイトルも本文も、クライアントが端末内の翻訳機能で訳す。
 </p>
 
 <!-- ====== OUTLINE ====== -->
@@ -394,40 +393,23 @@
     </div>
   </details>
 
-  <details open>
-    <summary>
-      <span class="ol-tag" style="background:rgba(139,92,246,0.15);color:var(--accent2);">B</span>
-      <a href="#translate" style="color:inherit;text-decoration:none;">翻訳</a>
-      <span class="ol-note">手動ボタン → 台帳 → 直列 drain → AI</span>
-    </summary>
-    <div class="ol-children">
-      <div class="ol-item"><a href="#b-scope">B-1 何を翻訳するか</a><span class="ol-desc">一覧タイトルのみ。本文翻訳は提供しない</span></div>
-      <div class="ol-item"><a href="#b-trigger">B-2 トリガーと投入</a><span class="ol-desc">手動のみ。全記事 × 対応5言語の不足ペアを pending に</span></div>
-      <div class="ol-item"><a href="#b-ledger">B-3 台帳と状態</a><span class="ol-desc">テーブルの行そのものが進捗。ジョブ行を持たない</span></div>
-      <div class="ol-item"><a href="#b-drain">B-4 drain の動き</a><span class="ol-desc">直列・60秒予算・4件バッチ・同時2本</span></div>
-      <div class="ol-item"><a href="#b-verify">B-5 出力の検証</a><span class="ol-desc">空と echo だけが表示不可。あとは警告付きで採用</span></div>
-      <div class="ol-item"><a href="#b-watchdog">B-6 watchdog</a><span class="ol-desc">drain の鎖が切れたら Durable Object が再開</span></div>
-      <div class="ol-item"><a href="#b-lang">B-7 原文言語の扱い</a><span class="ol-desc">翻訳の結果として判明する（＝起動条件に使えない）</span></div>
-    </div>
-  </details>
-
   <details>
     <summary>
-      <span class="ol-tag" style="background:rgba(6,182,212,0.15);color:var(--cyan);">C</span>
+      <span class="ol-tag" style="background:rgba(6,182,212,0.15);color:var(--cyan);">B</span>
       <a href="#around" style="color:inherit;text-decoration:none;">周辺</a>
       <span class="ol-note">本文抽出 / 配信 / 定数</span>
     </summary>
     <div class="ol-children">
-      <div class="ol-item"><a href="#c-extract">C-1 本文抽出</a><span class="ol-desc">リーディングパート専用。手動要求で生成</span></div>
-      <div class="ol-item"><a href="#c-serve">C-2 配信</a><span class="ol-desc">一覧が翻訳タイトルを出す条件</span></div>
-      <div class="ol-item"><a href="#c-const">C-3 定数早見表</a><span class="ol-desc">タイムアウト・上限・しきい値</span></div>
+      <div class="ol-item"><a href="#c-extract">B-1 本文抽出</a><span class="ol-desc">リーディングパート専用。手動要求で生成</span></div>
+      <div class="ol-item"><a href="#c-serve">B-2 配信</a><span class="ol-desc">一覧がタイトルをどう返すか</span></div>
+      <div class="ol-item"><a href="#c-const">B-3 定数早見表</a><span class="ol-desc">タイムアウト・上限・しきい値</span></div>
     </div>
   </details>
 </div>
 
 <!-- ====== TWO MECHANISMS ====== -->
 <div class="split">
-  <div class="mech fetch">
+  <div class="mech fetch" style="grid-column:1 / -1;">
     <div class="m-title">A. フィード取得・更新</div>
     <div class="m-sub">RSS を取りに行き、記事を D1 に入れるまで</div>
     <div class="m-chain">
@@ -444,36 +426,19 @@
       <dt>結果</dt><dd><code>articles</code> に新着行</dd>
     </dl>
   </div>
-  <div class="mech translate">
-    <div class="m-title">B. 翻訳</div>
-    <div class="m-sub">一覧に出すタイトルを AI に訳させるまで</div>
-    <div class="m-chain">
-      <span class="node">👆 ユーザー操作</span><span class="sep">→</span>
-      <span class="node">台帳に pending</span><span class="sep">→</span>
-      <span class="node">filo-translate</span><span class="sep">→</span>
-      <span class="node">🤖 AI</span>
-    </div>
-    <dl>
-      <dt>起動</dt><dd>ステータス画面の翻訳ボタンのみ</dd>
-      <dt>単位</dt><dd>(記事, 言語) のペア</dd>
-      <dt>キュー</dt><dd><code>filo-translate</code>（直列1本）</dd>
-      <dt>連打抑止</dt><dd>不要（重複 drain は無害）</dd>
-      <dt>結果</dt><dd><code>article_listing_translations</code></dd>
-    </dl>
-  </div>
 </div>
 
 <div class="callout">
-  <div class="c-title">2つは繋がっていない</div>
+  <div class="c-title">翻訳はここに出てこない</div>
   <p>
-    フィードを取得しても翻訳は始まらないし、翻訳しても取得は起きない。
-    <strong>取得が翻訳を自動で呼ぶことは意図的にしていない</strong> — 翻訳はプロバイダのリクエスト枠を消費し、
-    アカウント全体で直列にしか流せないため、取得のたびに走らせると枠を使い切ってしまう。
+    一覧タイトルの翻訳は<strong>端末内で走る</strong>。iOS は Translation framework、Android は ML Kit、
+    Web はブラウザ組み込みの Translator API を使い、サーバーは翻訳を生成も保存もしない。
+    以前あった翻訳キュー・drain・watchdog・カバレッジはすべて無くなっている。
   </p>
   <p>
-    唯一の接点は、翻訳が対象にする記事を取得側が作っているという事実だけ。
-    起動が手動であることは方針として確定している（<code>CONCEPT.md</code>）。未確定なのは対象の絞り込みで、
-    現状は「対応5言語すべて × 全記事」を投入している。原文言語による絞り込みは B-7 のとおり構造上使えないため、別の切り口で解く。
+    サーバーが持つ言語の情報は <code>feeds.language</code>（フィードの宣言言語）だけで、
+    新規記事はこれを <code>source_language</code> として引き継ぐ。読み上げの音声選択に使うヒントであり、
+    翻訳の判断には使わない（端末側が自前の言語判定を持つ）。
   </p>
 </div>
 
@@ -594,7 +559,7 @@
       </li>
       <li>
         <div class="step-title">upsert（1フィードあたり最大200件）</div>
-        <div class="step-desc">既存記事はタイトル・本文・公開日時を更新（<code>COALESCE</code> で既存値を消さない）、新規記事は INSERT。挿入した記事の id を控えるが、翻訳の自動投入には使わない。</div>
+        <div class="step-desc">既存記事はタイトル・本文・公開日時を更新（<code>COALESCE</code> で既存値を消さない）、新規記事は INSERT。新規記事にはフィードの宣言言語を <code>source_language</code> として持たせる。</div>
       </li>
       <li>
         <div class="step-title">状態とログを記録</div>
@@ -681,283 +646,19 @@
   </div>
 </div>
 
-<div class="section-divider"><span class="sd-label">B — 翻訳</span></div>
+<div class="section-divider"><span class="sd-label">B — 周辺</span></div>
 
-<!-- ====== B-1 Scope ====== -->
-<div class="phase" id="translate">
-  <div class="phase-header" id="b-scope">
-    <div class="phase-num" style="background:rgba(139,92,246,0.15);color:var(--accent2);">B-1</div>
-    <div class="phase-title">何を翻訳するか <span class="badge ai">AI</span></div>
-    <span class="phase-file">lib/translate.ts</span>
-  </div>
-  <div class="phase-body">
-    <table class="t">
-      <thead><tr><th>対象</th><th>扱い</th><th>理由</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>一覧の記事タイトル</td>
-          <td><strong>アプリが翻訳する</strong>。結果は全ユーザーで共有保存</td>
-          <td>一覧はスキャンするものなので、読めない言語のタイトルが並ぶと機能しない</td>
-        </tr>
-        <tr>
-          <td>記事本文</td>
-          <td><strong>翻訳しない</strong>。各プラットフォーム / ブラウザの翻訳機能に委ねる</td>
-          <td>本文はコストが桁違いで、OS 側の翻訳が十分に使える</td>
-        </tr>
-        <tr>
-          <td>要約</td>
-          <td>生成しない</td>
-          <td>MVP 対象外</td>
-        </tr>
-      </tbody>
-    </table>
-    <p style="margin-top:8px;margin-bottom:0;">
-      翻訳先は <code>ja / en / zh / ko / es</code> の5言語。翻訳は記事に紐づく補足データとして
-      <code>article_listing_translations</code> に共有保存し、ユーザーごとに複製しない。
-      音読キューで翻訳して聴きたい場合は、プラットフォームの翻訳を適用した後の可視コンテンツをキュー追加時に取り込む。
-    </p>
-  </div>
-</div>
-
-<!-- ====== B-2 Trigger ====== -->
-<div class="phase">
-  <div class="phase-header" id="b-trigger">
-    <div class="phase-num" style="background:rgba(34,197,94,0.15);color:var(--green);">B-2</div>
-    <div class="phase-title">トリガーと投入 <span class="badge manual">Manual</span></div>
-    <span class="phase-file">routes/status.ts</span>
-  </div>
-  <div class="phase-body">
-    <p>翻訳が始まるのはユーザーがボタンを押したときだけ。フィード取得は翻訳を呼ばない。</p>
-    <table class="t">
-      <thead><tr><th>エンドポイント</th><th>効果</th></tr></thead>
-      <tbody>
-        <tr><td><code>POST /status/translate</code></td><td>購読中の全フィードの不足ペアを投入</td></tr>
-        <tr><td><code>POST /status/translate/:feedId</code></td><td>1フィードぶんだけ投入</td></tr>
-        <tr><td><code>POST /status/translate/discard</code></td><td>待ち行列と失敗行を破棄（<code>ready</code> は残す）</td></tr>
-        <tr><td><code>POST /status/translate/:feedId/discard</code></td><td>1フィードぶんだけ破棄</td></tr>
-      </tbody>
-    </table>
-    <ol class="steps">
-      <li>
-        <div class="step-title">不足ペアを一括 INSERT</div>
-        <div class="step-desc">対象フィードの全記事 × 対応5言語のうち、まだ行が無い組み合わせを <code>status='pending'</code> で作る。タイトルが空の記事は対象外。set-based SQL 1本なので記事数に関わらず即応答する。</div>
-      </li>
-      <li>
-        <div class="step-title">失敗行を戻す</div>
-        <div class="step-desc"><code>error</code> の行を <code>pending</code>・<code>attempt_count = 0</code> に戻す。これが「再試行」で、専用の再試行 API は無い。</div>
-      </li>
-      <li>
-        <div class="step-title">drain を1メッセージ蹴る + watchdog を武装</div>
-        <div class="step-desc">重複した drain メッセージは無害（仕事が無ければ1クエリで終了する）。</div>
-        <div class="step-detail"><span class="kw">await</span> env.TRANSLATE_JOBS.<span class="fn">send</span>({ jobType: <span class="str">"translate_drain"</span> })</div>
-      </li>
-    </ol>
-    <p style="margin-top:8px;margin-bottom:0;">
-      既に <code>ready</code> のペアは再翻訳しない。強制再生成の API は用意していない。
-    </p>
-  </div>
-</div>
-
-<!-- ====== B-3 Ledger ====== -->
-<div class="phase">
-  <div class="phase-header" id="b-ledger">
-    <div class="phase-num" style="background:rgba(99,102,241,0.15);color:var(--accent);">B-3</div>
-    <div class="phase-title">台帳と状態</div>
-    <span class="phase-file">lib/translationCoverage.ts</span>
-  </div>
-  <div class="phase-body">
-    <p>
-      翻訳は <code>feed_jobs</code> のようなジョブ行を持たない。<code>article_listing_translations</code> の行そのものが作業台帳で、
-      進捗・完了・失敗はすべてこの実データの集計（coverage）として表示する。
-      <strong>キューのメッセージが失われても、翻訳ボタンをもう一度押せば必ず回復する</strong>のはこの設計のため。
-    </p>
-    <p>(記事 × 言語) の1ペアは、必ず次のどれか1つ。</p>
-    <div class="pills">
-      <span class="pill missing">missing — 行が無い（未リクエスト）</span>
-      <span class="pill queued">queued — pending / <code>processing_at</code> null（順番待ち）</span>
-      <span class="pill processing">processing — pending / <code>processing_at</code> あり（AI 応答待ち）</span>
-      <span class="pill ready">ready — 完了</span>
-      <span class="pill error">error — 3回失敗して確定</span>
-    </div>
-    <table class="t">
-      <thead><tr><th>coverage の項目</th><th>意味</th></tr></thead>
-      <tbody>
-        <tr><td class="num">articles</td><td>そのフィードの記事数</td></tr>
-        <tr><td class="num">untranslatable</td><td>タイトルが空で翻訳できない記事数</td></tr>
-        <tr><td class="num">needed</td><td>記事 × 対応5言語 の総ペア数</td></tr>
-        <tr><td class="num">ready / failed</td><td>完了 / 確定失敗</td></tr>
-        <tr><td class="num">queued / processing</td><td>順番待ち / AI 応答待ち（合計が <code>pending</code>）</td></tr>
-        <tr><td class="num">missing</td><td>needed から上記すべてを引いた残り＝まだ要求されていないぶん</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ====== B-4 Drain ====== -->
-<div class="phase">
-  <div class="phase-header" id="b-drain">
-    <div class="phase-num" style="background:rgba(139,92,246,0.15);color:var(--accent2);">B-4</div>
-    <div class="phase-title">drain の動き <span class="badge queue">Queue</span></div>
-    <span class="phase-file">jobs/translateDrain.ts</span>
-  </div>
-  <div class="phase-body">
-    <p>
-      翻訳は専用キュー <code>filo-translate</code> で<strong>常に1本だけ</strong>走る（<code>max_concurrency: 1</code>）。
-      プロバイダのレート制限はアカウント全体で共有なので、並列に流しても互いを飢えさせるだけになる。
-    </p>
-    <ol class="steps">
-      <li>
-        <div class="step-title">開始時に取り残しを掃除</div>
-        <div class="step-desc">直列なので、drain 開始時に「AI 応答待ち」の行があるはずがない。前回クラッシュした drain が残した <code>processing_at</code> を消し、順番待ちに戻す。</div>
-      </li>
-      <li>
-        <div class="step-title">pending を200行スナップショット（新着優先）</div>
-        <div class="step-desc"><code>ORDER BY article_id DESC</code> なので、新しい記事から訳される。取り切ったら次のスナップショットを取り直す。</div>
-      </li>
-      <li>
-        <div class="step-title">記事単位にまとめて4件ずつのバッチに</div>
-        <div class="step-desc">同じ記事の複数言語は1バッチに入れて、1リクエストで全対象言語を訳させる。<strong>バッチの対象言語は、そのバッチで実際に pending な言語の和集合だけ</strong> — 既に訳し終えた言語まで毎回生成させないため。</div>
-      </li>
-      <li>
-        <div class="step-title">2バッチ同時にモデルへ</div>
-        <div class="step-desc">デコードは重みのメモリ帯域が律速で重みは共有されるため、2本同時のほうが1本ずつより速い（実測 1タイトル約7.9秒 vs 約10秒）。4本同時は逆に遅くなる。ローカルサーバ側も <code>lms load --parallel 2</code> で起動していないと2本目が待たされるだけになる。</div>
-      </li>
-      <li>
-        <div class="step-title">投げる前に「翻訳中」を立てる</div>
-        <div class="step-desc">モデル呼び出しは数十秒かかるので、先に <code>processing_at</code> を立ててステータス画面に「今これを翻訳中」を出す。レート制限で弾かれたバッチは印を外して順番待ちに戻す。</div>
-      </li>
-      <li>
-        <div class="step-title">結果を書いてからペーシング</div>
-        <div class="step-desc">同時実行したバッチの合算トークンから待ち時間を計算する。<code>TRANSLATION_TOKENS_PER_MINUTE</code> が未設定なら待たない（ローカルサーバはこちらが既定 — 枠ではなくマシンが律速なので、寝るのは純粋な無駄）。</div>
-      </li>
-      <li>
-        <div class="step-title">60秒で切り上げて自分を再投入</div>
-        <div class="step-desc">キュー呼び出しを長時間占有しないよう1回の drain は60秒予算。残りがあれば次の drain を <code>delaySeconds</code> 付きで送る。<code>429</code> のときは <code>Retry-After</code> を30〜300秒にクランプ、進捗ゼロなら最低60秒空ける。</div>
-      </li>
-    </ol>
-    <p style="margin-top:16px;margin-bottom:0;">
-      片方のバッチが <code>429</code> でも、同時に走ったもう片方の成功結果は必ず先に保存してから止まる（生成コストは既に払っているため）。
-    </p>
-  </div>
-</div>
-
-<!-- ====== B-5 Verify ====== -->
-<div class="phase">
-  <div class="phase-header" id="b-verify">
-    <div class="phase-num" style="background:rgba(245,158,11,0.15);color:var(--amber);">B-5</div>
-    <div class="phase-title">出力の検証</div>
-    <span class="phase-file">lib/translate.ts · lib/languages.ts</span>
-  </div>
-  <div class="phase-body">
-    <p>
-      検証はモデルの品質を採点するものではなく、<strong>ユーザーに表示できない結果だけを弾くガードレール</strong>。
-      表示できる訳を言語判定の不確かさで捨てないことを優先する。
-    </p>
-    <table class="t">
-      <thead><tr><th>判定</th><th>条件</th><th>扱い</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><span style="color:var(--rose);">表示不可</span></td>
-          <td>空出力／原文の完全 echo（固有名詞として正当化できないもの）</td>
-          <td>同じ呼び出し内で最大2回まで修復を試み、直らなければ <code>attempt_count + 1</code> で <code>pending</code> に留める</td>
-        </tr>
-        <tr>
-          <td><span style="color:var(--amber);">警告</span></td>
-          <td>文字種の混在、固有名詞・URL・型番の残存、短いタイトル、言語ヒューリスティックが不確か</td>
-          <td><strong><code>ready</code> として保存する</strong>。警告はワーカーのログにだけ残り、失敗数や <code>error_message</code> には出さない</td>
-        </tr>
-        <tr>
-          <td><span style="color:var(--green);">採用</span></td>
-          <td>上記以外</td>
-          <td><code>ready</code></td>
-        </tr>
-      </tbody>
-    </table>
-    <p style="margin-top:8px;">
-      技術系の見出しは製品名・バージョン・数字が大半を占めるので、正しい翻訳でも対象言語の文字がほとんど残らないことがある
-      （「2026-07-05의 JS: Deno 2.9, Vite 8.1, ES2026」はハングル1文字でも正しい韓国語）。
-      ここで捨てるとタイトルは翻訳なしになり、残せばユーザーは一目で変だと分かる。だから残す側に倒している。
-    </p>
-    <p style="margin-bottom:0;"><code>attempt_count</code> が3に達したペアが <code>error</code> として確定する。</p>
-  </div>
-</div>
-
-<!-- ====== B-6 Watchdog ====== -->
-<div class="phase">
-  <div class="phase-header" id="b-watchdog">
-    <div class="phase-num" style="background:rgba(6,182,212,0.15);color:var(--cyan);">B-6</div>
-    <div class="phase-title">watchdog</div>
-    <span class="phase-file">jobs/translationWatchdogPolicy.ts · jobs/translationWatchdog.ts</span>
-  </div>
-  <div class="phase-body">
-    <p>
-      drain は「自分の続きを自分でキューに入れる」1本の鎖で進む。鎖が切れる（例外でのクラッシュ、ローカル
-      <code>wrangler dev</code> の再起動でインメモリキューが消える）と、待ち行列が残ったまま誰も再開しない。
-      その保険が Durable Object の watchdog。
-    </p>
-    <ol class="steps">
-      <li>
-        <div class="step-title">drain を蹴るたびに武装する</div>
-        <div class="step-desc">アラームは永続化されるので、プロセスが落ちても監視が続く。</div>
-      </li>
-      <li>
-        <div class="step-title">60秒ごとに様子を見る</div>
-        <div class="step-desc">pending が0なら何もせず眠る（次に武装されるまで）。</div>
-      </li>
-      <li>
-        <div class="step-title">180秒動きが無ければ drain を再投入</div>
-        <div class="step-desc">健全な drain はバッチごとに行を更新するので数十秒おきに動きがある。ペーシング待ちの drain を死んだと誤認しないよう、drain の無進捗バックオフ（約60秒）より十分に長くとってある。</div>
-      </li>
-    </ol>
-  </div>
-</div>
-
-<!-- ====== B-7 Source language ====== -->
-<div class="phase">
-  <div class="phase-header" id="b-lang">
-    <div class="phase-num" style="background:rgba(244,63,94,0.15);color:var(--rose);">B-7</div>
-    <div class="phase-title">原文言語の扱い（設計上の制約）</div>
-    <span class="phase-file">lib/translate.ts · lib/languages.ts</span>
-  </div>
-  <div class="phase-body">
-    <p>
-      <strong>原文言語は事前に判定していない。</strong> 翻訳リクエストにソース言語を渡さず、モデルがタイトルごとに
-      <code>source_lang</code> を返し、それを <code>articles.source_language</code> に保存する。
-      複数言語混在は <code>mixed</code>、判定不能は <code>und</code> のまま保持する。
-    </p>
-    <p>
-      つまり <strong>原文言語は翻訳の入力ではなく出力</strong>。ここから2つの帰結がある。
-    </p>
-    <ol class="steps">
-      <li>
-        <div class="step-title">「原文が読める言語なら翻訳しない」は実装できない</div>
-        <div class="step-desc">翻訳しないと原文言語が分からないので、翻訳の起動条件に原文言語を使うと鶏と卵になる。原文と同じ言語への翻訳はモデルが原文をそのまま返し、それを正当な結果として受理する。</div>
-      </li>
-      <li>
-        <div class="step-title">言語判定に依存する最適化は採用しない</div>
-        <div class="step-desc">記事単位の事前判定は不安定で、フィード単位の推定も混在フィード（ポッドキャスト、ブックマーク集、語学系）では外れる。取得と翻訳を分離したまま、別の仕組みで解く方針。</div>
-      </li>
-    </ol>
-    <p style="margin-top:16px;margin-bottom:0;">
-      表示側（一覧）はこの保存済み原文言語を見て、ユーザーの <code>readableLanguages</code> に含まれない場合にだけ翻訳タイトルを出す。
-      裏返すと、<strong>まだ一度も翻訳されていない記事は原文言語が未確定なので、翻訳中バッジも出ない</strong>。
-    </p>
-  </div>
-</div>
-
-<div class="section-divider"><span class="sd-label">C — 周辺</span></div>
-
-<!-- ====== C-1 Extraction ====== -->
+<!-- ====== B-1 Extraction ====== -->
 <div class="phase" id="around">
   <div class="phase-header" id="c-extract">
-    <div class="phase-num" style="background:rgba(244,63,94,0.15);color:var(--rose);">C-1</div>
+    <div class="phase-num" style="background:rgba(244,63,94,0.15);color:var(--rose);">B-1</div>
     <div class="phase-title">本文抽出 <span class="badge manual">Manual</span></div>
     <span class="phase-file">jobs/extractContent.ts · routes/content.ts</span>
   </div>
   <div class="phase-body">
     <p>
       本文はリーディングパート（音読キュー）のためだけに扱う。一覧・詳細では本文を扱わず、要約も作らない。
-      取得や翻訳とは独立していて、記事を開く / 音読キューに入れるときに <code>POST /articles/:id/content</code> で要求される。
+      取得とは独立していて、記事を開く / 音読キューに入れるときに <code>POST /articles/:id/content</code> で要求される。
     </p>
     <ol class="steps">
       <li>
@@ -972,31 +673,33 @@
   </div>
 </div>
 
-<!-- ====== C-2 Serve ====== -->
+<!-- ====== B-2 Serve ====== -->
 <div class="phase">
   <div class="phase-header" id="c-serve">
-    <div class="phase-num" style="background:rgba(6,182,212,0.15);color:var(--cyan);">C-2</div>
-    <div class="phase-title">配信（一覧が翻訳を出す条件）</div>
+    <div class="phase-num" style="background:rgba(6,182,212,0.15);color:var(--cyan);">B-2</div>
+    <div class="phase-title">配信（一覧がタイトルをどう返すか）</div>
     <span class="phase-file">routes/articles.ts</span>
   </div>
   <div class="phase-body">
-    <p>一覧のクエリは、ユーザーの表示言語1つぶんの翻訳行を <code>LEFT JOIN</code> して次の判定をする。</p>
+    <p>
+      一覧はどの記事でも<strong>原文タイトルだけ</strong>を返す。翻訳の判断も実行もクライアント側にある。
+    </p>
     <table class="t">
-      <thead><tr><th>原文言語の状態</th><th>一覧の表示</th></tr></thead>
+      <thead><tr><th>担当</th><th>やること</th></tr></thead>
       <tbody>
-        <tr><td>未確定（まだ翻訳されていない）</td><td>原文のまま。翻訳中バッジも出さない</td></tr>
-        <tr><td>ユーザーの <code>readableLanguages</code> に含まれる</td><td>原文のまま（訳す必要がない）</td></tr>
-        <tr><td>読めない言語 + 翻訳が <code>ready</code></td><td><code>translatedTitle</code> を表示（原文へのトグルあり）</td></tr>
-        <tr><td>読めない言語 + 翻訳が <code>pending</code></td><td>原文 + 翻訳中の表示</td></tr>
+        <tr><td>サーバー</td><td><code>title</code>（原文）と <code>sourceLanguage</code>（フィード宣言言語のヒント）を返す</td></tr>
+        <tr><td>クライアント</td><td>翻訳トグルが ON の間、表示中の記事のタイトルを端末内で言語判定する</td></tr>
+        <tr><td>クライアント</td><td>判定した言語が <code>readableLanguages</code> に無ければ表示言語へ訳し、届いた分から差し替える</td></tr>
+        <tr><td>クライアント</td><td>訳せなかったタイトルは原文のまま残す。行ごとのトグルで原文に戻せる</td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
-<!-- ====== C-3 Constants ====== -->
+<!-- ====== B-3 Constants ====== -->
 <div class="phase">
   <div class="phase-header" id="c-const">
-    <div class="phase-num" style="background:rgba(139,141,152,0.15);color:var(--muted);">C-3</div>
+    <div class="phase-num" style="background:rgba(139,141,152,0.15);color:var(--muted);">B-3</div>
     <div class="phase-title">定数早見表</div>
     <span class="phase-file">コードが正。仕様書と食い違う場合はコードを見る</span>
   </div>
@@ -1014,34 +717,18 @@
       </tbody>
     </table>
 
-    <h3>翻訳</h3>
+    <h3>端末内翻訳</h3>
     <table class="t">
       <tbody>
-        <tr><td>キュー</td><td class="num">filo-translate</td><td><code>max_concurrency: 1</code>（常に1本）</td></tr>
-        <tr><td>1回の drain の時間予算</td><td class="num">60秒</td><td>超えたら自分を再投入</td></tr>
-        <tr><td>スナップショット</td><td class="num">200行</td><td><code>article_id DESC</code>＝新着優先</td></tr>
-        <tr><td>1バッチのタイトル数</td><td class="num">4件</td><td><code>BATCH_MAX_TITLES</code></td></tr>
-        <tr><td>同時バッチ数</td><td class="num">2</td><td><code>lms load --parallel 2</code> が前提</td></tr>
-        <tr><td>再試行上限</td><td class="num">3回</td><td>超えたら <code>error</code> 確定</td></tr>
-        <tr><td>ペーシング</td><td class="num">既定なし</td><td><code>TRANSLATION_TOKENS_PER_MINUTE</code> 未設定なら待たない（上限65秒）</td></tr>
-        <tr><td>429 の待ち</td><td class="num">30〜300秒</td><td><code>Retry-After</code> をクランプ</td></tr>
-        <tr><td>watchdog</td><td class="num">60秒 / 180秒</td><td>点検間隔 / 無進捗とみなす閾値</td></tr>
+        <tr><td>iOS</td><td class="num">Translation framework</td><td>言語判定は <code>NLLanguageRecognizer</code></td></tr>
+        <tr><td>Android</td><td class="num">ML Kit</td><td>言語判定は Language Identification</td></tr>
+        <tr><td>Web</td><td class="num">Translator API</td><td>言語判定は <code>LanguageDetector</code>（未対応ブラウザではトグルを出さない）</td></tr>
+        <tr><td>判定の信頼度しきい値</td><td class="num">0.5</td><td>下回るタイトルは訳さず原文のまま</td></tr>
+        <tr><td>翻訳先</td><td class="num">1言語</td><td>ユーザーの表示言語のみ</td></tr>
+        <tr><td>キャッシュ</td><td class="num">セッション内</td><td>永続化せず、サーバーへも送らない</td></tr>
       </tbody>
     </table>
 
-    <h3>翻訳プロバイダ</h3>
-    <table class="t">
-      <tbody>
-        <tr><td>接続先</td><td class="num">LM Studio</td><td>OpenAI 互換 <code>/v1/chat/completions</code></td></tr>
-        <tr><td><code>LM_STUDIO_API_URL</code></td><td class="num">http://localhost:1234/v1</td><td>既定値。認証なしのローカルサーバ想定</td></tr>
-        <tr><td><code>LM_STUDIO_API_KEY</code></td><td class="num">任意</td><td>認証ありのサーバに向ける場合のみ</td></tr>
-        <tr><td><code>TRANSLATION_MODEL</code></td><td class="num">google/gemma-4-12b-qat</td><td>既定値。ユーザーによるモデル選択は無い</td></tr>
-      </tbody>
-    </table>
-    <p style="margin-top:14px;margin-bottom:0;">
-      出力は id キー付きの行フォーマットで、id は1タイトルにつき1回だけ書かせ、原文言語の行は省かせる。
-      ローカルモデルでは生成量がそのままコストになるため、出力形式は完了トークンを最小にする側で選んでいる。
-    </p>
   </div>
 </div>
 
@@ -1054,7 +741,6 @@
     <div class="legend-item"><div class="legend-dot" style="background:var(--blue);"></div> Adaptive — 実データから自動で決まる値</div>
     <div class="legend-item"><div class="legend-dot" style="background:var(--amber);"></div> Cron — 復旧処理のみ（コンテンツには触れない）</div>
     <div class="legend-item"><div class="legend-dot" style="background:var(--cyan);"></div> API — REST API エンドポイント</div>
-    <div class="legend-item"><div class="legend-dot" style="background:var(--accent2);"></div> AI — LM Studio によるタイトル翻訳</div>
   </div>
 </div>
 

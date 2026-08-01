@@ -13,7 +13,6 @@ final class ArticlesViewModel: ObservableObject {
     @Published var subscriptions: [Subscription] = []
 
     @Published var selectedTagId: Int?
-    @Published var readingListOnly = false
     @Published var bookmarkedOnly = false
     @Published var settings: UserSettings?
 
@@ -21,7 +20,6 @@ final class ArticlesViewModel: ObservableObject {
         if let tagId = selectedTagId, let tag = tags.first(where: { $0.id == tagId }) {
             return tag.name
         }
-        if readingListOnly { return "リーディングリスト" }
         if bookmarkedOnly { return "ブックマーク" }
         return "全ての記事"
     }
@@ -30,7 +28,6 @@ final class ArticlesViewModel: ObservableObject {
         ArticleListFilters(
             subscriptionId: nil,
             tagId: selectedTagId,
-            readingList: readingListOnly ? true : nil,
             bookmarked: bookmarkedOnly ? true : nil
         )
     }
@@ -138,21 +135,18 @@ final class ArticlesViewModel: ObservableObject {
         }
     }
 
-    func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
+    func patchState(_ articleId: Int, isRead: Bool? = nil, isBookmarked: Bool? = nil) async {
         do {
             let state: ArticleUserState
             if let isRead {
                 state = try await APIClient.shared.setArticleRead(articleId, isRead: isRead)
-            } else if let inReadingList {
-                state = try await APIClient.shared.setReadingListMembership(articleId, active: inReadingList)
             } else if let isBookmarked {
                 state = try await APIClient.shared.setBookmarkMembership(articleId, active: isBookmarked)
             } else {
                 return
             }
             if let index = articles.firstIndex(where: { $0.id == articleId }) {
-                let remainsInList = (!readingListOnly || state.inReadingList)
-                    && (!bookmarkedOnly || state.isBookmarked)
+                let remainsInList = !bookmarkedOnly || state.isBookmarked
                 if !remainsInList {
                     articles.remove(at: index)
                 } else {
@@ -166,24 +160,13 @@ final class ArticlesViewModel: ObservableObject {
 
 }
 
-struct ReadingListScreen: View {
-    @Binding var path: NavigationPath
-    @StateObject private var model = ArticlesViewModel()
-
-    var body: some View {
-        ArticlesScreen(path: $path, model: model, readingListOnly: true, onBack: { path.removeLast() })
-    }
-}
-
 struct ArticlesScreen: View {
     @Binding var path: NavigationPath
     @ObservedObject var model: ArticlesViewModel
+    @ObservedObject private var translations = TitleTranslationStore.shared
     @State private var showDrawer = false
     @State private var showMarkAllReadConfirm = false
     @Environment(\.openURL) private var openURL
-    var onOpenReadingList: () -> Void = {}
-    var readingListOnly = false
-    var onBack: () -> Void = {}
 
     private var markAllReadPrompt: String {
         if let tagId = model.selectedTagId, let tag = model.tags.first(where: { $0.id == tagId }) {
@@ -199,19 +182,19 @@ struct ArticlesScreen: View {
                 drawerOverlay
             }
         }
-        .navigationTitle(readingListOnly ? "リーディングリスト" : model.viewTitle)
+        .navigationTitle(model.viewTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    if readingListOnly { onBack() }
-                    else { withAnimation(.easeOut(duration: 0.2)) { showDrawer = true } }
+                    withAnimation(.easeOut(duration: 0.2)) { showDrawer = true }
                 } label: {
-                    Label(readingListOnly ? "戻る" : "フィードメニュー", systemImage: readingListOnly ? "chevron.left" : "line.3.horizontal")
+                    Label("フィードメニュー", systemImage: "line.3.horizontal")
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if !readingListOnly && !model.bookmarkedOnly {
+                TitleTranslationToggle(store: translations)
+                if !model.bookmarkedOnly {
                     Button {
                         showMarkAllReadConfirm = true
                     } label: {
@@ -229,11 +212,25 @@ struct ArticlesScreen: View {
         }
         .refreshable { await model.refreshFeedsAndReload() }
         .task {
-            model.readingListOnly = readingListOnly
             await model.load()
         }
         .onChange(of: model.selectedTagId) { Task { await model.reloadArticles() } }
         .onChange(of: model.bookmarkedOnly) { Task { await model.reloadArticles() } }
+        // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
+        .onChange(of: model.articles, initial: true) { registerTitlesForTranslation() }
+        .onChange(of: translations.isEnabled) { registerTitlesForTranslation() }
+        // 設定は articles より後に届くので、届いてから表示言語を入れ直す
+        .onChange(of: model.settings) { registerTitlesForTranslation() }
+    }
+
+    private func registerTitlesForTranslation() {
+        translations.configure(
+            language: model.settings?.language ?? "ja",
+            readableLanguages: model.settings?.readableLanguages ?? ["ja"],
+        )
+        // 準備画面の候補は「購読に実在する言語」
+        translations.setCandidates(model.subscriptions)
+        translations.register(model.articles)
     }
 
     private var optionsMenu: some View {
@@ -296,22 +293,11 @@ struct ArticlesScreen: View {
                     ArticleRowView(article: article)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if model.settings?.openInBrowserByDefault == true, let urlString = article.canonicalUrl {
-                            if let url = URL(string: urlString) { openURL(url) }
-                        } else {
-                            path.append(AppRoute.articleDetail(article.id))
+                        if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
+                            openURL(url)
                         }
                     }
                     .swipeActions(edge: .trailing) {
-                        Button {
-                            Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
-                        } label: {
-                            Label(
-                                article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
-                                systemImage: "list.bullet"
-                            )
-                        }
-                        .tint(.blue)
                         Button {
                             Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
                         } label: {
@@ -366,7 +352,7 @@ struct ArticlesScreen: View {
                 .ignoresSafeArea()
                 .onTapGesture { closeDrawer() }
                 .transition(.opacity)
-            SourcesDrawer(model: model, onSelect: { closeDrawer() }, onOpenReadingList: onOpenReadingList)
+            SourcesDrawer(model: model, onSelect: { closeDrawer() })
                 .frame(width: 300)
                 .frame(maxHeight: .infinity)
                 .background(Color(uiColor: .systemBackground))
