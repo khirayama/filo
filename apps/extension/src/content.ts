@@ -60,6 +60,7 @@ window.addEventListener("message", (event) => {
 });
 
 function extract() {
+  // 短い誤抽出を避ける一方、記事の取りこぼしを増やさない設定にする。
   const article = new Readability(document.cloneNode(true) as Document, { charThreshold: 100 }).parse();
   const text = article?.textContent?.trim() ?? "";
   return text.length >= 100

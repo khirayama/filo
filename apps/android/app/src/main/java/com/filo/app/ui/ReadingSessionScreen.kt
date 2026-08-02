@@ -428,6 +428,7 @@ private fun ReadingWebView(
                 override fun onPageFinished(view: WebView, loadedUrl: String) {
                     val readability = context.assets.open("Readability.js").bufferedReader().use { it.readText() }
                     view.evaluateJavascript(
+                        // 短い誤抽出を避けつつ、取りこぼしより本文ノイズを許容する設定。
                         "$readability;(() => { const a = new Readability(document.cloneNode(true), {charThreshold:100}).parse();" +
                             "FiloReader.postMessage(JSON.stringify(a && a.textContent && a.textContent.trim().length >= 100" +
                             " ? {text:a.textContent.trim(),lang:a.lang||document.documentElement.lang||null}:{error:true})); })();",

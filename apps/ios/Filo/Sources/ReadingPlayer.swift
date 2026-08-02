@@ -425,6 +425,7 @@ private struct ReadingWebView: UIViewRepresentable {
             let script = """
             \(readability)
             (() => {
+              // 短い誤抽出を避けつつ、取りこぼしより本文ノイズを許容する設定。
               const article = new Readability(document.cloneNode(true), { charThreshold: 100 }).parse();
               window.webkit.messageHandlers.filoReader.postMessage(article && article.textContent && article.textContent.trim().length >= 100
                 ? { text: article.textContent.trim(), lang: article.lang || document.documentElement.lang || null }
