@@ -22,6 +22,11 @@ interface Voice {
   lang?: string;
 }
 
+interface CurrentPage {
+  url: string;
+  title: string;
+}
+
 async function send<T>(message: unknown): Promise<T> {
   const response = await chrome.runtime.sendMessage(message) as { ok?: boolean; error?: string; data?: T } | undefined;
   if (!response?.ok) throw new Error(response?.error ?? "拡張機能を操作できませんでした。");
@@ -44,15 +49,33 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<{ url: string; title: string } | null>(null);
 
-  const loadCurrentPage = useCallback(async () => {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const getCurrentPage = useCallback(async (): Promise<CurrentPage | null> => {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     const tab = tabs[0];
     if (!tab?.url || !/^https?:\/\//i.test(tab.url)) {
-      setCurrentPage(null);
-      return;
+      return null;
     }
-    setCurrentPage({ url: tab.url, title: tab.title ?? "" });
+    return { url: tab.url, title: tab.title ?? "" };
   }, []);
+
+  const loadCurrentPage = useCallback(async () => {
+    setCurrentPage(await getCurrentPage());
+  }, [getCurrentPage]);
+
+  useEffect(() => {
+    const refresh = () => void loadCurrentPage().catch(() => undefined);
+    const onUpdated = (_tabId: number, changeInfo: { status?: string; url?: string }) => {
+      if (changeInfo.status === "complete" || changeInfo.url) refresh();
+    };
+    chrome.tabs.onActivated.addListener(refresh);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.windows.onFocusChanged.addListener(refresh);
+    return () => {
+      chrome.tabs.onActivated.removeListener(refresh);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.windows.onFocusChanged.removeListener(refresh);
+    };
+  }, [loadCurrentPage]);
 
   const loadReader = useCallback(async () => {
     const [nextReader, nextVoices] = await Promise.all([
@@ -110,7 +133,6 @@ export function App() {
         articleId: currentId,
         autoplay,
         targetLanguage: language,
-        appUrl: webAppPath("/articles?readingList=1"),
       });
       setReader(started);
     } catch (cause) {
@@ -158,11 +180,14 @@ export function App() {
   };
 
   const addCurrentPage = async () => {
-    if (!currentPage || busy) return;
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      await api.importArticle({ url: currentPage.url, title: currentPage.title });
+      const page = await getCurrentPage();
+      setCurrentPage(page);
+      if (!page) throw new Error("追加できるページがありません。");
+      await api.importArticle({ url: page.url, title: page.title });
       setArticles(await api.listReadingArticles());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -195,20 +220,35 @@ export function App() {
           <small title={user?.primaryEmailAddress?.emailAddress}>{user?.primaryEmailAddress?.emailAddress ?? "ログイン済み"}</small>
           <button className="link-button" onClick={() => openWeb("/articles?readingList=1")}>Webを開く</button>
         </div>
-        <div className="now-playing">
-          <span className="now-playing-label">再生中</span>
-          <span className="now-playing-title">{reader?.title || "再生中の記事はありません"}</span>
+        <div className="player-card">
+          <div className="player-card-header">
+            <span className="now-playing-label">
+              <span className={`play-indicator${reader?.playing ? " active" : ""}`} aria-hidden="true" />
+              {reader?.playing ? "再生中" : "待機中"}
+            </span>
+            <span className="queue-count">{reader ? `${reader.index + 1} / ${reader.count}` : `${articles.length}件`}</span>
+          </div>
+          <div className="player-main">
+            <div className="player-art" aria-hidden="true">♪</div>
+            <div className="player-copy">
+              <span className="now-playing-title">{reader?.title || "再生する記事を選択してください"}</span>
+              <small>{reader ? "Filo Reader" : "再生待ち"}</small>
+            </div>
+          </div>
+          <div className="progress-bar"><div className="progress-fill" style={{ width: `${(reader?.positionPercent ?? 0) * 100}%` }} /></div>
+          <div className="player-progress-meta">
+            <span>{Math.round((reader?.positionPercent ?? 0) * 100)}%</span>
+            <span>{reader?.playing ? "再生中" : "停止中"}</span>
+          </div>
         </div>
-        <div className="progress-bar"><div className="progress-fill" style={{ width: `${(reader?.positionPercent ?? 0) * 100}%` }} /></div>
       </section>
 
       <section className="controls" aria-label="再生操作">
-        <button disabled={busy || !reader?.canPrevious} onClick={() => void control("previous")}>前へ</button>
-        <button className="primary" disabled={busy || !reader} onClick={() => void control(reader?.playing ? "pause" : "play")}>
-          {reader?.playing ? "一時停止" : "読み上げ"}
+        <button className="transport" title="前の記事" aria-label="前の記事" disabled={busy || !reader?.canPrevious} onClick={() => void control("previous")}>⏮</button>
+        <button className="transport primary" title={reader?.playing ? "一時停止" : "読み上げ開始"} aria-label={reader?.playing ? "一時停止" : "読み上げ開始"} disabled={busy || !reader} onClick={() => void control(reader?.playing ? "pause" : "play")}>
+          {reader?.playing ? "⏸" : "▶"}
         </button>
-        <button disabled={busy || !reader?.canNext} onClick={() => void control("next")}>次へ</button>
-        <span className="queue-count">{reader ? `${reader.index + 1}/${reader.count}` : `${articles.length}件`}</span>
+        <button className="transport" title="次の記事" aria-label="次の記事" disabled={busy || !reader?.canNext} onClick={() => void control("next")}>⏭</button>
       </section>
 
       <section className="settings" aria-label="読み上げ設定">
@@ -232,7 +272,6 @@ export function App() {
       </section>
 
       <section className="list-heading">
-        <strong>リーディングリスト</strong>
         <button disabled={busy || !currentPage} onClick={() => void addCurrentPage()}>
           {currentPage ? "このページを追加" : "追加できるページなし"}
         </button>

@@ -62,7 +62,6 @@ export function launchReadingExtension(
       session,
       autoplay: options.autoplay,
       targetLanguage: options.targetLanguage,
-      appUrl: new URL("/articles?readingList=1", window.location.origin).toString(),
     }, "*");
   });
 }

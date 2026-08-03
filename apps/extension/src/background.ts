@@ -15,7 +15,6 @@ interface ReaderSession {
   readingTabId: number | null;
   autoplay: boolean;
   targetLanguage: string;
-  appUrl: string;
   rate: number;
   voiceName: string | null;
   playing: boolean;
@@ -25,6 +24,10 @@ interface ReaderSession {
 const STATE_KEY = "filo:readerSession";
 let playToken = 0;
 let lastProgressPublishedAt = 0;
+
+chrome.runtime.onInstalled.addListener(() => {
+  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+});
 
 async function loadState(): Promise<ReaderSession | null> {
   const stored = await chrome.storage.local.get(STATE_KEY);
@@ -50,23 +53,6 @@ async function publishToWeb(event: unknown): Promise<void> {
 
 async function publishState(state: ReaderSession): Promise<void> {
   const item = state.items[state.index] ?? null;
-  if (state.readingTabId != null) {
-    await chrome.tabs.sendMessage(state.readingTabId, {
-      type: "filoReaderState",
-      state: {
-        index: state.index,
-        count: state.items.length,
-        title: item?.article.title ?? "",
-        playing: state.playing,
-        rate: state.rate,
-        voiceName: state.voiceName,
-        sourceLanguage: item?.article.sourceLanguage ?? null,
-        targetLanguage: state.targetLanguage,
-        appUrl: state.appUrl,
-        positionPercent: state.positionPercent,
-      },
-    }).catch(() => undefined);
-  }
   await publishToWeb({
     type: "playbackState",
     currentArticleId: item?.articleId ?? null,
@@ -236,7 +222,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         readingTabId: previous?.readingTabId ?? null,
         autoplay: message.autoplay === true,
         targetLanguage: String(message.targetLanguage || ""),
-        appUrl: String(message.appUrl || ""),
         rate: previous?.rate ?? 1,
         voiceName: previous?.voiceName ?? null,
         playing: false,
