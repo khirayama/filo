@@ -11,6 +11,7 @@ enum AppRoute: Hashable {
     case subscriptionDetail(Int)
     case accountDeletionStatus(String?)
     case readingSession(Bool)
+    case readingPage(String)
     case addArticle(String)
 }
 
@@ -109,8 +110,17 @@ struct AppNavigationView: View {
                             AccountDeletionStatusScreen(deletionToken: token)
                         case .readingSession(let autoplay):
                             ReadingSessionScreen(autoplay: autoplay)
+                        case .readingPage(let url):
+                            ReadingSessionScreen(autoplay: true, temporaryUrl: url)
                         case .addArticle(let url):
-                            AddArticleScreen(initialUrl: url, onDone: { if !path.isEmpty { path.removeLast() } })
+                            AddArticleScreen(
+                                initialUrl: url,
+                                onDone: { if !path.isEmpty { path.removeLast() } },
+                                onReadAloud: { sharedUrl in
+                                    if !path.isEmpty { path.removeLast() }
+                                    path.append(AppRoute.readingPage(sharedUrl))
+                                },
+                            )
                         }
                     }
             }

@@ -30,6 +30,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var chunkIndex = 0
     private var continuousRead = false
     private var startingAutoplay = false
+    private var temporary = false
     private var progressSyncAt = Date.distantPast
     private var translationToken = 0
     private var pendingOriginalText: String?
@@ -52,25 +53,39 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         configureRemoteCommands()
     }
 
-    func start(autoplay: Bool) async {
+    func start(autoplay: Bool, temporaryUrl: String? = nil) async {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
         startingAutoplay = autoplay
         continuousRead = autoplay
         do {
-            async let sessionTask = APIClient.shared.startReadingSession()
             async let settingsTask = APIClient.shared.getSettings()
-            let session = try await sessionTask
             let settings = try? await settingsTask
             targetLanguage = settings?.language ?? targetLanguage
-            items = session.items
-            if let currentId = session.playbackState?.currentArticleId,
-               let currentIndex = items.firstIndex(where: { $0.articleId == currentId }) {
-                index = currentIndex
+            if let temporaryUrl {
+                temporary = true
+                let article = ReadingSessionArticle(
+                    id: 0,
+                    title: temporaryUrl,
+                    sourceLanguage: nil,
+                    canonicalUrl: temporaryUrl,
+                    publishedAt: nil,
+                    feed: .init(id: 0, title: "共有ページ", faviconUrl: nil),
+                )
+                items = [ReadingSessionItem(articleId: 0, sortOrder: 0, article: article, createdAt: nil)]
+                index = 0
             } else {
-                index = -1
-                errorMessage = "未読の記事がありません。"
+                temporary = false
+                let session = try await APIClient.shared.startReadingSession()
+                items = session.items
+                if let currentId = session.playbackState?.currentArticleId,
+                   let currentIndex = items.firstIndex(where: { $0.articleId == currentId }) {
+                    index = currentIndex
+                } else {
+                    index = -1
+                    errorMessage = "未読の記事がありません。"
+                }
             }
             resetExtractedContent()
         } catch {
@@ -89,6 +104,10 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     func extractionFailed() {
+        if temporary {
+            errorMessage = "本文を抽出できませんでした。"
+            return
+        }
         guard let articleId = currentItem?.articleId else { return }
         Task {
             _ = try? await APIClient.shared.requestArticleContent(articleId)
@@ -187,7 +206,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             await syncProgress(1)
             return
         }
-        if markCurrentRead, let current = currentItem {
+        if markCurrentRead, !temporary, let current = currentItem {
             _ = try? await APIClient.shared.setArticleRead(current.articleId, isRead: true)
         }
         synthesizer.stopSpeaking(at: .immediate)
@@ -225,15 +244,16 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         }
         isPlaying = false
         Task {
-            if let current = currentItem {
+            if !temporary, let current = currentItem {
                 _ = try? await APIClient.shared.setArticleRead(current.articleId, isRead: true)
             }
-            await syncProgress(1)
+            if !temporary { await syncProgress(1) }
             await move(to: index + 1, markCurrentRead: false)
         }
     }
 
     private func syncProgress(_ value: Double) async {
+        guard !temporary else { return }
         guard let current = currentItem else { return }
         _ = try? await APIClient.shared.updatePlaybackState(
             currentArticleId: current.articleId,
@@ -305,7 +325,13 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
 
 struct ReadingSessionScreen: View {
     let autoplay: Bool
+    let temporaryUrl: String?
     @EnvironmentObject private var player: ReadingPlayerStore
+
+    init(autoplay: Bool, temporaryUrl: String? = nil) {
+        self.autoplay = autoplay
+        self.temporaryUrl = temporaryUrl
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -325,7 +351,7 @@ struct ReadingSessionScreen: View {
         }
         .navigationTitle(player.currentItem?.article.title ?? "リーディングリスト")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await player.start(autoplay: autoplay) }
+        .task { await player.start(autoplay: autoplay, temporaryUrl: temporaryUrl) }
         .modifier(ReadingTranslationTask(player: player))
     }
 }

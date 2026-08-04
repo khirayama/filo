@@ -26,6 +26,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -58,6 +59,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 
 class MainActivity : ComponentActivity() {
     private var sharedUrl by mutableStateOf<String?>(null)
@@ -528,6 +531,17 @@ private fun RssNavigation(
                 onBack = { navController.navigateUp() },
             )
         }
+        composable(
+            "reading-page?url={url}",
+            arguments = listOf(navArgument("url") { type = NavType.StringType }),
+        ) { entry ->
+            com.filo.app.ui.ReadingSessionScreen(
+                player = readingPlayer,
+                autoplay = true,
+                temporaryUrl = entry.arguments?.getString("url"),
+                onBack = { navController.navigateUp() },
+            )
+        }
         composable("subscriptions") {
             com.filo.app.ui.SubscriptionsScreen(
                 onBack = { navController.navigateUp() },
@@ -548,6 +562,12 @@ private fun RssNavigation(
                 onBack = {
                     onSharedUrlConsumed()
                     navController.navigateUp()
+                },
+                onReadAloud = { url ->
+                    onSharedUrlConsumed()
+                    navController.navigate("reading-page?url=${Uri.encode(url)}") {
+                        popUpTo("addArticle") { inclusive = true }
+                    }
                 },
             )
         }

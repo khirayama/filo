@@ -23,6 +23,7 @@ interface Voice {
 }
 
 interface CurrentPage {
+  tabId: number;
   url: string;
   title: string;
 }
@@ -52,10 +53,10 @@ export function App() {
   const getCurrentPage = useCallback(async (): Promise<CurrentPage | null> => {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     const tab = tabs[0];
-    if (!tab?.url || !/^https?:\/\//i.test(tab.url)) {
+    if (tab?.id == null || !tab.url || !/^https?:\/\//i.test(tab.url)) {
       return null;
     }
-    return { url: tab.url, title: tab.title ?? "" };
+    return { tabId: tab.id, url: tab.url, title: tab.title ?? "" };
   }, []);
 
   const loadCurrentPage = useCallback(async () => {
@@ -135,6 +136,27 @@ export function App() {
         targetLanguage: language,
       });
       setReader(started);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startCurrentPage = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const [page, language] = await Promise.all([getCurrentPage(), api.getLanguage()]);
+      setCurrentPage(page);
+      if (!page) throw new Error("読み上げできるページがありません。");
+      setReader(await send<PopupReaderState>({
+        type: "filoStartPage",
+        page,
+        autoplay: true,
+        targetLanguage: language,
+      }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -274,6 +296,9 @@ export function App() {
       <section className="list-heading">
         <button disabled={busy || !currentPage} onClick={() => void addCurrentPage()}>
           {currentPage ? "このページを追加" : "追加できるページなし"}
+        </button>
+        <button className="primary" disabled={busy || !currentPage} onClick={() => void startCurrentPage()}>
+          {currentPage ? "このページを読み上げ" : "読み上げできるページなし"}
         </button>
         <button disabled={busy || articles.length === 0} onClick={() => void start(false)}>閲覧開始</button>
         <button className="primary" disabled={busy || articles.length === 0} onClick={() => void start(true)}>読み上げ開始</button>

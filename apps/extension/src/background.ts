@@ -1,7 +1,7 @@
 import { backgroundApi } from "./backgroundApi";
 
 interface SessionItem {
-  articleId: number;
+  articleId: number | null;
   article: {
     title: string;
     sourceLanguage: string | null;
@@ -13,6 +13,7 @@ interface ReaderSession {
   items: SessionItem[];
   index: number;
   readingTabId: number | null;
+  temporary: boolean;
   autoplay: boolean;
   targetLanguage: string;
   rate: number;
@@ -36,11 +37,12 @@ async function loadState(): Promise<ReaderSession | null> {
 
 async function saveState(state: ReaderSession): Promise<void> {
   await chrome.storage.local.set({ [STATE_KEY]: state });
-  await publishState(state);
   const item = currentItem(state);
+  if (item?.articleId == null) return;
+  await publishState(state);
   await backgroundApi.updatePlaybackState({
-    currentArticleId: item?.articleId ?? null,
-    contentLanguage: state.targetLanguage || item?.article.sourceLanguage || null,
+    currentArticleId: item.articleId,
+    contentLanguage: state.targetLanguage || item.article.sourceLanguage || null,
     positionPercent: state.positionPercent,
   }).catch(() => undefined);
 }
@@ -84,12 +86,20 @@ function popupState(state: ReaderSession | null) {
 }
 
 async function openCurrent(state: ReaderSession): Promise<void> {
-  const url = currentItem(state)?.article.canonicalUrl;
+  const item = currentItem(state);
+  const url = item?.article.canonicalUrl;
   if (!url) return;
   state.playing = false;
   state.positionPercent = 0;
   playToken += 1;
   chrome.tts.stop();
+  if (state.temporary) {
+    const autoplay = state.autoplay;
+    state.autoplay = false;
+    await saveState(state);
+    if (autoplay) await playCurrent();
+    return;
+  }
   if (state.readingTabId == null) {
     const tab = await chrome.tabs.create({ url, active: true });
     state.readingTabId = tab.id ?? null;
@@ -106,7 +116,7 @@ async function openCurrent(state: ReaderSession): Promise<void> {
 
 async function markCurrentRead(state: ReaderSession): Promise<void> {
   const item = currentItem(state);
-  if (!item) return;
+  if (!item || item.articleId == null) return;
   await Promise.all([
     backgroundApi.setArticleRead(item.articleId).catch(() => undefined),
     publishToWeb({ type: "articleRead", articleId: item.articleId }),
@@ -220,6 +230,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         items,
         index,
         readingTabId: previous?.readingTabId ?? null,
+        temporary: false,
         autoplay: message.autoplay === true,
         targetLanguage: String(message.targetLanguage || ""),
         rate: previous?.rate ?? 1,
@@ -235,11 +246,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }));
     return true;
   }
+  if (message?.type === "filoStartPage") {
+    void (async () => {
+      const page = message.page as { tabId?: number; url?: string; title?: string } | undefined;
+      if (!page || typeof page.tabId !== "number" || !/^https?:\/\//i.test(String(page.url ?? ""))) {
+        throw new Error("読み上げできるページがありません。");
+      }
+      const previous = await loadState();
+      const state: ReaderSession = {
+        items: [{
+          articleId: null,
+          article: {
+            title: String(page.title || page.url),
+            sourceLanguage: null,
+            canonicalUrl: String(page.url),
+          },
+        }],
+        index: 0,
+        readingTabId: page.tabId,
+        temporary: true,
+        autoplay: message.autoplay === true,
+        targetLanguage: String(message.targetLanguage || ""),
+        rate: previous?.rate ?? 1,
+        voiceName: previous?.voiceName ?? null,
+        playing: false,
+        positionPercent: 0,
+      };
+      await openCurrent(state);
+      sendResponse({ ok: true, data: popupState(await loadState()) });
+    })().catch((error: unknown) => sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return true;
+  }
   if (message?.type === "filoPageReady") {
     void (async () => {
       const state = await loadState();
       if (!state || sender.tab?.id !== state.readingTabId) return;
-      await publishState(state);
+      if (!state.temporary) await publishState(state);
       if (state.autoplay) await playCurrent();
     })();
     return false;

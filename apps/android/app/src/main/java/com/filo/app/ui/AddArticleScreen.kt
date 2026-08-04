@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,7 +31,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddArticleScreen(initialUrl: String, onBack: () -> Unit) {
+fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onReadAloud: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var url by remember(initialUrl) { mutableStateOf(initialUrl) }
     var isSubmitting by remember { mutableStateOf(false) }
@@ -53,7 +54,7 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit) {
             modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("共有されたURLをリーディングリストに保存します。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("共有されたURLを保存または読み上げます。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it; error = null; result = null },
@@ -79,6 +80,10 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit) {
                     }
                 },
             ) { Text(if (isSubmitting) "保存中…" else "追加") }
+            TextButton(
+                enabled = !isSubmitting && url.isNotBlank(),
+                onClick = { onReadAloud(url.trim()) },
+            ) { Text("保存せずに読み上げ") }
             result?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             error?.let { ErrorBanner(it) }
         }

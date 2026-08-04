@@ -3,14 +3,16 @@ import SwiftUI
 struct AddArticleScreen: View {
     let initialUrl: String
     let onDone: () -> Void
+    let onReadAloud: (String) -> Void
     @State private var url: String
     @State private var isSubmitting = false
     @State private var result: String?
     @State private var errorMessage: String?
 
-    init(initialUrl: String, onDone: @escaping () -> Void) {
+    init(initialUrl: String, onDone: @escaping () -> Void, onReadAloud: @escaping (String) -> Void = { _ in }) {
         self.initialUrl = initialUrl
         self.onDone = onDone
+        self.onReadAloud = onReadAloud
         _url = State(initialValue: initialUrl)
     }
 
@@ -25,8 +27,12 @@ struct AddArticleScreen: View {
                     Task { await submit() }
                 }
                 .disabled(isSubmitting || url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("保存せずに読み上げ") {
+                    onReadAloud(url.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                .disabled(isSubmitting || url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } footer: {
-                Text("共有されたURLをリーディングリストに保存します。")
+                Text("共有されたURLを保存または読み上げます。")
             }
             if let result {
                 Section { Text(result).foregroundStyle(.green) }

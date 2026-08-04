@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.filo.app.TtsMediaService
 import com.filo.app.api.ApiClient
+import com.filo.app.api.ReadingSessionArticle
 import com.filo.app.api.ReadingSessionItem
 import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
@@ -83,6 +84,7 @@ class ReadingPlayerController(
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var temporary = false
     private var chunks = emptyList<String>()
     private var chunkIndex = 0
     private var continuousRead = false
@@ -114,18 +116,37 @@ class ReadingPlayerController(
         TtsMediaService.onDismiss = { pause() }
     }
 
-    suspend fun start(autoplay: Boolean) {
+    suspend fun start(autoplay: Boolean, temporaryUrl: String? = null) {
         if (isLoading) return
         isLoading = true
         errorMessage = null
         continuousRead = autoplay
         autoplayWhenReady = autoplay
         runCatching {
-            val session = ApiClient.startReadingSession()
-            items = session.items
-            index = session.playbackState?.currentArticleId?.let { id -> items.indexOfFirst { it.articleId == id } } ?: -1
-            if (index < 0) errorMessage = "未読の記事がありません。"
             runCatching { ApiClient.getSettings() }.getOrNull()?.let { setLanguage(it.language) }
+            if (temporaryUrl != null) {
+                temporary = true
+                items = listOf(
+                    ReadingSessionItem(
+                        articleId = 0,
+                        sortOrder = 0,
+                        article = ReadingSessionArticle(
+                            id = 0,
+                            title = temporaryUrl,
+                            sourceLanguage = null,
+                            canonicalUrl = temporaryUrl,
+                            feedTitle = "共有ページ",
+                        ),
+                    ),
+                )
+                index = 0
+            } else {
+                temporary = false
+                val session = ApiClient.startReadingSession()
+                items = session.items
+                index = session.playbackState?.currentArticleId?.let { id -> items.indexOfFirst { it.articleId == id } } ?: -1
+                if (index < 0) errorMessage = "未読の記事がありません。"
+            }
             resetPage()
         }.onFailure { errorMessage = "リーディングリストを開始できませんでした。" }
         isLoading = false
@@ -141,6 +162,10 @@ class ReadingPlayerController(
     }
 
     fun extractionFailed() {
+        if (temporary) {
+            errorMessage = "本文を抽出できませんでした。"
+            return
+        }
         val id = currentItem?.articleId ?: return
         scope.launch {
             runCatching { ApiClient.requestArticleContent(id) }
@@ -218,11 +243,11 @@ class ReadingPlayerController(
             syncProgress(1.0)
             return
         }
-        if (markCurrentRead) currentItem?.let { runCatching { ApiClient.setArticleRead(it.articleId, true) } }
+        if (markCurrentRead && !temporary) currentItem?.let { runCatching { ApiClient.setArticleRead(it.articleId, true) } }
         tts?.stop()
         index = destination
         resetPage()
-        syncProgress(0.0)
+        if (!temporary) syncProgress(0.0)
     }
 
     private fun resetPage() {
@@ -256,12 +281,15 @@ class ReadingPlayerController(
             return
         }
         isPlaying = false
-        currentItem?.let { runCatching { ApiClient.setArticleRead(it.articleId, true) } }
-        syncProgress(1.0)
+        if (!temporary) {
+            currentItem?.let { runCatching { ApiClient.setArticleRead(it.articleId, true) } }
+            syncProgress(1.0)
+        }
         move(index + 1, false)
     }
 
     private suspend fun syncProgress(position: Double) {
+        if (temporary) return
         currentItem?.let {
             runCatching { ApiClient.updatePlaybackState(it.articleId, extractedLanguage ?: it.article.sourceLanguage, position) }
         }
@@ -340,8 +368,13 @@ private suspend fun <T> Task<T>.awaitReading(): T = suspendCancellableCoroutine 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReadingSessionScreen(player: ReadingPlayerController, autoplay: Boolean, onBack: () -> Unit) {
-    LaunchedEffect(autoplay) { player.start(autoplay) }
+fun ReadingSessionScreen(
+    player: ReadingPlayerController,
+    autoplay: Boolean,
+    onBack: () -> Unit,
+    temporaryUrl: String? = null,
+) {
+    LaunchedEffect(autoplay, temporaryUrl) { player.start(autoplay, temporaryUrl) }
     Scaffold(
         topBar = {
             TopAppBar(
