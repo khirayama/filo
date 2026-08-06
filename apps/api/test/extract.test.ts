@@ -13,8 +13,21 @@ describe("reading content extraction", () => {
     const result = extractFromHtml(
       `<html><body><nav>menu</nav><article><h1>Title</h1><p>${paragraph}</p></article></body></html>`,
       "https://example.com/post",
+      "Title",
     );
+    expect(result?.text.startsWith("Title\n\n")).toBe(true);
+    expect(result?.text).toContain("Title");
     expect(result?.text).toContain("Main article text");
+  });
+
+  it("keeps headings in speech order", () => {
+    const paragraph = "Main article text that should remain available to the listener. ".repeat(8);
+    const result = extractFromHtml(
+      `<html><body><article><h2>Important section</h2><p>${paragraph}</p></article></body></html>`,
+      "https://example.com/post",
+      "Article title",
+    );
+    expect(result?.text).toContain("Article title\n\nImportant section\n\nMain article text");
   });
 
   it("respects publisher noarchive metadata", () => {

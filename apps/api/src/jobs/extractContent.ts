@@ -5,15 +5,16 @@ import { nowIso } from "../lib/util";
 
 export async function runExtractContent(env: Env, articleId: number): Promise<void> {
   const article = await env.DB.prepare(
-    `SELECT canonical_url, rss_content_html, rss_summary FROM articles WHERE id = ?`,
+    `SELECT title, canonical_url, rss_content_html, rss_summary FROM articles WHERE id = ?`,
   ).bind(articleId).first<{
+    title: string;
     canonical_url: string | null;
     rss_content_html: string | null;
     rss_summary: string | null;
   }>();
   if (!article) return;
 
-  let result = extractFromRssContent(article.rss_content_html, article.rss_summary);
+  let result = extractFromRssContent(article.rss_content_html, article.rss_summary, article.title);
   if (!result && article.canonical_url) {
     try {
       const { response, finalUrl } = await safeFetch(article.canonical_url, {
@@ -22,7 +23,7 @@ export async function runExtractContent(env: Env, articleId: number): Promise<vo
       });
       const robots = response.headers.get("X-Robots-Tag")?.toLowerCase() ?? "";
       if (response.ok && !robots.includes("noarchive") && !robots.includes("noindex")) {
-        result = extractFromHtml(await readTextCapped(response), finalUrl);
+        result = extractFromHtml(await readTextCapped(response), finalUrl, article.title);
       }
     } catch {
       // The client-visible DOM is the primary path; server extraction is best-effort fallback.
