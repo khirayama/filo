@@ -87,7 +87,6 @@ class ReadingPlayerController(
     private var temporary = false
     private var chunks = emptyList<String>()
     private var chunkIndex = 0
-    private var continuousRead = false
     private var autoplayWhenReady = false
 
     val currentItem: ReadingSessionItem?
@@ -120,7 +119,6 @@ class ReadingPlayerController(
         if (isLoading) return
         isLoading = true
         errorMessage = null
-        continuousRead = autoplay
         autoplayWhenReady = autoplay
         runCatching {
             runCatching { ApiClient.getSettings() }.getOrNull()?.let { setLanguage(it.language) }
@@ -188,7 +186,6 @@ class ReadingPlayerController(
             extractionFailed()
             return
         }
-        continuousRead = true
         scope.launch {
             val translated = translateBestEffort(source, extractedLanguage ?: currentItem?.article?.sourceLanguage)
             chunks = split(translated.first)
@@ -256,7 +253,6 @@ class ReadingPlayerController(
         chunks = emptyList()
         chunkIndex = 0
         isPlaying = false
-        autoplayWhenReady = continuousRead
         notifyMedia()
     }
 
@@ -285,7 +281,6 @@ class ReadingPlayerController(
             currentItem?.let { runCatching { ApiClient.setArticleRead(it.articleId, true) } }
             syncProgress(1.0)
         }
-        move(index + 1, false)
     }
 
     private suspend fun syncProgress(position: Double) {
@@ -461,10 +456,14 @@ private fun ReadingWebView(
                 override fun onPageFinished(view: WebView, loadedUrl: String) {
                     val readability = context.assets.open("Readability.js").bufferedReader().use { it.readText() }
                     view.evaluateJavascript(
-                        // 短い誤抽出を避けつつ、取りこぼしより本文ノイズを許容する設定。
                         "$readability;(() => { const a = new Readability(document.cloneNode(true), {charThreshold:100}).parse();" +
-                            "FiloReader.postMessage(JSON.stringify(a && a.textContent && a.textContent.trim().length >= 100" +
-                            " ? {text:a.textContent.trim(),lang:a.lang||document.documentElement.lang||null}:{error:true})); })();",
+                            "const n=v=>String(v||'').replace(/\\s+/g,' ').trim();" +
+                            "const root=document.implementation.createHTMLDocument('').body; if(a) root.innerHTML=a.content||'';" +
+                            "const tags=new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']), lines=[];" +
+                            "const visit=x=>Array.from(x.children).forEach(c=>tags.has(c.tagName)?(n(c.textContent)&&lines.push(n(c.textContent))):visit(c));" +
+                            "if(a) visit(root); if(a&&!lines.length) lines.push(...n(a.textContent).split(/\\n+/).filter(Boolean));" +
+                            "const title=n(a&&a.title)||n(document.title), text=a?[title,...(lines[0]===title?lines.slice(1):lines)].filter(Boolean).join('\\n\\n'):'';" +
+                            "FiloReader.postMessage(JSON.stringify(text.length>=100?{text:text,lang:a.lang||document.documentElement.lang||null}:{error:true})); })();",
                         null,
                     )
                 }

@@ -28,7 +28,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private let synthesizer = AVSpeechSynthesizer()
     private var chunks: [String] = []
     private var chunkIndex = 0
-    private var continuousRead = false
     private var startingAutoplay = false
     private var temporary = false
     private var progressSyncAt = Date.distantPast
@@ -58,7 +57,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         isLoading = true
         errorMessage = nil
         startingAutoplay = autoplay
-        continuousRead = autoplay
         do {
             async let settingsTask = APIClient.shared.getSettings()
             let settings = try? await settingsTask
@@ -129,7 +127,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             extractionFailed()
             return
         }
-        continuousRead = true
         let source = extractedLanguage ?? currentItem?.article.sourceLanguage
         if let source, source.split(separator: "-").first != targetLanguage.split(separator: "-").first {
             pendingOriginalText = text
@@ -221,7 +218,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         chunks = []
         chunkIndex = 0
         isPlaying = false
-        startingAutoplay = continuousRead
         updateNowPlaying()
     }
 
@@ -248,7 +244,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 _ = try? await APIClient.shared.setArticleRead(current.articleId, isRead: true)
             }
             if !temporary { await syncProgress(1) }
-            await move(to: index + 1, markCurrentRead: false)
         }
     }
 
@@ -451,10 +446,25 @@ private struct ReadingWebView: UIViewRepresentable {
             let script = """
             \(readability)
             (() => {
-              // 短い誤抽出を避けつつ、取りこぼしより本文ノイズを許容する設定。
+              const normalize = value => String(value || '').replace(/\\s+/g, ' ').trim();
               const article = new Readability(document.cloneNode(true), { charThreshold: 100 }).parse();
-              window.webkit.messageHandlers.filoReader.postMessage(article && article.textContent && article.textContent.trim().length >= 100
-                ? { text: article.textContent.trim(), lang: article.lang || document.documentElement.lang || null }
+              const text = (() => {
+                if (!article) return '';
+                const root = document.implementation.createHTMLDocument('').body;
+                root.innerHTML = article.content || '';
+                const blocks = new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']);
+                const lines = [];
+                const visit = node => Array.from(node.children).forEach(child => {
+                  if (blocks.has(child.tagName)) { const value = normalize(child.textContent); if (value) lines.push(value); }
+                  else visit(child);
+                });
+                visit(root);
+                if (!lines.length) lines.push(...normalize(article.textContent).split(/\\n+/).filter(Boolean));
+                const title = normalize(article.title) || normalize(document.title);
+                return [title, ...(lines[0] === title ? lines.slice(1) : lines)].filter(Boolean).join('\\n\\n');
+              })();
+              window.webkit.messageHandlers.filoReader.postMessage(text.length >= 100
+                ? { text, lang: article.lang || document.documentElement.lang || null }
                 : { error: true });
             })();
             """

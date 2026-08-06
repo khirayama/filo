@@ -259,9 +259,6 @@ struct ArticlesScreen: View {
                     NavigationLink(value: AppRoute.readingSession(false)) {
                         Label("閲覧開始", systemImage: "book")
                     }
-                    NavigationLink(value: AppRoute.readingSession(true)) {
-                        Label("読み上げ開始", systemImage: "speaker.wave.2")
-                    }
                 }
                 TitleTranslationToggle(store: translations)
                 if !model.bookmarkedOnly && !model.readingListOnly {

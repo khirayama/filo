@@ -231,7 +231,6 @@ fun ArticlesScreen(
                                 Icon(Icons.Default.Delete, contentDescription = "既読記事を削除")
                             }
                             TextButton(onClick = { onStartReading(false) }) { Text("閲覧開始") }
-                            TextButton(onClick = { onStartReading(true) }) { Text("読み上げ開始") }
                         }
                         TitleTranslationToggle(translations)
                         if (!bookmarkedOnly && !readingListOnly) {

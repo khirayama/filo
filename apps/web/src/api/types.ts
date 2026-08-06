@@ -87,32 +87,6 @@ export interface ArticleListItem {
   userState: ArticleUserState;
 }
 
-export interface ReadingSessionItem {
-  articleId: number;
-  sortOrder: number;
-  article: {
-    id: number;
-    title: string;
-    sourceLanguage: string | null;
-    canonicalUrl: string | null;
-    publishedAt: string | null;
-    feed: { id: number; title: string; faviconUrl: string | null };
-  };
-  createdAt: string | null;
-}
-
-export interface PlaybackState {
-  currentArticleId: number | null;
-  contentLanguage: string | null;
-  positionPercent: number;
-  updatedAt: string | null;
-}
-
-export interface ReadingSession {
-  items: ReadingSessionItem[];
-  playbackState: PlaybackState | null;
-}
-
 export interface MarkAllReadResult {
   lastReadArticleId: number | null;
   unreadCount: number;
