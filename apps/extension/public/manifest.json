@@ -3,7 +3,7 @@
   "name": "Filo Reader",
   "version": "0.1.0",
   "description": "Read a Filo reading list in the original article pages",
-  "permissions": ["cookies", "sidePanel", "storage", "tabs", "tts"],
+  "permissions": ["cookies", "storage", "tabs", "tts"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js",
@@ -16,8 +16,7 @@
       "run_at": "document_idle"
     }
   ],
-  "action": {},
-  "side_panel": {
-    "default_path": "popup.html"
+  "action": {
+    "default_popup": "popup.html"
   }
 }

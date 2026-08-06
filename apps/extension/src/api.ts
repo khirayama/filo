@@ -10,32 +10,6 @@ export interface ReadingArticle {
   userState: { isRead: boolean; inReadingList: boolean; isBookmarked: boolean };
 }
 
-export interface ReadingSessionItem {
-  articleId: number;
-  sortOrder: number;
-  article: {
-    id: number;
-    title: string;
-    sourceLanguage: string | null;
-    canonicalUrl: string | null;
-    publishedAt: string | null;
-    feed: { id: number; title: string; faviconUrl: string | null };
-  };
-  createdAt: string | null;
-}
-
-export interface PlaybackState {
-  currentArticleId: number | null;
-  contentLanguage: string | null;
-  positionPercent: number;
-  updatedAt: string | null;
-}
-
-export interface ReadingSession {
-  items: ReadingSessionItem[];
-  playbackState: PlaybackState | null;
-}
-
 export interface SavedArticleResult {
   articleId: number;
   title: string;
@@ -91,8 +65,6 @@ export function createExtensionApi(getToken: TokenGetter) {
     },
     importArticle: async (input: { url: string; title?: string }) =>
       (await send<SavedArticleResult>("POST", "/api/v1/articles/import", input)).data,
-    getLanguage: async () => (await get<{ language: string }>("/api/v1/settings")).data.language,
-    startReadingSession: async () => (await send<ReadingSession>("POST", "/api/v1/playback-queue/start")).data,
     removeFromReadingList: async (articleId: number) => {
       await send<unknown>("DELETE", `/api/v1/articles/${articleId}/reading-list`);
     },
@@ -101,9 +73,6 @@ export function createExtensionApi(getToken: TokenGetter) {
     },
     setArticleRead: async (articleId: number) => {
       await send<unknown>("PATCH", `/api/v1/articles/${articleId}/state`, { isRead: true });
-    },
-    updatePlaybackState: async (state: Pick<PlaybackState, "currentArticleId" | "contentLanguage" | "positionPercent">) => {
-      await send<unknown>("PATCH", "/api/v1/playback-queue/state", state);
     },
   };
 }

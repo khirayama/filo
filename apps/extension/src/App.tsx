@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth, useUser } from "@clerk/chrome-extension";
-import { createExtensionApi, type ReadingArticle, type ReadingSession } from "./api";
+import { createExtensionApi, type ReadingArticle } from "./api";
 import { WEB_APP_URL, webAppPath } from "./config";
 
 interface PopupReaderState {
@@ -15,6 +15,12 @@ interface PopupReaderState {
   positionPercent: number;
   canPrevious: boolean;
   canNext: boolean;
+}
+
+interface ReaderSettings {
+  targetLanguage: string;
+  rate: number;
+  voiceName: string | null;
 }
 
 interface Voice {
@@ -45,6 +51,7 @@ export function App() {
   const [articles, setArticles] = useState<ReadingArticle[]>([]);
   const [reader, setReader] = useState<PopupReaderState | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [settings, setSettings] = useState<ReaderSettings>({ targetLanguage: "ja", rate: 1, voiceName: null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,23 +86,25 @@ export function App() {
   }, [loadCurrentPage]);
 
   const loadReader = useCallback(async () => {
-    const [nextReader, nextVoices] = await Promise.all([
+    const [nextReader, nextVoices, nextSettings] = await Promise.all([
       send<PopupReaderState | null>({ type: "filoGetReaderState" }),
       send<Voice[]>({ type: "filoGetVoices" }),
+      send<ReaderSettings>({ type: "filoGetSettings" }),
     ]);
     setReader(nextReader);
     setVoices(nextVoices);
+    setSettings(nextSettings);
   }, []);
 
   const loadAll = useCallback(async () => {
-    if (!isSignedIn) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      const [nextArticles] = await Promise.all([api.listReadingArticles(), loadReader(), loadCurrentPage()]);
+      const [nextArticles] = await Promise.all([
+        isSignedIn ? api.listReadingArticles() : Promise.resolve([] as ReadingArticle[]),
+        loadReader(),
+        loadCurrentPage(),
+      ]);
       setArticles(nextArticles);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -125,15 +134,13 @@ export function App() {
     setBusy(true);
     setError(null);
     try {
-      const [session, language] = await Promise.all([api.startReadingSession(), api.getLanguage()]);
-      const currentId = articleId ?? session.playbackState?.currentArticleId ?? null;
-      if (currentId === null) throw new Error("未読の記事がありません。");
+      const article = articleId == null ? null : articles.find((item) => item.id === articleId);
+      if (!article) throw new Error("読み上げる記事がありません。");
       const started = await send<PopupReaderState>({
-        type: "filoStart",
-        session: session as ReadingSession,
-        articleId: currentId,
+        type: "filoStartArticle",
+        article,
         autoplay,
-        targetLanguage: language,
+        targetLanguage: settings.targetLanguage,
       });
       setReader(started);
     } catch (cause) {
@@ -148,14 +155,14 @@ export function App() {
     setBusy(true);
     setError(null);
     try {
-      const [page, language] = await Promise.all([getCurrentPage(), api.getLanguage()]);
+      const page = await getCurrentPage();
       setCurrentPage(page);
       if (!page) throw new Error("読み上げできるページがありません。");
       setReader(await send<PopupReaderState>({
         type: "filoStartPage",
         page,
         autoplay: true,
-        targetLanguage: language,
+        targetLanguage: settings.targetLanguage,
       }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -169,7 +176,13 @@ export function App() {
     setBusy(true);
     setError(null);
     try {
-      setReader(await send<PopupReaderState | null>({ type: "filoControl", action, ...settings }));
+      if (action === "settings" && !reader) {
+        const nextSettings = await send<ReaderSettings>({ type: "filoSetSettings", ...settings });
+        setSettings(nextSettings);
+      } else {
+        setReader(await send<PopupReaderState | null>({ type: "filoControl", action, ...settings }));
+        setSettings((current) => ({ ...current, ...settings } as ReaderSettings));
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -220,27 +233,18 @@ export function App() {
 
   if (!isLoaded) return <main className="empty-view">ログイン状態を確認しています…</main>;
 
-  if (!isSignedIn) {
-    return (
-      <main className="empty-view">
-        <h1>Filo</h1>
-        <p>Webアプリへログインすると、リーディングリストと再生状態がExtensionにも同期されます。</p>
-        {error ? <p className="error-message">{error}</p> : null}
-        <button className="primary-action" onClick={() => openWeb("/sign-in")}>Webアプリでログイン</button>
-        <small>ログイン後にポップアップを開き直してください。</small>
-      </main>
-    );
-  }
-
-  const filteredVoices = voices.filter((voice) => !reader?.targetLanguage || voice.lang?.startsWith(reader.targetLanguage));
+  const targetLanguage = reader?.targetLanguage ?? settings.targetLanguage;
+  const rate = reader?.rate ?? settings.rate;
+  const voiceName = reader?.voiceName ?? settings.voiceName;
+  const filteredVoices = voices.filter((voice) => !targetLanguage || voice.lang?.startsWith(targetLanguage));
 
   return (
     <main className="popup-shell">
       <section className="top">
         <div className="brand">
           <span>Filo</span>
-          <small title={user?.primaryEmailAddress?.emailAddress}>{user?.primaryEmailAddress?.emailAddress ?? "ログイン済み"}</small>
-          <button className="link-button" onClick={() => openWeb("/articles?readingList=1")}>Webを開く</button>
+          <small title={user?.primaryEmailAddress?.emailAddress}>{user?.primaryEmailAddress?.emailAddress ?? "ログイン不要で読み上げ"}</small>
+          {isSignedIn ? <button className="link-button" onClick={() => openWeb("/articles?readingList=1")}>Webを開く</button> : <button className="link-button" onClick={() => openWeb("/sign-in")}>ログイン</button>}
         </div>
         <div className="player-card">
           <div className="player-card-header">
@@ -248,7 +252,7 @@ export function App() {
               <span className={`play-indicator${reader?.playing ? " active" : ""}`} aria-hidden="true" />
               {reader?.playing ? "再生中" : "待機中"}
             </span>
-            <span className="queue-count">{reader ? `${reader.index + 1} / ${reader.count}` : `${articles.length}件`}</span>
+            <span className="queue-count">{reader ? "記事単位" : "待機中"}</span>
           </div>
           <div className="player-main">
             <div className="player-art" aria-hidden="true">♪</div>
@@ -266,27 +270,25 @@ export function App() {
       </section>
 
       <section className="controls" aria-label="再生操作">
-        <button className="transport" title="前の記事" aria-label="前の記事" disabled={busy || !reader?.canPrevious} onClick={() => void control("previous")}>⏮</button>
         <button className="transport primary" title={reader?.playing ? "一時停止" : "読み上げ開始"} aria-label={reader?.playing ? "一時停止" : "読み上げ開始"} disabled={busy || !reader} onClick={() => void control(reader?.playing ? "pause" : "play")}>
           {reader?.playing ? "⏸" : "▶"}
         </button>
-        <button className="transport" title="次の記事" aria-label="次の記事" disabled={busy || !reader?.canNext} onClick={() => void control("next")}>⏭</button>
       </section>
 
       <section className="settings" aria-label="読み上げ設定">
         <div className="setting-row">
           <label htmlFor="language">言語</label>
-          <select id="language" value={reader?.targetLanguage ?? "ja"} disabled={!reader || busy} onChange={(event) => void control("settings", { targetLanguage: event.target.value })}>
+          <select id="language" value={targetLanguage} disabled={busy} onChange={(event) => void control("settings", { targetLanguage: event.target.value })}>
             {['ja', 'en', 'zh', 'ko', 'es'].map((language) => <option value={language} key={language}>{language}</option>)}
           </select>
           <label htmlFor="rate">速度</label>
-          <select id="rate" value={reader?.rate ?? 1} disabled={!reader || busy} onChange={(event) => void control("settings", { rate: Number(event.target.value) })}>
+          <select id="rate" value={rate} disabled={busy} onChange={(event) => void control("settings", { rate: Number(event.target.value) })}>
             {[0.75, 1, 1.25, 1.5, 2, 3].map((rate) => <option value={rate} key={rate}>{rate}x</option>)}
           </select>
         </div>
         <div className="setting-row">
           <label htmlFor="voice">声</label>
-          <select id="voice" value={reader?.voiceName ?? ""} disabled={!reader || busy} onChange={(event) => void control("settings", { voiceName: event.target.value || null })}>
+          <select id="voice" value={voiceName ?? ""} disabled={busy} onChange={(event) => void control("settings", { voiceName: event.target.value || null })}>
             <option value="">自動</option>
             {filteredVoices.map((voice) => <option value={voice.name} key={voice.name}>{voice.name}</option>)}
           </select>
@@ -294,20 +296,20 @@ export function App() {
       </section>
 
       <section className="list-heading">
-        <button disabled={busy || !currentPage} onClick={() => void addCurrentPage()}>
+        <button disabled={busy || !currentPage || !isSignedIn} onClick={() => void addCurrentPage()}>
           {currentPage ? "このページを追加" : "追加できるページなし"}
         </button>
         <button className="primary" disabled={busy || !currentPage} onClick={() => void startCurrentPage()}>
           {currentPage ? "このページを読み上げ" : "読み上げできるページなし"}
         </button>
-        <button disabled={busy || articles.length === 0} onClick={() => void start(false)}>閲覧開始</button>
-        <button className="primary" disabled={busy || articles.length === 0} onClick={() => void start(true)}>読み上げ開始</button>
-        <button disabled={busy || !articles.some((article) => article.userState.isRead)} onClick={() => void removeReadArticles()}>既読記事を削除</button>
+        {isSignedIn ? <button disabled={busy || !articles.some((article) => article.userState.isRead)} onClick={() => void removeReadArticles()}>既読記事を削除</button> : null}
         <button className="link-button" disabled={loading} onClick={() => void loadAll()}>更新</button>
       </section>
 
       {error ? <p className="error-message">{error}</p> : null}
-      {loading ? <p className="status-message">読み込み中…</p> : articles.length === 0 ? (
+      {loading ? <p className="status-message">読み込み中…</p> : !isSignedIn ? (
+        <p className="status-message">ログインするとリーディングリストを表示できます。</p>
+      ) : articles.length === 0 ? (
         <p className="status-message">リーディングリストに記事がありません。</p>
       ) : (
         <ul className="queue-list">

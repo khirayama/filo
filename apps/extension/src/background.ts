@@ -23,28 +23,31 @@ interface ReaderSession {
 }
 
 const STATE_KEY = "filo:readerSession";
+const SETTINGS_KEY = "filo:readerSettings";
+const DEFAULT_SETTINGS = { targetLanguage: "ja", rate: 1, voiceName: null as string | null };
 let playToken = 0;
 let lastProgressPublishedAt = 0;
-
-chrome.runtime.onInstalled.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-});
 
 async function loadState(): Promise<ReaderSession | null> {
   const stored = await chrome.storage.local.get(STATE_KEY);
   return (stored[STATE_KEY] as ReaderSession | undefined) ?? null;
 }
 
+async function loadSettings(): Promise<typeof DEFAULT_SETTINGS> {
+  const stored = await chrome.storage.local.get(SETTINGS_KEY);
+  return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<typeof DEFAULT_SETTINGS> | undefined) };
+}
+
+async function saveSettings(settings: Partial<typeof DEFAULT_SETTINGS>): Promise<typeof DEFAULT_SETTINGS> {
+  const next = { ...(await loadSettings()), ...settings };
+  await chrome.storage.local.set({ [SETTINGS_KEY]: next });
+  return next;
+}
+
 async function saveState(state: ReaderSession): Promise<void> {
   await chrome.storage.local.set({ [STATE_KEY]: state });
   const item = currentItem(state);
-  if (item?.articleId == null) return;
-  await publishState(state);
-  await backgroundApi.updatePlaybackState({
-    currentArticleId: item.articleId,
-    contentLanguage: state.targetLanguage || item.article.sourceLanguage || null,
-    positionPercent: state.positionPercent,
-  }).catch(() => undefined);
+  if (item?.articleId != null) await publishState(state);
 }
 
 async function publishToWeb(event: unknown): Promise<void> {
@@ -123,23 +126,6 @@ async function markCurrentRead(state: ReaderSession): Promise<void> {
   ]);
 }
 
-async function move(delta: number, markRead = true): Promise<void> {
-  const state = await loadState();
-  if (!state) return;
-  const next = state.index + delta;
-  if (next < 0 || next >= state.items.length) {
-    state.playing = false;
-    state.positionPercent = delta > 0 ? 1 : state.positionPercent;
-    playToken += 1;
-    chrome.tts.stop();
-    await saveState(state);
-    return;
-  }
-  if (markRead) await markCurrentRead(state);
-  state.index = next;
-  await openCurrent(state);
-}
-
 function splitText(text: string, maxLength = 3000): string[] {
   const chunks: string[] = [];
   let rest = text.replace(/\s+/g, " ").trim();
@@ -208,7 +194,6 @@ async function playCurrent(): Promise<void> {
           latest.positionPercent = 1;
           await saveState(latest);
           await markCurrentRead(latest);
-          await move(1, false);
         } else if (event.type === "error" || event.type === "cancelled" || event.type === "interrupted") {
           latest.playing = false;
           await saveState(latest);
@@ -219,31 +204,42 @@ async function playCurrent(): Promise<void> {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "filoStart") {
+  if (message?.type === "filoGetSettings") {
+    void loadSettings().then((settings) => sendResponse({ ok: true, data: settings }));
+    return true;
+  }
+  if (message?.type === "filoSetSettings") {
+    void saveSettings({
+      targetLanguage: typeof message.targetLanguage === "string" ? message.targetLanguage : undefined,
+      rate: typeof message.rate === "number" ? Math.min(3, Math.max(0.75, message.rate)) : undefined,
+      voiceName: typeof message.voiceName === "string" || message.voiceName === null ? message.voiceName : undefined,
+    }).then((settings) => sendResponse({ ok: true, data: settings }));
+    return true;
+  }
+  if (message?.type === "filoStartArticle") {
     void (async () => {
-      const items = (message.session?.items as SessionItem[]).filter((item) => item.article.canonicalUrl);
-      const requestedId = typeof message.articleId === "number" ? message.articleId : null;
-      const currentId = requestedId ?? message.session?.playbackState?.currentArticleId as number | null;
-      const index = Math.max(0, items.findIndex((item) => item.articleId === currentId));
+      const article = message.article as { id?: number; title?: string; sourceLanguage?: string | null; canonicalUrl?: string | null } | undefined;
+      if (!article?.canonicalUrl) throw new Error("読み上げできる記事がありません。");
       const previous = await loadState();
+      const settings = await loadSettings();
       const state: ReaderSession = {
-        items,
-        index,
+        items: [{ articleId: typeof article.id === "number" ? article.id : null, article: {
+          title: String(article.title || article.canonicalUrl), sourceLanguage: article.sourceLanguage ?? null, canonicalUrl: String(article.canonicalUrl),
+        } }],
+        index: 0,
         readingTabId: previous?.readingTabId ?? null,
         temporary: false,
         autoplay: message.autoplay === true,
-        targetLanguage: String(message.targetLanguage || ""),
-        rate: previous?.rate ?? 1,
-        voiceName: previous?.voiceName ?? null,
+        targetLanguage: String(message.targetLanguage || settings.targetLanguage),
+        rate: previous?.rate ?? settings.rate,
+        voiceName: previous?.voiceName ?? settings.voiceName,
         playing: false,
         positionPercent: 0,
       };
+      await saveSettings({ targetLanguage: state.targetLanguage, rate: state.rate, voiceName: state.voiceName });
       await openCurrent(state);
-      sendResponse({ ok: true, data: popupState(state) });
-    })().catch((error: unknown) => sendResponse({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }));
+      sendResponse({ ok: true, data: popupState(await loadState()) });
+    })().catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
   if (message?.type === "filoStartPage") {
@@ -303,12 +299,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         state.playing = false;
         await saveState(state);
       }
-      if (message.action === "next") await move(1);
-      if (message.action === "previous") await move(-1);
       if (message.action === "settings") {
         if (typeof message.rate === "number") state.rate = Math.min(3, Math.max(0.75, message.rate));
         if (typeof message.voiceName === "string" || message.voiceName === null) state.voiceName = message.voiceName;
         if (typeof message.targetLanguage === "string") state.targetLanguage = message.targetLanguage;
+        await saveSettings({ targetLanguage: state.targetLanguage, rate: state.rate, voiceName: state.voiceName });
         await saveState(state);
         if (state.playing) await playCurrent();
       }
