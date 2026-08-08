@@ -72,19 +72,10 @@ function currentItem(state: ReaderSession): SessionItem | null {
 
 function popupState(state: ReaderSession | null) {
   if (!state) return null;
-  const item = currentItem(state);
   return {
-    currentArticleId: item?.articleId ?? null,
-    index: state.index,
-    count: state.items.length,
-    title: item?.article.title ?? "",
-    playing: state.playing,
     rate: state.rate,
     voiceName: state.voiceName,
     targetLanguage: state.targetLanguage,
-    positionPercent: state.positionPercent,
-    canPrevious: state.index > 0,
-    canNext: state.index + 1 < state.items.length,
   };
 }
 
