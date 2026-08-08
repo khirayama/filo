@@ -11,17 +11,22 @@ import android.speech.tts.UtteranceProgressListener
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import com.filo.app.TtsMediaService
 import com.filo.app.api.ApiClient
 import com.filo.app.api.ReadingSessionArticle
@@ -73,6 +79,12 @@ class ReadingPlayerController(
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
+    var isAddingToReadingList by mutableStateOf(false)
+        private set
+    var removedReadingListArticleIds by mutableStateOf<Set<Int>>(emptySet())
+        private set
+    var removingReadingListArticleIds by mutableStateOf<Set<Int>>(emptySet())
+        private set
     var rate by mutableStateOf(prefs().getFloat("rate", 1f))
         private set
     var targetLanguage by mutableStateOf(prefs().getString("language", "ja") ?: "ja")
@@ -91,8 +103,9 @@ class ReadingPlayerController(
 
     val currentItem: ReadingSessionItem?
         get() = items.getOrNull(index)
-    val canPrevious: Boolean get() = index > 0
-    val canNext: Boolean get() = index >= 0 && index + 1 < items.size
+    val isTemporary: Boolean get() = temporary
+    val visibleReadingListItems: List<ReadingSessionItem>
+        get() = items.filterNot { removedReadingListArticleIds.contains(it.articleId) }
 
     init {
         tts = TextToSpeech(context) { status ->
@@ -110,8 +123,6 @@ class ReadingPlayerController(
             })
         }
         TtsMediaService.onPlayPause = { if (isPlaying) pause() else play() }
-        TtsMediaService.onNext = { next() }
-        TtsMediaService.onPrev = { previous() }
         TtsMediaService.onDismiss = { pause() }
     }
 
@@ -202,9 +213,6 @@ class ReadingPlayerController(
         notifyMedia()
     }
 
-    fun previous() { scope.launch { move(index - 1, true) } }
-    fun next() { scope.launch { move(index + 1, true) } }
-
     fun updateRate(value: Float) {
         rate = value.coerceIn(0.75f, 3f)
         prefs().edit().putFloat("rate", rate).apply()
@@ -223,28 +231,36 @@ class ReadingPlayerController(
         if (isPlaying) play()
     }
 
+    fun addCurrentPageToReadingList() {
+        if (isAddingToReadingList) return
+        val item = currentItem ?: return
+        val url = item.article.canonicalUrl ?: return
+        isAddingToReadingList = true
+        scope.launch {
+            runCatching { ApiClient.importArticle(url, item.article.title) }
+                .onFailure { errorMessage = "リーディングリストに追加できませんでした。" }
+            isAddingToReadingList = false
+        }
+    }
+
+    fun removeFromReadingList(articleId: Int) {
+        if (articleId <= 0 || removingReadingListArticleIds.contains(articleId)) return
+        removingReadingListArticleIds += articleId
+        scope.launch {
+            runCatching { ApiClient.setReadingListMembership(articleId, false) }
+                .onSuccess { removedReadingListArticleIds += articleId }
+                .onFailure { errorMessage = "リーディングリストから削除できませんでした。" }
+            removingReadingListArticleIds -= articleId
+        }
+    }
+
     fun shutdown() {
         pause()
         tts?.shutdown()
         tts = null
         TtsMediaService.onPlayPause = null
-        TtsMediaService.onNext = null
-        TtsMediaService.onPrev = null
         TtsMediaService.onDismiss = null
         context.stopService(Intent(context, TtsMediaService::class.java))
-    }
-
-    private suspend fun move(destination: Int, markCurrentRead: Boolean) {
-        if (destination !in items.indices) {
-            pause()
-            syncProgress(1.0)
-            return
-        }
-        if (markCurrentRead && !temporary) currentItem?.let { runCatching { ApiClient.setArticleRead(it.articleId, true) } }
-        tts?.stop()
-        index = destination
-        resetPage()
-        if (!temporary) syncProgress(0.0)
     }
 
     private fun resetPage() {
@@ -272,21 +288,12 @@ class ReadingPlayerController(
     private suspend fun finishChunk() {
         chunkIndex += 1
         if (chunkIndex < chunks.size) {
-            syncProgress(chunkIndex.toDouble() / chunks.size)
             speakChunk()
             return
         }
         isPlaying = false
         if (!temporary) {
             currentItem?.let { runCatching { ApiClient.setArticleRead(it.articleId, true) } }
-            syncProgress(1.0)
-        }
-    }
-
-    private suspend fun syncProgress(position: Double) {
-        if (temporary) return
-        currentItem?.let {
-            runCatching { ApiClient.updatePlaybackState(it.articleId, extractedLanguage ?: it.article.sourceLanguage, position) }
         }
     }
 
@@ -326,8 +333,6 @@ class ReadingPlayerController(
             putExtra("playState", if (isPlaying) "playing" else "paused")
             putExtra("chunk", chunkIndex)
             putExtra("total", chunks.size)
-            putExtra("hasNext", canNext)
-            putExtra("hasPrev", canPrevious)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ContextCompat.startForegroundService(context, intent)
         else context.startService(intent)
@@ -370,6 +375,7 @@ fun ReadingSessionScreen(
     temporaryUrl: String? = null,
 ) {
     LaunchedEffect(autoplay, temporaryUrl) { player.start(autoplay, temporaryUrl) }
+    DisposableEffect(Unit) { onDispose { player.pause() } }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -377,7 +383,6 @@ fun ReadingSessionScreen(
                 navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
             )
         },
-        bottomBar = { if (player.currentItem != null) ReadingControls(player) },
     ) { padding ->
         when {
             player.isLoading -> Column(
@@ -385,13 +390,19 @@ fun ReadingSessionScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) { CircularProgressIndicator() }
-            player.currentItem?.article?.canonicalUrl != null -> ReadingWebView(
-                url = player.currentItem!!.article.canonicalUrl!!,
-                articleId = player.currentItem!!.articleId,
-                onExtracted = player::receiveExtracted,
-                onFailure = player::extractionFailed,
-                modifier = Modifier.fillMaxSize().padding(padding),
-            )
+            player.currentItem?.article?.canonicalUrl != null -> Column(
+                Modifier.fillMaxSize().padding(padding),
+            ) {
+                ReadingWebView(
+                    url = player.currentItem!!.article.canonicalUrl!!,
+                    articleId = player.currentItem!!.articleId,
+                    onExtracted = player::receiveExtracted,
+                    onFailure = player::extractionFailed,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+                ReadingSettingsPanel(player)
+                if (!player.isTemporary) ReadingListView(player)
+            }
             else -> Column(
                 Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -402,20 +413,22 @@ fun ReadingSessionScreen(
 }
 
 @Composable
-private fun ReadingControls(player: ReadingPlayerController) {
+private fun ReadingSettingsPanel(player: ReadingPlayerController) {
     var voiceOpen by remember { mutableStateOf(false) }
     var languageOpen by remember { mutableStateOf(false) }
     var rateOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Button(
+            onClick = player::play,
+            enabled = !player.isPlaying,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("このページを読み上げ") }
+        OutlinedButton(
+            onClick = player::addCurrentPageToReadingList,
+            enabled = !player.isAddingToReadingList,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("リーディングリストに追加") }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = player::previous, enabled = player.canPrevious) { Text("前へ") }
-            Button(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
-                Text(if (player.isPlaying) "一時停止" else "読み上げ")
-            }
-            Button(onClick = player::next, enabled = player.canNext) { Text("次へ") }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("${player.index + 1}/${player.items.size}")
             TextButton(onClick = { voiceOpen = true }) { Text(player.voiceName ?: "声: 自動") }
             DropdownMenu(expanded = voiceOpen, onDismissRequest = { voiceOpen = false }) {
                 DropdownMenuItem(text = { Text("自動") }, onClick = { player.setVoice(null); voiceOpen = false })
@@ -432,6 +445,41 @@ private fun ReadingControls(player: ReadingPlayerController) {
                 listOf(0.75f, 1f, 1.25f, 1.5f, 2f, 3f).forEach { rate ->
                     DropdownMenuItem(text = { Text("${rate}x") }, onClick = { player.updateRate(rate); rateOpen = false })
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadingListView(player: ReadingPlayerController) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = 160.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text("リーディングリスト", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+        player.visibleReadingListItems.forEach { item ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${if (item.articleId == player.currentItem?.articleId) "●" else "○"} ${item.article.title}",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = item.article.canonicalUrl != null) {
+                            item.article.canonicalUrl?.let { url ->
+                                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                            }
+                        }
+                        .padding(vertical = 4.dp),
+                )
+                TextButton(
+                    onClick = { player.removeFromReadingList(item.articleId) },
+                    enabled = item.articleId !in player.removingReadingListArticleIds,
+                ) { Text("削除") }
             }
         }
     }
@@ -485,7 +533,8 @@ private class ReaderBridge(
             runCatching {
                 val json = JSONObject(value)
                 val text = json.optString("text", "")
-                if (text.isBlank()) onFailure() else onExtracted(text, json.optString("lang", null))
+                val language = json.optString("lang").takeIf { it.isNotBlank() }
+                if (text.isBlank()) onFailure() else onExtracted(text, language)
             }.onFailure { onFailure() }
         }
     }

@@ -537,7 +537,7 @@ private fun RssNavigation(
         ) { entry ->
             com.filo.app.ui.ReadingSessionScreen(
                 player = readingPlayer,
-                autoplay = true,
+                autoplay = false,
                 temporaryUrl = entry.arguments?.getString("url"),
                 onBack = { navController.navigateUp() },
             )

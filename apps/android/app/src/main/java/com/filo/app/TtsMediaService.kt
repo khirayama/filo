@@ -23,8 +23,6 @@ class TtsMediaService : Service() {
         const val ACTION_STOP = "com.filo.app.TTS_STOP"
 
         var onPlayPause: (() -> Unit)? = null
-        var onNext: (() -> Unit)? = null
-        var onPrev: (() -> Unit)? = null
         var onDismiss: (() -> Unit)? = null
     }
 
@@ -37,8 +35,6 @@ class TtsMediaService : Service() {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() { onPlayPause?.invoke() }
                 override fun onPause() { onPlayPause?.invoke() }
-                override fun onSkipToNext() { onNext?.invoke() }
-                override fun onSkipToPrevious() { onPrev?.invoke() }
             })
             isActive = true
         }
@@ -51,17 +47,13 @@ class TtsMediaService : Service() {
                 val state = intent.getStringExtra("playState") ?: "idle"
                 val chunk = intent.getIntExtra("chunk", 0)
                 val total = intent.getIntExtra("total", 0)
-                val hasNext = intent.getBooleanExtra("hasNext", false)
-                val hasPrev = intent.getBooleanExtra("hasPrev", false)
-                updateNotification(title, state, chunk, total, hasNext, hasPrev)
+                updateNotification(title, state, chunk, total)
             }
             ACTION_STOP -> {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
             "PLAY_PAUSE" -> onPlayPause?.invoke()
-            "NEXT" -> onNext?.invoke()
-            "PREV" -> onPrev?.invoke()
             "DISMISS" -> {
                 onDismiss?.invoke()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -76,8 +68,6 @@ class TtsMediaService : Service() {
         state: String,
         chunk: Int,
         total: Int,
-        hasNext: Boolean,
-        hasPrev: Boolean,
     ) {
         val isPlaying = state == "playing"
 
@@ -86,11 +76,7 @@ class TtsMediaService : Service() {
                 if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
                 chunk.toLong(), 1f,
             )
-            .setActions(
-                PlaybackState.ACTION_PLAY_PAUSE or
-                    (if (hasNext) PlaybackState.ACTION_SKIP_TO_NEXT else 0) or
-                    (if (hasPrev) PlaybackState.ACTION_SKIP_TO_PREVIOUS else 0),
-            )
+            .setActions(PlaybackState.ACTION_PLAY_PAUSE)
             .build()
         mediaSession?.setPlaybackState(pbState)
 
@@ -103,10 +89,6 @@ class TtsMediaService : Service() {
         val actions = mutableListOf<Notification.Action>()
         val compactIndices = mutableListOf<Int>()
 
-        if (hasPrev) {
-            actions.add(makeAction(android.R.drawable.ic_media_previous, "前へ", "PREV"))
-        }
-
         compactIndices.add(actions.size)
         actions.add(
             makeAction(
@@ -115,11 +97,6 @@ class TtsMediaService : Service() {
                 "PLAY_PAUSE",
             ),
         )
-
-        if (hasNext) {
-            compactIndices.add(actions.size)
-            actions.add(makeAction(android.R.drawable.ic_media_next, "次へ", "NEXT"))
-        }
 
         val openAppIntent = PendingIntent.getActivity(
             this, 0,
