@@ -1,5 +1,4 @@
 import AVFoundation
-import MediaPlayer
 import SwiftUI
 import Translation
 import WebKit
@@ -19,6 +18,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published var extractedText: String?
     @Published var extractedLanguage: String?
     @Published var errorMessage: String?
+    @Published var isAddingToReadingList = false
+    @Published private(set) var removedReadingListArticleIds: Set<Int> = []
     @Published var rate: Float = UserDefaults.standard.float(forKey: "filo:readingRate") == 0
         ? 1.0 : UserDefaults.standard.float(forKey: "filo:readingRate")
     @Published var targetLanguage = "ja"
@@ -30,7 +31,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var chunkIndex = 0
     private var startingAutoplay = false
     private var temporary = false
-    private var progressSyncAt = Date.distantPast
     private var translationToken = 0
     private var pendingOriginalText: String?
 
@@ -38,8 +38,10 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         guard index >= 0, index < items.count else { return nil }
         return items[index]
     }
-    var canPrevious: Bool { index > 0 }
-    var canNext: Bool { index >= 0 && index + 1 < items.count }
+    var isTemporary: Bool { temporary }
+    var visibleReadingListItems: [ReadingSessionItem] {
+        items.filter { !removedReadingListArticleIds.contains($0.articleId) }
+    }
     var availableVoices: [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices().filter { targetLanguage.isEmpty || $0.language.hasPrefix(targetLanguage) }
     }
@@ -49,7 +51,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         synthesizer.delegate = self
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
         try? AVAudioSession.sharedInstance().setActive(true)
-        configureRemoteCommands()
     }
 
     func start(autoplay: Bool, temporaryUrl: String? = nil) async {
@@ -164,7 +165,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         if synthesizer.isPaused {
             synthesizer.continueSpeaking()
             isPlaying = true
-            updateNowPlaying()
             return
         }
         synthesizer.stopSpeaking(at: .immediate)
@@ -176,13 +176,9 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     func pause() {
-        synthesizer.pauseSpeaking(at: .word)
+        synthesizer.stopSpeaking(at: .immediate)
         isPlaying = false
-        updateNowPlaying()
     }
-
-    func previous() { Task { await move(to: index - 1, markCurrentRead: true) } }
-    func next() { Task { await move(to: index + 1, markCurrentRead: true) } }
 
     func setRate(_ value: Float) {
         rate = min(3, max(0.75, value))
@@ -196,20 +192,29 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         if isPlaying { play() }
     }
 
-    private func move(to destination: Int, markCurrentRead: Bool) async {
-        guard destination >= 0, destination < items.count else {
-            synthesizer.stopSpeaking(at: .immediate)
-            isPlaying = false
-            await syncProgress(1)
-            return
+    func addCurrentPageToReadingList() {
+        guard !isAddingToReadingList, let item = currentItem, let url = item.article.canonicalUrl else { return }
+        isAddingToReadingList = true
+        Task {
+            defer { isAddingToReadingList = false }
+            do {
+                _ = try await APIClient.shared.importArticle(url: url, title: item.article.title)
+            } catch {
+                errorMessage = ErrorMessages.message(for: error)
+            }
         }
-        if markCurrentRead, !temporary, let current = currentItem {
-            _ = try? await APIClient.shared.setArticleRead(current.articleId, isRead: true)
+    }
+
+    func removeFromReadingList(articleId: Int) {
+        guard articleId > 0 else { return }
+        Task {
+            do {
+                _ = try await APIClient.shared.setReadingListMembership(articleId, active: false)
+                removedReadingListArticleIds.insert(articleId)
+            } catch {
+                errorMessage = ErrorMessages.message(for: error)
+            }
         }
-        synthesizer.stopSpeaking(at: .immediate)
-        index = destination
-        resetExtractedContent()
-        await syncProgress(0)
     }
 
     private func resetExtractedContent() {
@@ -218,7 +223,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         chunks = []
         chunkIndex = 0
         isPlaying = false
-        updateNowPlaying()
     }
 
     private func speakCurrentChunk() {
@@ -229,7 +233,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         utterance.voice = voiceIdentifier.flatMap(AVSpeechSynthesisVoice.init(identifier:))
             ?? AVSpeechSynthesisVoice(language: language)
         synthesizer.speak(utterance)
-        updateNowPlaying()
     }
 
     private func finishedChunk() {
@@ -243,38 +246,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             if !temporary, let current = currentItem {
                 _ = try? await APIClient.shared.setArticleRead(current.articleId, isRead: true)
             }
-            if !temporary { await syncProgress(1) }
         }
-    }
-
-    private func syncProgress(_ value: Double) async {
-        guard !temporary else { return }
-        guard let current = currentItem else { return }
-        _ = try? await APIClient.shared.updatePlaybackState(
-            currentArticleId: current.articleId,
-            contentLanguage: extractedLanguage ?? current.article.sourceLanguage,
-            positionPercent: value
-        )
-    }
-
-    private func configureRemoteCommands() {
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.addTarget { [weak self] _ in Task { @MainActor in self?.play() }; return .success }
-        center.pauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.pause() }; return .success }
-        center.nextTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.next() }; return .success }
-        center.previousTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.previous() }; return .success }
-    }
-
-    private func updateNowPlaying() {
-        guard let item = currentItem else {
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-            return
-        }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
-            MPMediaItemPropertyTitle: item.article.title,
-            MPMediaItemPropertyArtist: item.article.feed.title,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1 : 0,
-        ]
     }
 
     private func clean(_ value: String) -> String {
@@ -303,19 +275,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         Task { @MainActor in self.finishedChunk() }
     }
 
-    nonisolated func speechSynthesizer(
-        _ synthesizer: AVSpeechSynthesizer,
-        willSpeakRangeOfSpeechString characterRange: NSRange,
-        utterance: AVSpeechUtterance
-    ) {
-        Task { @MainActor in
-            guard Date().timeIntervalSince(self.progressSyncAt) >= 10 else { return }
-            self.progressSyncAt = Date()
-            let base = Double(self.chunkIndex) / Double(max(self.chunks.count, 1))
-            let within = Double(characterRange.location) / Double(max(utterance.speechString.utf16.count, 1))
-            await self.syncProgress(min(1, base + within / Double(max(self.chunks.count, 1))))
-        }
-    }
 }
 
 struct ReadingSessionScreen: View {
@@ -339,7 +298,14 @@ struct ReadingSessionScreen: View {
                     player.extractionFailed()
                 }
                 .id(item.articleId)
-                ReadingControlBar(player: player)
+                ReadingSettingsPanel(player: player)
+                if !player.isTemporary {
+                    ReadingListView(
+                        items: player.visibleReadingListItems,
+                        currentArticleId: item.articleId,
+                        onRemove: player.removeFromReadingList,
+                    )
+                }
             } else {
                 EmptyStateView { Text(player.errorMessage ?? "未読の記事がありません。") }
             }
@@ -347,6 +313,7 @@ struct ReadingSessionScreen: View {
         .navigationTitle(player.currentItem?.article.title ?? "リーディングリスト")
         .navigationBarTitleDisplayMode(.inline)
         .task { await player.start(autoplay: autoplay, temporaryUrl: temporaryUrl) }
+        .onDisappear { player.pause() }
         .modifier(ReadingTranslationTask(player: player))
     }
 }
@@ -372,22 +339,17 @@ private struct ReadingTranslationTask: ViewModifier {
     }
 }
 
-private struct ReadingControlBar: View {
+private struct ReadingSettingsPanel: View {
     @ObservedObject var player: ReadingPlayerStore
 
     var body: some View {
         VStack(spacing: 8) {
+            Button("このページを読み上げ") { player.play() }
+                .buttonStyle(.borderedProminent)
+                .disabled(player.isPlaying)
+            Button("リーディングリストに追加") { player.addCurrentPageToReadingList() }
+                .disabled(player.isAddingToReadingList)
             HStack {
-                Button("前へ", action: player.previous).disabled(!player.canPrevious)
-                Spacer()
-                Button(player.isPlaying ? "一時停止" : "読み上げ") {
-                    player.isPlaying ? player.pause() : player.play()
-                }
-                Spacer()
-                Button("次へ", action: player.next).disabled(!player.canNext)
-            }
-            HStack {
-                Text("\(max(player.index + 1, 0))/\(player.items.count)").font(.caption)
                 Picker("声", selection: Binding(
                     get: { player.voiceIdentifier ?? "" },
                     set: { player.setVoice($0.isEmpty ? nil : $0) }
@@ -406,6 +368,56 @@ private struct ReadingControlBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.bar)
+    }
+}
+
+private struct ReadingListView: View {
+    let items: [ReadingSessionItem]
+    let currentArticleId: Int
+    let onRemove: (Int) -> Void
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("リーディングリスト")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(items) { item in
+                        HStack(spacing: 8) {
+                            Image(systemName: item.articleId == currentArticleId ? "circle.fill" : "circle")
+                                .font(.system(size: 7))
+                                .foregroundStyle(item.articleId == currentArticleId ? Color.accentColor : Color.secondary)
+                            Button {
+                                guard let url = item.article.canonicalUrl.flatMap(URL.init(string:)) else { return }
+                                openURL(url)
+                            } label: {
+                                Text(item.article.title)
+                                    .font(.caption)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            Button {
+                                onRemove(item.articleId)
+                            } label: {
+                                Label("削除", systemImage: "trash")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .disabled(item.articleId <= 0)
+                        }
+                        .padding(.vertical, 5)
+                    }
+                }
+            }
+            .frame(maxHeight: 130)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
     }
 }
 

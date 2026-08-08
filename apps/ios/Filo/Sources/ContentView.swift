@@ -111,7 +111,7 @@ struct AppNavigationView: View {
                         case .readingSession(let autoplay):
                             ReadingSessionScreen(autoplay: autoplay)
                         case .readingPage(let url):
-                            ReadingSessionScreen(autoplay: true, temporaryUrl: url)
+                            ReadingSessionScreen(autoplay: false, temporaryUrl: url)
                         case .addArticle(let url):
                             AddArticleScreen(
                                 initialUrl: url,
