@@ -65,7 +65,6 @@ export function App() {
         {/* Web は記事詳細画面を持たない。一覧から元記事を開くか Extension に引き継ぐ (SPEC/SCREENS.md) */}
         <Route path="/articles" element={<ProtectedRoute><ArticlesPage /></ProtectedRoute>} />
         <Route path="/articles/new" element={<ProtectedRoute><AddArticlePage /></ProtectedRoute>} />
-        <Route path="/reading-list" element={<Navigate replace to="/articles?readingList=1" />} />
         <Route path="/subscriptions" element={<ProtectedRoute><SubscriptionsPage /></ProtectedRoute>} />
         <Route path="/subscriptions/:subscriptionId" element={<ProtectedRoute><SubscriptionDetailPage /></ProtectedRoute>} />
         <Route path="/feeds/new" element={<ProtectedRoute><AddFeedPage /></ProtectedRoute>} />

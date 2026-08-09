@@ -2,7 +2,7 @@
 
 Cloudflare D1 を利用する。ORM は使用せず、SQL を直接書く。
 
-スキーマの正は `apps/api/migrations/0001_init.sql` の 1 本だけとする。本書は DDL を再掲せず、DDL では表現できない意図・不変条件・クエリ期待値だけを書く。列や制約を知りたい場合は migration を読む。
+スキーマの正は `apps/api/migrations/` にある migration 一式とする。本書は DDL を再掲せず、DDL では表現できない意図・不変条件・クエリ期待値だけを書く。列や制約を知りたい場合は migration を読む。
 
 ## Table of Contents
 
@@ -36,7 +36,6 @@ user-owned（アカウント削除で消える）:
 | `article_user_collections` | リーディングリスト / ブックマーク membership |
 | `feed_read_cursors` | user × feed の既読カーソル |
 | `feed_jobs` | ユーザーが要求した feed 取得ジョブの現在状態 |
-| `playback_queue_items` / `playback_states` | 端末間で共有する読み上げキューと再生位置 |
 | `opml_import_jobs` | OPML import の非同期処理状態 |
 
 shared（ユーザー間で共有。アカウント削除でも消さない）:
@@ -127,16 +126,6 @@ account deletion 専用:
 - `deleted_user_tombstones` は削除受付直後から再作成防止の source of truth として扱い、削除進行中の状態追跡は `account_deletion_jobs` を正とする
 - `opml_import_jobs.failure_summary_json` は失敗明細の要約保持に限定し、全件監査ログの永続化は MVP 対象外とする
 
-### 読み上げキュー
-
-- `playback_queue_items` はリーディング開始時点のリーディングリストを固定する内部セッションで、`sort_order` で再生順序を管理する
-- キューは端末間で共有され、iOS / Android / Web + Extension で同一キューを参照する
-- 同一記事は1ユーザーのキューに1回のみ存在する（`user_id + article_id` で一意）
-- `playback_states` はユーザーごとに1行保持し、現在の再生位置を管理する
-- `playback_states.content_language` は再生中のコンテンツ言語を記録し、端末切替時に同一テキストから再開可能にする
-- `playback_states.position_percent` は `0.0` 〜 `1.0` の範囲で再生進捗を記録する。TTS 速度は端末により異なるため、時間ではなくテキスト全体に対する割合で保持する
-- キュー内の記事を削除した際、その記事が `playback_states.current_article_id` と一致する場合は再生位置をリセットする
-
 ## Query Expectations
 
 - 通常の記事一覧は `subscriptions -> feeds -> articles` の可視性判定で絞り込む
@@ -160,7 +149,16 @@ account deletion 専用:
 - `DELETE /articles/{id}/reading-list` または `DELETE /articles/{id}/bookmark` により unsubscribe 済み記事の最後の membership が削除された場合、以後その記事は不可視になる
 - `PATCH /articles/{id}/state` の競合は server received order による last-write-wins で収束させる
 - この競合方針では、遅延した古い retry が新しい操作結果を上書きしうる
-- 読み上げキューは `playback_queue_items` を `sort_order ASC, article_id ASC` で返す
-- 読み上げキューへの追加は既存アイテムの最大 `sort_order` の次に挿入する。重複は `ON CONFLICT DO NOTHING` で吸収する
-- 読み上げキューの並び替えは全件の `sort_order` を一括更新する
-- `playback_states` の更新は部分更新とし、未指定フィールドは変更しない
+
+## Data Retention
+
+- user-owned data: `users` `user_settings` `subscriptions` `tags` `subscription_tags` `article_read_states` `article_user_collections` `feed_read_cursors` `feed_jobs` `opml_import_jobs`
+- shared data: `feeds` `articles` `article_contents` `feed_fetch_states` `feed_fetch_logs`
+
+アカウント削除は user-owned data のみを削除する。shared data は削除しない。
+
+shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 使用量が `80GB`、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、feed 単位 retention の追加を次リリース優先事項として扱う。
+
+`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。削除の実行手段は未定（`Not yet implemented` を参照）。
+
+## Incident Runbooks

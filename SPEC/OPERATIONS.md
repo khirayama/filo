@@ -173,7 +173,7 @@ publisher 尊重ルール:
 
 ## Data Retention
 
-- user-owned data: `users` `user_settings` `subscriptions` `tags` `subscription_tags` `article_read_states` `article_user_collections` `feed_read_cursors` `feed_jobs` `playback_queue_items` `playback_states` `opml_import_jobs`
+- user-owned data: `users` `user_settings` `subscriptions` `tags` `subscription_tags` `article_read_states` `article_user_collections` `feed_read_cursors` `feed_jobs` `opml_import_jobs`
 - shared data: `feeds` `articles` `article_contents` `feed_fetch_states` `feed_fetch_logs`
 
 アカウント削除は user-owned data のみを削除する。shared data は削除しない。

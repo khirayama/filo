@@ -17,7 +17,6 @@ Content-Type: `application/json`
 - [Articles](#articles)
 - [Article Contents (リーディングパート内部用)](#article-contents-リーディングパート内部用)
 - [Article User State](#article-user-state)
-- [Playback Queue](#playback-queue)
 - [OPML](#opml)
 - [Account](#account)
 - [Status & Manual Operations](#status--manual-operations)
@@ -341,17 +340,8 @@ Deletes a tag owned by the current user.
 - request: `{ url, title?, summary? }`
 - URL は tracking parameter と hash を除いた canonical URL として保存する
 - 同じ URL の再追加は冪等で、既存の reading-list membership を維持する
-- 保存した URL は購読なしの paused source として扱い、既存の本文抽出・再生セッションを利用する
+- 保存した URL は購読なしの paused source として扱い、既存の本文抽出・読み上げ機能を利用する
 - response: `{ articleId, title, url, created }`
-
-### GET /api/v1/articles/lookup
-
-- query: `url`（必須。記事の canonical URL と完全一致で照合する）
-- 購読中 feed の記事のみ対象とする（retained article は対象外）
-- 該当記事がない場合は `404 article_not_found`
-- response `data`: `{ id, title, canonicalUrl, sourceLanguage, inQueue }`
-- `inQueue` は current user の playback queue に含まれているかを表す
-- 主に browser extension が現在ページを記事として解決するために使う
 
 ### GET /api/v1/articles
 
@@ -476,17 +466,17 @@ current user のリーディングリストから、実効既読状態のすべ�
 
 ## Article Contents (リーディングパート内部用)
 
-本文抽出はリーディングパート(音読キュー)のためだけに行う。RSSリーダーパートの一覧・詳細では本文を扱わず、翻訳のエンドポイントは持たない(翻訳は各プラットフォーム / ブラウザの翻訳機能に委ねる)。
+本文抽出はリーディングパートのためだけに行う。RSSリーダーパートの一覧・詳細では本文を扱わず、翻訳のエンドポイントは持たない(翻訳は各プラットフォーム / ブラウザの翻訳機能に委ねる)。
 
 ### POST /api/v1/articles/{articleId}/content
 
-- 本文抽出をリクエストする。音読キュー追加時にクライアントが必要な範囲で呼ぶ
+- 本文抽出をリクエストする。読み上げ時にクライアントが必要な範囲で呼ぶ
 - request: `{ force?: boolean }`。`force=true` は既存コンテンツを破棄して再抽出する
 - 抽出済みなら `{ status: "ready" }`、抽出中または新規投入時は `{ status: "pending" }` (202) を返す
 
 ### GET /api/v1/articles/{articleId}/content
 
-- 抽出済み本文を取得する。音読キューの連続再生時に読み上げテキストとして使う
+- 抽出済み本文を取得する。クライアントの読み上げテキストとして使う
 - `status` は `not_requested | pending | ready | error` を返す。`not_requested` は content row 未作成の導出状態
 - response (`ready` 時): `{ status, sourceLanguage, text, html }`
 
@@ -526,113 +516,6 @@ current user のリーディングリストから、実効既読状態のすべ�
 ### DELETE /api/v1/articles/{articleId}/bookmark
 
 記事のブックマークを解除する。アクセス可能な間の状態遷移は冪等。未購読記事の最後の membership を削除した場合、成功応答後は不可視になり、応答消失後の同一 retry は `article_not_found` になりうる。
-
-## Playback Queue
-
-ユーザーにはリーディングリストとして見せる。Playback Queue は開始時点のリーディングリストを固定する内部再生セッションであり、端末間で再生位置を共有する。
-
-### POST /api/v1/playback-queue/start
-
-- current user のリーディングリストを `added_at ASC, article_id ASC` でスナップショット化する
-- canonical URL を持つフィード記事だけを対象にする
-- 最初の未読記事を `playbackState.currentArticleId` に設定する
-- 全件既読または対象なしの場合は `currentArticleId` を `null` とする
-- response は更新後の playback queue と playback state を返す
-
-### GET /api/v1/playback-queue
-
-Returns the current user's playback queue and playback state.
-
-- キュー内の記事は `sort_order ASC, article_id ASC` で返す
-- 記事メタデータ（タイトル、フィード情報）を含めて返すため、表示に追加 API 呼び出しは不要
-- `title` は常に原文タイトルを返す（記事一覧と同じ規則。翻訳タイトルは返さない）
-- `playbackState` は未作成の場合 `null` を返す
-
-```json
-{
-  "data": {
-    "items": [
-      {
-        "articleId": 5501,
-        "sortOrder": 0,
-        "article": {
-          "id": 5501,
-          "title": "Post title",
-              "sourceLanguage": "en",
-          "canonicalUrl": "https://example.com/posts/123",
-          "publishedAt": "2026-05-10T22:00:00Z",
-          "feed": {
-            "id": 8,
-            "title": "Example Tech Blog",
-            "faviconUrl": "https://example.com/favicon.ico"
-          }
-        },
-        "createdAt": "2026-06-18T10:00:00Z"
-      }
-    ],
-    "playbackState": {
-      "currentArticleId": 5501,
-      "contentLanguage": "en",
-      "positionPercent": 0.45,
-      "updatedAt": "2026-06-18T10:05:00Z"
-    }
-  }
-}
-```
-
-### POST /api/v1/playback-queue/items
-
-- request: `articleIds` (array of article ids, max 100)
-- 既存キューの末尾に追加する
-- 既にキュー内にある記事は重複追加せず無視する
-- response は更新後のキュー件数を返す
-
-```json
-{
-  "articleIds": [5501, 5502]
-}
-```
-
-### DELETE /api/v1/playback-queue/items/{articleId}
-
-- キューから記事を削除する
-- 対象記事が `playbackState.currentArticleId` と一致する場合は再生位置をリセットする
-- キューに存在しない記事の削除は成功として扱う
-
-### PUT /api/v1/playback-queue/order
-
-- request: `articleIds` (array of all article ids in desired order)
-- キュー全件の並び順を一括更新する
-- 現在のキューに含まれる全 article id を過不足なく指定する必要がある
-
-```json
-{
-  "articleIds": [5502, 5501]
-}
-```
-
-### DELETE /api/v1/playback-queue
-
-- キュー全件と再生状態を削除する
-
-### PATCH /api/v1/playback-queue/state
-
-- 再生位置の部分更新
-- `currentArticleId`: optional, キュー内の記事 id または `null`（停止）
-- `contentLanguage`: optional, 再生中のコンテンツ言語または `null`
-- `positionPercent`: optional, `0.0` 〜 `1.0`
-- 未指定フィールドは変更しない
-- `currentArticleId` を指定する場合、対象記事がキューに含まれている必要がある
-- client は再生位置が変わるたびに適度な頻度（例: 10秒間隔）でこの endpoint を呼び、端末切替時の再開に備える
-- 実ページ側でブラウザや OS の翻訳機能が有効な場合、`contentLanguage` には読み上げ時点で実際に読んでいる表示言語を入れてよい
-
-```json
-{
-  "currentArticleId": 5501,
-  "contentLanguage": "en",
-  "positionPercent": 0.45
-}
-```
 
 ## OPML
 

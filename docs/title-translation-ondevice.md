@@ -147,7 +147,7 @@ POST /api/v1/title-translations
 
 実際に行った変更は削除だけである。
 
-- `GET /articles` / `GET /articles/:id` / `GET /playback-queue` から `translatedTitle` と `titleTranslationPending` を削除した。一覧エンドポイントは翻訳を一切関知しない。`sourceLanguage` は読み上げ言語の選択に使うため残した
+- `GET /articles` / `GET /articles/:id` から `translatedTitle` と `titleTranslationPending` を削除した。一覧エンドポイントは翻訳を一切関知しない。`sourceLanguage` は読み上げ言語の選択に使うため残した
 - `POST /status/translate`、`/status/translate/:feedId`、`/status/translate/discard`、`/status/translate/:feedId/discard` を削除した
 - `GET /status` から `translator` と `translation` coverage を削除した
 
