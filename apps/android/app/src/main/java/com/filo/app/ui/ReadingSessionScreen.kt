@@ -17,17 +17,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -35,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,9 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 import com.filo.app.TtsMediaService
 import com.filo.app.api.ApiClient
+import com.filo.app.api.ArticleListFilters
 import com.filo.app.api.ReadingSessionArticle
 import com.filo.app.api.ReadingSessionItem
 import com.google.android.gms.tasks.Task
@@ -66,6 +69,8 @@ class ReadingPlayerController(
     private val scope: CoroutineScope,
 ) {
     var items by mutableStateOf<List<ReadingSessionItem>>(emptyList())
+        private set
+    var readingListItems by mutableStateOf<List<ReadingSessionItem>>(emptyList())
         private set
     var index by mutableStateOf(-1)
         private set
@@ -105,7 +110,7 @@ class ReadingPlayerController(
         get() = items.getOrNull(index)
     val isTemporary: Boolean get() = temporary
     val visibleReadingListItems: List<ReadingSessionItem>
-        get() = items.filterNot { removedReadingListArticleIds.contains(it.articleId) }
+        get() = readingListItems.filterNot { removedReadingListArticleIds.contains(it.articleId) }
 
     init {
         tts = TextToSpeech(context) { status ->
@@ -126,15 +131,32 @@ class ReadingPlayerController(
         TtsMediaService.onDismiss = { pause() }
     }
 
-    suspend fun start(autoplay: Boolean, temporaryUrl: String? = null) {
+    suspend fun start(
+        autoplay: Boolean,
+        temporaryUrl: String? = null,
+        article: ReadingSessionArticle? = null,
+    ) {
         if (isLoading) return
         isLoading = true
         errorMessage = null
         autoplayWhenReady = autoplay
+        removedReadingListArticleIds = emptySet()
         runCatching {
             runCatching { ApiClient.getSettings() }.getOrNull()?.let { setLanguage(it.language) }
-            if (temporaryUrl != null) {
+            if (article != null) {
+                temporary = false
+                items = listOf(
+                    ReadingSessionItem(
+                        articleId = article.id,
+                        sortOrder = 0,
+                        article = article,
+                    ),
+                )
+                index = 0
+                readingListItems = runCatching { loadReadingList() }.getOrDefault(emptyList())
+            } else if (temporaryUrl != null) {
                 temporary = true
+                readingListItems = emptyList()
                 items = listOf(
                     ReadingSessionItem(
                         articleId = 0,
@@ -153,6 +175,7 @@ class ReadingPlayerController(
                 temporary = false
                 val session = ApiClient.startReadingSession()
                 items = session.items
+                readingListItems = session.items
                 index = session.playbackState?.currentArticleId?.let { id -> items.indexOfFirst { it.articleId == id } } ?: -1
                 if (index < 0) errorMessage = "未読の記事がありません。"
             }
@@ -213,6 +236,23 @@ class ReadingPlayerController(
         notifyMedia()
     }
 
+    fun select(articleId: Int) {
+        val nextIndex = items.indexOfFirst { it.articleId == articleId }
+        if (nextIndex >= 0) {
+            if (nextIndex == index) return
+            pause()
+            index = nextIndex
+            resetPage()
+            return
+        }
+        val listIndex = readingListItems.indexOfFirst { it.articleId == articleId }
+        if (listIndex < 0) return
+        pause()
+        items = readingListItems
+        index = listIndex
+        resetPage()
+    }
+
     fun updateRate(value: Float) {
         rate = value.coerceIn(0.75f, 3f)
         prefs().edit().putFloat("rate", rate).apply()
@@ -238,6 +278,11 @@ class ReadingPlayerController(
         isAddingToReadingList = true
         scope.launch {
             runCatching { ApiClient.importArticle(url, item.article.title) }
+                .onSuccess {
+                    if (!temporary && item.articleId > 0 && readingListItems.none { it.articleId == item.articleId }) {
+                        readingListItems = readingListItems + item
+                    }
+                }
                 .onFailure { errorMessage = "リーディングリストに追加できませんでした。" }
             isAddingToReadingList = false
         }
@@ -252,6 +297,29 @@ class ReadingPlayerController(
                 .onFailure { errorMessage = "リーディングリストから削除できませんでした。" }
             removingReadingListArticleIds -= articleId
         }
+    }
+
+    private suspend fun loadReadingList(): List<ReadingSessionItem> {
+        val result = mutableListOf<ReadingSessionItem>()
+        var cursor: String? = null
+        do {
+            val page = ApiClient.listArticles(ArticleListFilters(readingList = true), cursor, 100)
+            page.articles.forEach { article ->
+                result += ReadingSessionItem(
+                    articleId = article.id,
+                    sortOrder = result.size,
+                    article = ReadingSessionArticle(
+                        id = article.id,
+                        title = article.title,
+                        sourceLanguage = article.sourceLanguage,
+                        canonicalUrl = article.canonicalUrl,
+                        feedTitle = article.feedTitle,
+                    ),
+                )
+            }
+            cursor = page.nextCursor
+        } while (cursor != null)
+        return result
     }
 
     fun shutdown() {
@@ -373,8 +441,10 @@ fun ReadingSessionScreen(
     autoplay: Boolean,
     onBack: () -> Unit,
     temporaryUrl: String? = null,
+    directArticle: ReadingSessionArticle? = null,
 ) {
-    LaunchedEffect(autoplay, temporaryUrl) { player.start(autoplay, temporaryUrl) }
+    var showReadingList by remember { mutableStateOf(false) }
+    LaunchedEffect(autoplay, temporaryUrl, directArticle) { player.start(autoplay, temporaryUrl, directArticle) }
     DisposableEffect(Unit) { onDispose { player.pause() } }
     Scaffold(
         topBar = {
@@ -383,6 +453,7 @@ fun ReadingSessionScreen(
                 navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
             )
         },
+        bottomBar = { ReadingSettingsPanel(player) { showReadingList = true } },
     ) { padding ->
         when {
             player.isLoading -> Column(
@@ -400,8 +471,6 @@ fun ReadingSessionScreen(
                     onFailure = player::extractionFailed,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
-                ReadingSettingsPanel(player)
-                if (!player.isTemporary) ReadingListView(player)
             }
             else -> Column(
                 Modifier.fillMaxSize().padding(padding),
@@ -410,25 +479,47 @@ fun ReadingSessionScreen(
             ) { Text(player.errorMessage ?: "未読の記事がありません。") }
         }
     }
+    if (showReadingList) {
+        ModalBottomSheet(onDismissRequest = { showReadingList = false }) {
+            ReadingListSheet(
+                player = player,
+                onSelect = { articleId ->
+                    player.select(articleId)
+                    showReadingList = false
+                },
+            )
+        }
+    }
 }
 
 @Composable
-private fun ReadingSettingsPanel(player: ReadingPlayerController) {
+private fun ReadingSettingsPanel(
+    player: ReadingPlayerController,
+    onShowReadingList: () -> Unit,
+) {
     var voiceOpen by remember { mutableStateOf(false) }
     var languageOpen by remember { mutableStateOf(false) }
     var rateOpen by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Surface(tonalElevation = 3.dp) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Button(
             onClick = player::play,
             enabled = !player.isPlaying,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("このページを読み上げ") }
-        OutlinedButton(
-            onClick = player::addCurrentPageToReadingList,
-            enabled = !player.isAddingToReadingList,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("リーディングリストに追加") }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onShowReadingList,
+                    enabled = !player.isTemporary,
+                    modifier = Modifier.weight(1f),
+                ) { Text("リスト") }
+                OutlinedButton(
+                    onClick = player::addCurrentPageToReadingList,
+                    enabled = !player.isAddingToReadingList,
+                    modifier = Modifier.weight(1f),
+                ) { Text("リストに追加") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { voiceOpen = true }) { Text(player.voiceName ?: "声: 自動") }
             DropdownMenu(expanded = voiceOpen, onDismissRequest = { voiceOpen = false }) {
                 DropdownMenuItem(text = { Text("自動") }, onClick = { player.setVoice(null); voiceOpen = false })
@@ -446,40 +537,63 @@ private fun ReadingSettingsPanel(player: ReadingPlayerController) {
                     DropdownMenuItem(text = { Text("${rate}x") }, onClick = { player.updateRate(rate); rateOpen = false })
                 }
             }
+            }
         }
     }
 }
 
 @Composable
-private fun ReadingListView(player: ReadingPlayerController) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+private fun ReadingListSheet(
+    player: ReadingPlayerController,
+    onSelect: (Int) -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
-            .heightIn(max = 160.dp)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Text("リーディングリスト", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
-        player.visibleReadingListItems.forEach { item ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "${if (item.articleId == player.currentItem?.articleId) "●" else "○"} ${item.article.title}",
-                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(enabled = item.article.canonicalUrl != null) {
-                            item.article.canonicalUrl?.let { url ->
-                                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
-                            }
-                        }
-                        .padding(vertical = 4.dp),
-                )
-                TextButton(
-                    onClick = { player.removeFromReadingList(item.articleId) },
-                    enabled = item.articleId !in player.removingReadingListArticleIds,
-                ) { Text("削除") }
+        Text("リーディングリスト", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+        if (player.visibleReadingListItems.isEmpty()) {
+            Text(
+                "リーディングリストに記事がありません。",
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 24.dp),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.75f),
+            ) {
+                items(
+                    items = player.visibleReadingListItems,
+                    key = { it.articleId },
+                ) { item ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .clickable(enabled = item.article.canonicalUrl != null) { onSelect(item.articleId) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (item.articleId == player.currentItem?.articleId) "●" else "○",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = item.article.title,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                    TextButton(
+                        onClick = { player.removeFromReadingList(item.articleId) },
+                        enabled = item.articleId !in player.removingReadingListArticleIds,
+                    ) { Text("削除") }
+                }
+                }
             }
         }
     }
@@ -495,32 +609,40 @@ private fun ReadingWebView(
     modifier: Modifier = Modifier,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val webView = androidx.compose.runtime.remember(articleId) {
-        WebView(context).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            addJavascriptInterface(ReaderBridge(onExtracted, onFailure), "FiloReader")
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView, loadedUrl: String) {
-                    val readability = context.assets.open("Readability.js").bufferedReader().use { it.readText() }
-                    view.evaluateJavascript(
-                        "$readability;(() => { const a = new Readability(document.cloneNode(true), {charThreshold:100}).parse();" +
-                            "const n=v=>String(v||'').replace(/\\s+/g,' ').trim();" +
-                            "const root=document.implementation.createHTMLDocument('').body; if(a) root.innerHTML=a.content||'';" +
-                            "const tags=new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']), lines=[];" +
-                            "const visit=x=>Array.from(x.children).forEach(c=>tags.has(c.tagName)?(n(c.textContent)&&lines.push(n(c.textContent))):visit(c));" +
-                            "if(a) visit(root); if(a&&!lines.length) lines.push(...n(a.textContent).split(/\\n+/).filter(Boolean));" +
-                            "const title=n(a&&a.title)||n(document.title), text=a?[title,...(lines[0]===title?lines.slice(1):lines)].filter(Boolean).join('\\n\\n'):'';" +
-                            "FiloReader.postMessage(JSON.stringify(text.length>=100?{text:text,lang:a.lang||document.documentElement.lang||null}:{error:true})); })();",
-                        null,
-                    )
+    key(articleId, url) {
+        val webView = androidx.compose.runtime.remember {
+            WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                isVerticalScrollBarEnabled = true
+                overScrollMode = WebView.OVER_SCROLL_IF_CONTENT_SCROLLS
+                addJavascriptInterface(ReaderBridge(onExtracted, onFailure), "FiloReader")
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, loadedUrl: String) {
+                        val readability = context.assets.open("Readability.js").bufferedReader().use { it.readText() }
+                        view.evaluateJavascript(
+                            "$readability;(() => { const a = new Readability(document.cloneNode(true), {charThreshold:100}).parse();" +
+                                "const n=v=>String(v||'').replace(/\\s+/g,' ').trim();" +
+                                "const root=document.implementation.createHTMLDocument('').body; if(a) root.innerHTML=a.content||'';" +
+                                "const tags=new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']), lines=[];" +
+                                "const visit=x=>Array.from(x.children).forEach(c=>tags.has(c.tagName)?(n(c.textContent)&&lines.push(n(c.textContent))):visit(c));" +
+                                "if(a) visit(root); if(a&&!lines.length) lines.push(...n(a.textContent).split(/\\n+/).filter(Boolean));" +
+                                "const title=n(a&&a.title)||n(document.title), text=a?[title,...(lines[0]===title?lines.slice(1):lines)].filter(Boolean).join('\\n\\n'):'';" +
+                                "FiloReader.postMessage(JSON.stringify(text.length>=100?{text:text,lang:a.lang||document.documentElement.lang||null}:{error:true})); })();",
+                            null,
+                        )
+                    }
                 }
+                loadUrl(url)
             }
-            loadUrl(url)
         }
+        DisposableEffect(webView) { onDispose { webView.destroy() } }
+        AndroidView(
+            factory = { webView },
+            update = { view -> view.isVerticalScrollBarEnabled = true },
+            modifier = modifier,
+        )
     }
-    DisposableEffect(webView) { onDispose { webView.destroy() } }
-    AndroidView(factory = { webView }, modifier = modifier)
 }
 
 private class ReaderBridge(

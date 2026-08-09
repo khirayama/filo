@@ -12,6 +12,7 @@ private struct ReadingTranslationRequest: Equatable {
 @MainActor
 final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     @Published var items: [ReadingSessionItem] = []
+    @Published var readingListItems: [ReadingSessionItem] = []
     @Published var index = -1
     @Published var isLoading = false
     @Published var isPlaying = false
@@ -40,7 +41,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
     var isTemporary: Bool { temporary }
     var visibleReadingListItems: [ReadingSessionItem] {
-        items.filter { !removedReadingListArticleIds.contains($0.articleId) }
+        readingListItems.filter { !removedReadingListArticleIds.contains($0.articleId) }
     }
     var availableVoices: [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices().filter { targetLanguage.isEmpty || $0.language.hasPrefix(targetLanguage) }
@@ -53,17 +54,29 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         try? AVAudioSession.sharedInstance().setActive(true)
     }
 
-    func start(autoplay: Bool, temporaryUrl: String? = nil) async {
+    func start(autoplay: Bool, temporaryUrl: String? = nil, article: ReadingSessionArticle? = nil) async {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
         startingAutoplay = autoplay
+        removedReadingListArticleIds = []
         do {
             async let settingsTask = APIClient.shared.getSettings()
             let settings = try? await settingsTask
             targetLanguage = settings?.language ?? targetLanguage
-            if let temporaryUrl {
+            if let article {
+                temporary = false
+                items = [ReadingSessionItem(
+                    articleId: article.id,
+                    sortOrder: 0,
+                    article: article,
+                    createdAt: nil,
+                )]
+                index = 0
+                readingListItems = (try? await loadReadingList()) ?? []
+            } else if let temporaryUrl {
                 temporary = true
+                readingListItems = []
                 let article = ReadingSessionArticle(
                     id: 0,
                     title: temporaryUrl,
@@ -78,6 +91,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 temporary = false
                 let session = try await APIClient.shared.startReadingSession()
                 items = session.items
+                readingListItems = session.items
                 if let currentId = session.playbackState?.currentArticleId,
                    let currentIndex = items.firstIndex(where: { $0.articleId == currentId }) {
                     index = currentIndex
@@ -180,6 +194,21 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         isPlaying = false
     }
 
+    func select(articleId: Int) {
+        if let nextIndex = items.firstIndex(where: { $0.articleId == articleId }) {
+            guard nextIndex != index else { return }
+            pause()
+            index = nextIndex
+            resetExtractedContent()
+            return
+        }
+        guard let nextIndex = readingListItems.firstIndex(where: { $0.articleId == articleId }) else { return }
+        pause()
+        items = readingListItems
+        index = nextIndex
+        resetExtractedContent()
+    }
+
     func setRate(_ value: Float) {
         rate = min(3, max(0.75, value))
         UserDefaults.standard.set(rate, forKey: "filo:readingRate")
@@ -199,6 +228,10 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             defer { isAddingToReadingList = false }
             do {
                 _ = try await APIClient.shared.importArticle(url: url, title: item.article.title)
+                if !temporary, item.articleId > 0,
+                   !readingListItems.contains(where: { $0.articleId == item.articleId }) {
+                    readingListItems.append(item)
+                }
             } catch {
                 errorMessage = ErrorMessages.message(for: error)
             }
@@ -215,6 +248,30 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 errorMessage = ErrorMessages.message(for: error)
             }
         }
+    }
+
+    private func loadReadingList() async throws -> [ReadingSessionItem] {
+        var result: [ReadingSessionItem] = []
+        var cursor: String?
+        repeat {
+            let page = try await APIClient.shared.listArticles(
+                filters: .init(readingList: true),
+                cursor: cursor,
+                limit: 100,
+            )
+            let startIndex = result.count
+            let pageItems = page.articles.enumerated().map { offset, article in
+                ReadingSessionItem(
+                    articleId: article.id,
+                    sortOrder: startIndex + offset,
+                    article: ReadingSessionArticle(article),
+                    createdAt: nil,
+                )
+            }
+            result.append(contentsOf: pageItems)
+            cursor = page.nextCursor
+        } while cursor != nil
+        return result
     }
 
     private func resetExtractedContent() {
@@ -280,11 +337,14 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
 struct ReadingSessionScreen: View {
     let autoplay: Bool
     let temporaryUrl: String?
+    let article: ReadingSessionArticle?
     @EnvironmentObject private var player: ReadingPlayerStore
+    @State private var isReadingListPresented = false
 
-    init(autoplay: Bool, temporaryUrl: String? = nil) {
+    init(autoplay: Bool, temporaryUrl: String? = nil, article: ReadingSessionArticle? = nil) {
         self.autoplay = autoplay
         self.temporaryUrl = temporaryUrl
+        self.article = article
     }
 
     var body: some View {
@@ -298,21 +358,40 @@ struct ReadingSessionScreen: View {
                     player.extractionFailed()
                 }
                 .id(item.articleId)
-                ReadingSettingsPanel(player: player)
-                if !player.isTemporary {
-                    ReadingListView(
-                        items: player.visibleReadingListItems,
-                        currentArticleId: item.articleId,
-                        onRemove: player.removeFromReadingList,
-                    )
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 EmptyStateView { Text(player.errorMessage ?? "未読の記事がありません。") }
             }
         }
         .navigationTitle(player.currentItem?.article.title ?? "リーディングリスト")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await player.start(autoplay: autoplay, temporaryUrl: temporaryUrl) }
+        .sheet(isPresented: $isReadingListPresented) {
+            NavigationStack {
+                ReadingListView(
+                    items: player.visibleReadingListItems,
+                    currentArticleId: player.currentItem?.articleId ?? -1,
+                    onSelect: { articleId in
+                        player.select(articleId: articleId)
+                        isReadingListPresented = false
+                    },
+                    onRemove: player.removeFromReadingList,
+                )
+                .navigationTitle("リーディングリスト")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("閉じる") { isReadingListPresented = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            ReadingSettingsPanel(player: player) {
+                isReadingListPresented = true
+            }
+        }
+        .task { await player.start(autoplay: autoplay, temporaryUrl: temporaryUrl, article: article) }
         .onDisappear { player.pause() }
         .modifier(ReadingTranslationTask(player: player))
     }
@@ -341,14 +420,23 @@ private struct ReadingTranslationTask: ViewModifier {
 
 private struct ReadingSettingsPanel: View {
     @ObservedObject var player: ReadingPlayerStore
+    let onShowReadingList: () -> Void
 
     var body: some View {
         VStack(spacing: 8) {
             Button("このページを読み上げ") { player.play() }
                 .buttonStyle(.borderedProminent)
                 .disabled(player.isPlaying)
-            Button("リーディングリストに追加") { player.addCurrentPageToReadingList() }
-                .disabled(player.isAddingToReadingList)
+            HStack {
+                Button {
+                    onShowReadingList()
+                } label: {
+                    Label("リスト", systemImage: "list.bullet")
+                }
+                .disabled(player.isTemporary)
+                Button("リストに追加") { player.addCurrentPageToReadingList() }
+                    .disabled(player.isAddingToReadingList)
+            }
             HStack {
                 Picker("声", selection: Binding(
                     get: { player.voiceIdentifier ?? "" },
@@ -374,50 +462,54 @@ private struct ReadingSettingsPanel: View {
 private struct ReadingListView: View {
     let items: [ReadingSessionItem]
     let currentArticleId: Int
+    let onSelect: (Int) -> Void
     let onRemove: (Int) -> Void
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("リーディングリスト")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(items) { item in
-                        HStack(spacing: 8) {
-                            Image(systemName: item.articleId == currentArticleId ? "circle.fill" : "circle")
-                                .font(.system(size: 7))
-                                .foregroundStyle(item.articleId == currentArticleId ? Color.accentColor : Color.secondary)
-                            Button {
-                                guard let url = item.article.canonicalUrl.flatMap(URL.init(string:)) else { return }
-                                openURL(url)
-                            } label: {
-                                Text(item.article.title)
-                                    .font(.caption)
-                                    .lineLimit(2)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+            if items.isEmpty {
+                Text("リーディングリストに記事がありません。")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 16)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(items) { item in
+                            HStack(spacing: 8) {
+                                Button {
+                                    onSelect(item.articleId)
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: item.articleId == currentArticleId ? "circle.fill" : "circle")
+                                            .font(.system(size: 7))
+                                            .foregroundStyle(item.articleId == currentArticleId ? Color.accentColor : Color.secondary)
+                                        Text(item.article.title)
+                                            .font(.body)
+                                            .lineLimit(2)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(item.article.canonicalUrl == nil)
+                                Button {
+                                    onRemove(item.articleId)
+                                } label: {
+                                    Label("削除", systemImage: "trash")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.secondary)
+                                .disabled(item.articleId <= 0)
                             }
-                            .buttonStyle(.plain)
-                            Button {
-                                onRemove(item.articleId)
-                            } label: {
-                                Label("削除", systemImage: "trash")
-                                    .labelStyle(.iconOnly)
-                            }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.secondary)
-                            .disabled(item.articleId <= 0)
+                            .padding(.vertical, 8)
                         }
-                        .padding(.vertical, 5)
                     }
                 }
             }
-            .frame(maxHeight: 130)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.thinMaterial)
     }
 }
 
@@ -434,6 +526,8 @@ private struct ReadingWebView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.scrollView.isScrollEnabled = true
+        webView.scrollView.alwaysBounceVertical = true
         webView.navigationDelegate = context.coordinator
         if let value = URL(string: url) { webView.load(URLRequest(url: value)) }
         return webView
