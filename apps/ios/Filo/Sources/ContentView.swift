@@ -136,6 +136,9 @@ struct AppNavigationView: View {
             // 複数のセッションが張られて互いを畳み合う。
             .titleTranslation(store: titleTranslations)
             .environmentObject(readingPlayer)
+            if readingPlayer.isPlaying && !readingPlayer.isReadingBrowserVisible {
+                ReadingMiniPlayer(player: readingPlayer)
+            }
         }
         .sheet(isPresented: $titleTranslations.isShowingSetup) {
             TitleTranslationSetupView(store: titleTranslations)

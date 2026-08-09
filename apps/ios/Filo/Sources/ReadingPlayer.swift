@@ -16,6 +16,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published var index = -1
     @Published var isLoading = false
     @Published var isPlaying = false
+    @Published var isReadingBrowserVisible = false
     @Published var extractedText: String?
     @Published var extractedLanguage: String?
     @Published var errorMessage: String?
@@ -34,12 +35,16 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var temporary = false
     private var translationToken = 0
     private var pendingOriginalText: String?
+    private var playbackArticleId: Int? = nil
+    private var playbackArticleTitle: String? = nil
+    private var playbackTemporary = false
 
     var currentItem: ReadingSessionItem? {
         guard index >= 0, index < items.count else { return nil }
         return items[index]
     }
     var isTemporary: Bool { temporary }
+    var currentPlaybackTitle: String? { playbackArticleTitle }
     var visibleReadingListItems: [ReadingSessionItem] {
         readingListItems.filter { !removedReadingListArticleIds.contains($0.articleId) }
     }
@@ -144,11 +149,17 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         }
         let source = extractedLanguage ?? currentItem?.article.sourceLanguage
         if let source, source.split(separator: "-").first != targetLanguage.split(separator: "-").first {
+            playbackArticleId = currentItem?.articleId
+            playbackArticleTitle = currentItem?.article.title
+            playbackTemporary = temporary
             pendingOriginalText = text
             translationToken += 1
             translationRequest = ReadingTranslationRequest(source: source, target: targetLanguage, token: translationToken)
             return
         }
+        playbackArticleId = currentItem?.articleId
+        playbackArticleTitle = currentItem?.article.title
+        playbackTemporary = temporary
         beginSpeaking(text, language: source)
     }
 
@@ -190,6 +201,9 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     func pause() {
+        translationToken += 1
+        translationRequest = nil
+        pendingOriginalText = nil
         synthesizer.stopSpeaking(at: .immediate)
         isPlaying = false
     }
@@ -275,11 +289,13 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     private func resetExtractedContent() {
+        let preservePlayback = isPlaying
         extractedText = nil
         extractedLanguage = nil
-        chunks = []
-        chunkIndex = 0
-        isPlaying = false
+        if !preservePlayback {
+            chunks = []
+            chunkIndex = 0
+        }
     }
 
     private func speakCurrentChunk() {
@@ -293,6 +309,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     private func finishedChunk() {
+        guard isPlaying else { return }
         chunkIndex += 1
         if chunkIndex < chunks.count {
             speakCurrentChunk()
@@ -300,8 +317,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         }
         isPlaying = false
         Task {
-            if !temporary, let current = currentItem {
-                _ = try? await APIClient.shared.setArticleRead(current.articleId, isRead: true)
+            if !playbackTemporary, let playbackArticleId {
+                _ = try? await APIClient.shared.setArticleRead(playbackArticleId, isRead: true)
             }
         }
     }
@@ -392,7 +409,8 @@ struct ReadingSessionScreen: View {
             }
         }
         .task { await player.start(autoplay: autoplay, temporaryUrl: temporaryUrl, article: article) }
-        .onDisappear { player.pause() }
+        .onAppear { player.isReadingBrowserVisible = true }
+        .onDisappear { player.isReadingBrowserVisible = false }
         .modifier(ReadingTranslationTask(player: player))
     }
 }
@@ -424,9 +442,10 @@ private struct ReadingSettingsPanel: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Button("このページを読み上げ") { player.play() }
-                .buttonStyle(.borderedProminent)
-                .disabled(player.isPlaying)
+            Button(player.isPlaying ? "停止" : "このページを読み上げ") {
+                if player.isPlaying { player.pause() } else { player.play() }
+            }
+            .buttonStyle(.borderedProminent)
             HStack {
                 Button {
                     onShowReadingList()
@@ -455,6 +474,22 @@ private struct ReadingSettingsPanel: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .background(.bar)
+    }
+}
+
+struct ReadingMiniPlayer: View {
+    @ObservedObject var player: ReadingPlayerStore
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(player.currentPlaybackTitle ?? player.currentItem?.article.title ?? "読み上げ中")
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("停止") { player.pause() }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(.bar)
     }
 }
