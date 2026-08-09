@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
@@ -489,6 +490,8 @@ private fun RssNavigation(
     val scope = rememberCoroutineScope()
     val titleTranslations = remember { com.filo.app.ui.TitleTranslationStore(context, scope) }
     val readingPlayer = remember { com.filo.app.ui.ReadingPlayerController(context.applicationContext, scope) }
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val isReadingBrowser = currentBackStackEntry?.destination?.route?.startsWith("reading") == true
 
     DisposableEffect(Unit) {
         onDispose { readingPlayer.shutdown() }
@@ -504,7 +507,36 @@ private fun RssNavigation(
         if (sharedUrl != null) navController.navigate("addArticle")
     }
 
-    NavHost(navController = navController, startDestination = "articles") {
+    Column(Modifier.fillMaxSize()) {
+        NavHost(
+            navController = navController,
+            startDestination = "articles",
+            modifier = Modifier.weight(1f),
+            enterTransition = {
+                slideInHorizontally(
+                    initialOffsetX = { it },
+                    animationSpec = tween(280),
+                )
+            },
+            exitTransition = {
+                slideOutHorizontally(
+                    targetOffsetX = { -it / 3 },
+                    animationSpec = tween(280),
+                )
+            },
+            popEnterTransition = {
+                slideInHorizontally(
+                    initialOffsetX = { -it / 3 },
+                    animationSpec = tween(280),
+                )
+            },
+            popExitTransition = {
+                slideOutHorizontally(
+                    targetOffsetX = { it },
+                    animationSpec = tween(280),
+                )
+            },
+        ) {
         composable("articles") { entry ->
             val selectedTagId by entry.savedStateHandle
                 .getStateFlow<Int?>("selectedTagId", null)
@@ -641,6 +673,10 @@ private fun RssNavigation(
                 deletionToken = entry.arguments?.getString("token"),
                 onSignOut = onSignOut,
             )
+        }
+        }
+        if (readingPlayer.isPlaying && !isReadingBrowser) {
+            com.filo.app.ui.ReadingMiniPlayer(readingPlayer)
         }
     }
 }

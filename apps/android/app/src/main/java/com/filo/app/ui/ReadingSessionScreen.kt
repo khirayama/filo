@@ -105,10 +105,15 @@ class ReadingPlayerController(
     private var chunks = emptyList<String>()
     private var chunkIndex = 0
     private var autoplayWhenReady = false
+    private var playbackGeneration = 0
+    private var playbackArticleId: Int? = null
+    private var playbackArticleTitle: String? = null
+    private var playbackTemporary = false
 
     val currentItem: ReadingSessionItem?
         get() = items.getOrNull(index)
     val isTemporary: Boolean get() = temporary
+    val currentPlaybackTitle: String? get() = playbackArticleTitle
     val visibleReadingListItems: List<ReadingSessionItem>
         get() = readingListItems.filterNot { removedReadingListArticleIds.contains(it.articleId) }
 
@@ -220,8 +225,13 @@ class ReadingPlayerController(
             extractionFailed()
             return
         }
+        playbackArticleId = currentItem?.articleId
+        playbackArticleTitle = currentItem?.article?.title
+        playbackTemporary = temporary
+        val generation = ++playbackGeneration
         scope.launch {
             val translated = translateBestEffort(source, extractedLanguage ?: currentItem?.article?.sourceLanguage)
+            if (generation != playbackGeneration) return@launch
             chunks = split(translated.first)
             extractedLanguage = translated.second
             chunkIndex = 0
@@ -231,6 +241,7 @@ class ReadingPlayerController(
     }
 
     fun pause() {
+        playbackGeneration += 1
         tts?.stop()
         isPlaying = false
         notifyMedia()
@@ -332,11 +343,13 @@ class ReadingPlayerController(
     }
 
     private fun resetPage() {
+        val preservePlayback = isPlaying
         extractedText = null
         extractedLanguage = null
-        chunks = emptyList()
-        chunkIndex = 0
-        isPlaying = false
+        if (!preservePlayback) {
+            chunks = emptyList()
+            chunkIndex = 0
+        }
         notifyMedia()
     }
 
@@ -354,14 +367,16 @@ class ReadingPlayerController(
     }
 
     private suspend fun finishChunk() {
+        if (!isPlaying) return
         chunkIndex += 1
         if (chunkIndex < chunks.size) {
             speakChunk()
             return
         }
         isPlaying = false
-        if (!temporary) {
-            currentItem?.let { runCatching { ApiClient.setArticleRead(it.articleId, true) } }
+        notifyMedia()
+        if (!playbackTemporary) {
+            playbackArticleId?.let { runCatching { ApiClient.setArticleRead(it, true) } }
         }
     }
 
@@ -397,7 +412,7 @@ class ReadingPlayerController(
         val item = currentItem ?: return
         val intent = Intent(context, TtsMediaService::class.java).apply {
             action = TtsMediaService.ACTION_UPDATE
-            putExtra("title", item.article.title)
+            putExtra("title", playbackArticleTitle ?: item.article.title)
             putExtra("playState", if (isPlaying) "playing" else "paused")
             putExtra("chunk", chunkIndex)
             putExtra("total", chunks.size)
@@ -445,7 +460,6 @@ fun ReadingSessionScreen(
 ) {
     var showReadingList by remember { mutableStateOf(false) }
     LaunchedEffect(autoplay, temporaryUrl, directArticle) { player.start(autoplay, temporaryUrl, directArticle) }
-    DisposableEffect(Unit) { onDispose { player.pause() } }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -503,10 +517,9 @@ private fun ReadingSettingsPanel(
     Surface(tonalElevation = 3.dp) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Button(
-            onClick = player::play,
-            enabled = !player.isPlaying,
+            onClick = if (player.isPlaying) player::pause else player::play,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("このページを読み上げ") }
+        ) { Text(if (player.isPlaying) "停止" else "このページを読み上げ") }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = onShowReadingList,
@@ -538,6 +551,23 @@ private fun ReadingSettingsPanel(
                 }
             }
             }
+        }
+    }
+}
+
+@Composable
+fun ReadingMiniPlayer(player: ReadingPlayerController) {
+    Surface(tonalElevation = 3.dp) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = player.currentPlaybackTitle ?: player.currentItem?.article?.title ?: "読み上げ中",
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = player::pause) { Text("停止") }
         }
     }
 }
