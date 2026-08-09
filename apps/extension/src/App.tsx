@@ -3,12 +3,6 @@ import { useAuth, useUser } from "@clerk/chrome-extension";
 import { createExtensionApi, type ReadingArticle } from "./api";
 import { webAppPath } from "./config";
 
-interface PopupReaderState {
-  rate: number;
-  voiceName: string | null;
-  targetLanguage: string;
-}
-
 interface ReaderSettings {
   targetLanguage: string;
   rate: number;
@@ -45,7 +39,6 @@ export function App() {
   const { user } = useUser();
   const api = useMemo(() => createExtensionApi(() => getToken()), [getToken]);
   const [articles, setArticles] = useState<ReadingArticle[]>([]);
-  const [reader, setReader] = useState<PopupReaderState | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [settings, setSettings] = useState<ReaderSettings>({ targetLanguage: "ja", rate: 1, voiceName: null });
   const [loading, setLoading] = useState(true);
@@ -81,13 +74,11 @@ export function App() {
     };
   }, [loadCurrentPage]);
 
-  const loadReader = useCallback(async () => {
-    const [nextReader, nextVoices, nextSettings] = await Promise.all([
-      send<PopupReaderState | null>({ type: "filoGetReaderState" }),
+  const loadSettings = useCallback(async () => {
+    const [nextVoices, nextSettings] = await Promise.all([
       send<Voice[]>({ type: "filoGetVoices" }),
       send<ReaderSettings>({ type: "filoGetSettings" }),
     ]);
-    setReader(nextReader);
     setVoices(nextVoices);
     setSettings(nextSettings);
   }, []);
@@ -98,7 +89,7 @@ export function App() {
     try {
       const [nextArticles] = await Promise.all([
         isSignedIn ? api.listReadingArticles() : Promise.resolve([] as ReadingArticle[]),
-        loadReader(),
+        loadSettings(),
         loadCurrentPage(),
       ]);
       setArticles(nextArticles);
@@ -107,7 +98,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [api, isSignedIn, loadCurrentPage, loadReader]);
+  }, [api, isSignedIn, loadCurrentPage, loadSettings]);
 
   useEffect(() => {
     document.title = "Filo Reader";
@@ -119,11 +110,11 @@ export function App() {
 
   useEffect(() => {
     const onStorageChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
-      if (area === "local" && changes["filo:readerSession"]) void loadReader().catch(() => undefined);
+      if (area === "local" && changes["filo:readerSettings"]) void loadSettings().catch(() => undefined);
     };
     chrome.storage.onChanged.addListener(onStorageChanged);
     return () => chrome.storage.onChanged.removeListener(onStorageChanged);
-  }, [loadReader]);
+  }, [loadSettings]);
 
   const startCurrentPage = async () => {
     if (busy) return;
@@ -133,7 +124,7 @@ export function App() {
       const page = await getCurrentPage();
       setCurrentPage(page);
       if (!page) throw new Error("読み上げできるページがありません。");
-      setReader(await send<PopupReaderState>({
+      setSettings(await send<ReaderSettings>({
         type: "filoStartPage",
         page,
         autoplay: true,
@@ -186,12 +177,11 @@ export function App() {
     setBusy(true);
     setError(null);
     try {
-      if (action === "settings" && !reader) {
+      if (action === "settings") {
         const nextSettings = await send<ReaderSettings>({ type: "filoSetSettings", ...settings });
         setSettings(nextSettings);
       } else {
-        setReader(await send<PopupReaderState | null>({ type: "filoControl", action, ...settings }));
-        setSettings((current) => ({ ...current, ...settings } as ReaderSettings));
+        setSettings(await send<ReaderSettings>({ type: "filoControl", action, ...settings }));
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -202,9 +192,7 @@ export function App() {
 
   if (!isLoaded) return <main className="empty-view">ログイン状態を確認しています…</main>;
 
-  const targetLanguage = reader?.targetLanguage ?? settings.targetLanguage;
-  const rate = reader?.rate ?? settings.rate;
-  const voiceName = reader?.voiceName ?? settings.voiceName;
+  const { targetLanguage, rate, voiceName } = settings;
   const filteredVoices = voices.filter((voice) => !targetLanguage || voice.lang?.startsWith(targetLanguage));
 
   return (

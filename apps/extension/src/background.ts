@@ -1,32 +1,16 @@
-import { backgroundApi } from "./backgroundApi";
-
-interface SessionItem {
-  articleId: number | null;
-  article: {
-    title: string;
-    sourceLanguage: string | null;
-    canonicalUrl: string | null;
-  };
-}
-
 interface ReaderSession {
-  items: SessionItem[];
-  index: number;
-  readingTabId: number | null;
-  temporary: boolean;
+  tabId: number;
   autoplay: boolean;
   targetLanguage: string;
   rate: number;
   voiceName: string | null;
   playing: boolean;
-  positionPercent: number;
 }
 
-const STATE_KEY = "filo:readerSession";
+const STATE_KEY = "filo:readerState";
 const SETTINGS_KEY = "filo:readerSettings";
 const DEFAULT_SETTINGS = { targetLanguage: "ja", rate: 1, voiceName: null as string | null };
 let playToken = 0;
-let lastProgressPublishedAt = 0;
 
 async function loadState(): Promise<ReaderSession | null> {
   const stored = await chrome.storage.local.get(STATE_KEY);
@@ -46,75 +30,6 @@ async function saveSettings(settings: Partial<typeof DEFAULT_SETTINGS>): Promise
 
 async function saveState(state: ReaderSession): Promise<void> {
   await chrome.storage.local.set({ [STATE_KEY]: state });
-  const item = currentItem(state);
-  if (item?.articleId != null) await publishState(state);
-}
-
-async function publishToWeb(event: unknown): Promise<void> {
-  const tabs = await chrome.tabs.query({});
-  await Promise.all(tabs.map((tab) => tab.id == null ? Promise.resolve() :
-    chrome.tabs.sendMessage(tab.id, { type: "filoWebEvent", event }).catch(() => undefined)));
-}
-
-async function publishState(state: ReaderSession): Promise<void> {
-  const item = state.items[state.index] ?? null;
-  await publishToWeb({
-    type: "playbackState",
-    currentArticleId: item?.articleId ?? null,
-    contentLanguage: state.targetLanguage || item?.article.sourceLanguage || null,
-    positionPercent: state.positionPercent,
-  });
-}
-
-function currentItem(state: ReaderSession): SessionItem | null {
-  return state.items[state.index] ?? null;
-}
-
-function popupState(state: ReaderSession | null) {
-  if (!state) return null;
-  return {
-    rate: state.rate,
-    voiceName: state.voiceName,
-    targetLanguage: state.targetLanguage,
-  };
-}
-
-async function openCurrent(state: ReaderSession): Promise<void> {
-  const item = currentItem(state);
-  const url = item?.article.canonicalUrl;
-  if (!url) return;
-  state.playing = false;
-  state.positionPercent = 0;
-  playToken += 1;
-  chrome.tts.stop();
-  if (state.temporary) {
-    const autoplay = state.autoplay;
-    state.autoplay = false;
-    await saveState(state);
-    if (autoplay) await playCurrent();
-    return;
-  }
-  if (state.readingTabId == null) {
-    const tab = await chrome.tabs.create({ url, active: true });
-    state.readingTabId = tab.id ?? null;
-  } else {
-    try {
-      await chrome.tabs.update(state.readingTabId, { url, active: true });
-    } catch {
-      const tab = await chrome.tabs.create({ url, active: true });
-      state.readingTabId = tab.id ?? null;
-    }
-  }
-  await saveState(state);
-}
-
-async function markCurrentRead(state: ReaderSession): Promise<void> {
-  const item = currentItem(state);
-  if (!item || item.articleId == null) return;
-  await Promise.all([
-    backgroundApi.setArticleRead(item.articleId).catch(() => undefined),
-    publishToWeb({ type: "articleRead", articleId: item.articleId }),
-  ]);
 }
 
 function splitText(text: string, maxLength = 3000): string[] {
@@ -149,47 +64,32 @@ async function translateBestEffort(text: string, source: string | null, target: 
 
 async function playCurrent(): Promise<void> {
   const state = await loadState();
-  const item = state && currentItem(state);
-  if (!state || !item || state.readingTabId == null) return;
-  const extracted = await chrome.tabs.sendMessage(state.readingTabId, { type: "filoExtract" }).catch(() => null) as
+  if (!state) return;
+
+  const extracted = await chrome.tabs.sendMessage(state.tabId, { type: "filoExtract" }).catch(() => null) as
     | { text: string; lang: string | null }
     | null;
   if (!extracted?.text) return;
-  const text = await translateBestEffort(
-    extracted.text,
-    extracted.lang ?? item.article.sourceLanguage,
-    state.targetLanguage,
-  );
+
+  const text = await translateBestEffort(extracted.text, extracted.lang, state.targetLanguage);
   const token = ++playToken;
+  state.autoplay = false;
   state.playing = true;
-  state.positionPercent = 0;
   await saveState(state);
   chrome.tts.stop();
   chrome.tts.speak(text, {
-    lang: state.targetLanguage || extracted.lang || item.article.sourceLanguage || undefined,
+    lang: state.targetLanguage || extracted.lang || undefined,
     rate: state.rate,
     voiceName: state.voiceName ?? undefined,
     enqueue: false,
     onEvent: (event) => {
       if (token !== playToken) return;
-      void (async () => {
-        const latest = await loadState();
+      if (event.type !== "end" && event.type !== "error" && event.type !== "cancelled" && event.type !== "interrupted") return;
+      void loadState().then(async (latest) => {
         if (!latest) return;
-        if (event.type === "word" || event.type === "sentence") {
-          if (Date.now() - lastProgressPublishedAt < 10_000) return;
-          lastProgressPublishedAt = Date.now();
-          latest.positionPercent = Math.min(1, (event.charIndex ?? 0) / Math.max(1, text.length));
-          await saveState(latest);
-        } else if (event.type === "end") {
-          latest.playing = false;
-          latest.positionPercent = 1;
-          await saveState(latest);
-          await markCurrentRead(latest);
-        } else if (event.type === "error" || event.type === "cancelled" || event.type === "interrupted") {
-          latest.playing = false;
-          await saveState(latest);
-        }
-      })();
+        latest.playing = false;
+        await saveState(latest);
+      });
     },
   });
 }
@@ -199,6 +99,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void loadSettings().then((settings) => sendResponse({ ok: true, data: settings }));
     return true;
   }
+
   if (message?.type === "filoSetSettings") {
     void saveSettings({
       targetLanguage: typeof message.targetLanguage === "string" ? message.targetLanguage : undefined,
@@ -207,86 +108,51 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }).then((settings) => sendResponse({ ok: true, data: settings }));
     return true;
   }
-  if (message?.type === "filoStartArticle") {
-    void (async () => {
-      const article = message.article as { id?: number; title?: string; sourceLanguage?: string | null; canonicalUrl?: string | null } | undefined;
-      if (!article?.canonicalUrl) throw new Error("読み上げできる記事がありません。");
-      const previous = await loadState();
-      const settings = await loadSettings();
-      const state: ReaderSession = {
-        items: [{ articleId: typeof article.id === "number" ? article.id : null, article: {
-          title: String(article.title || article.canonicalUrl), sourceLanguage: article.sourceLanguage ?? null, canonicalUrl: String(article.canonicalUrl),
-        } }],
-        index: 0,
-        readingTabId: previous?.readingTabId ?? null,
-        temporary: false,
-        autoplay: message.autoplay === true,
-        targetLanguage: String(message.targetLanguage || settings.targetLanguage),
-        rate: previous?.rate ?? settings.rate,
-        voiceName: previous?.voiceName ?? settings.voiceName,
-        playing: false,
-        positionPercent: 0,
-      };
-      await saveSettings({ targetLanguage: state.targetLanguage, rate: state.rate, voiceName: state.voiceName });
-      await openCurrent(state);
-      sendResponse({ ok: true, data: popupState(await loadState()) });
-    })().catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    return true;
-  }
+
   if (message?.type === "filoStartPage") {
     void (async () => {
-      const page = message.page as { tabId?: number; url?: string; title?: string } | undefined;
+      const page = message.page as { tabId?: number; url?: string } | undefined;
       if (!page || typeof page.tabId !== "number" || !/^https?:\/\//i.test(String(page.url ?? ""))) {
         throw new Error("読み上げできるページがありません。");
       }
       const previous = await loadState();
+      const settings = await loadSettings();
       const state: ReaderSession = {
-        items: [{
-          articleId: null,
-          article: {
-            title: String(page.title || page.url),
-            sourceLanguage: null,
-            canonicalUrl: String(page.url),
-          },
-        }],
-        index: 0,
-        readingTabId: page.tabId,
-        temporary: true,
-        autoplay: message.autoplay === true,
-        targetLanguage: String(message.targetLanguage || ""),
-        rate: previous?.rate ?? 1,
-        voiceName: previous?.voiceName ?? null,
+        tabId: page.tabId,
+        autoplay: true,
+        targetLanguage: String(message.targetLanguage || settings.targetLanguage),
+        rate: previous?.rate ?? settings.rate,
+        voiceName: previous?.voiceName ?? settings.voiceName,
         playing: false,
-        positionPercent: 0,
       };
-      await openCurrent(state);
-      sendResponse({ ok: true, data: popupState(await loadState()) });
+      await saveSettings({ targetLanguage: state.targetLanguage, rate: state.rate, voiceName: state.voiceName });
+      await saveState(state);
+      await playCurrent();
+      sendResponse({ ok: true, data: await loadSettings() });
     })().catch((error: unknown) => sendResponse({
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }));
     return true;
   }
+
   if (message?.type === "filoPageReady") {
-    void (async () => {
-      const state = await loadState();
-      if (!state || sender.tab?.id !== state.readingTabId) return;
-      if (!state.temporary) await publishState(state);
-      if (state.autoplay) await playCurrent();
-    })();
+    void loadState().then((state) => {
+      if (!state?.autoplay || sender.tab?.id !== state.tabId) return;
+      void playCurrent();
+    });
     return false;
   }
+
   if (message?.type === "filoControl") {
     void (async () => {
       const state = await loadState();
-      if (!state) {
-        sendResponse({ ok: false, error: "再生中のセッションがありません。" });
-        return;
-      }
+      if (!state) throw new Error("再生中のセッションがありません。");
       if (message.action === "play") await playCurrent();
       if (message.action === "pause") {
         playToken += 1;
         chrome.tts.stop();
+        state.autoplay = false;
         state.playing = false;
         await saveState(state);
       }
@@ -295,16 +161,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (typeof message.voiceName === "string" || message.voiceName === null) state.voiceName = message.voiceName;
         if (typeof message.targetLanguage === "string") state.targetLanguage = message.targetLanguage;
         await saveSettings({ targetLanguage: state.targetLanguage, rate: state.rate, voiceName: state.voiceName });
-        await saveState(state);
-        if (state.playing) await playCurrent();
+        if (state.playing) {
+          state.playing = false;
+          await saveState(state);
+          chrome.tts.stop();
+          await playCurrent();
+        } else {
+          await saveState(state);
+        }
       }
-      sendResponse({ ok: true, data: popupState(await loadState()) });
+      sendResponse({ ok: true, data: await loadSettings() });
     })().catch((error: unknown) => sendResponse({
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }));
     return true;
   }
+
   if (message?.type === "filoGetVoices") {
     chrome.tts.getVoices((voices) => sendResponse({
       ok: true,
@@ -312,14 +185,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }));
     return true;
   }
-  if (message?.type === "filoGetReaderState") {
-    void loadState()
-      .then((state) => sendResponse({ ok: true, data: popupState(state) }))
-      .catch((error: unknown) => sendResponse({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    return true;
-  }
+
   return false;
 });

@@ -1,15 +1,5 @@
 import { Readability } from "@mozilla/readability";
 
-const WEB_SOURCE = "filo-web";
-const EXTENSION_SOURCE = "filo-extension";
-
-window.addEventListener("message", (event) => {
-  if (event.source !== window || event.data?.source !== WEB_SOURCE) return;
-  if (event.data.type === "ping") {
-    window.postMessage({ source: EXTENSION_SOURCE, type: "ready" }, "*");
-  }
-});
-
 function normalize(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -40,7 +30,6 @@ function articleText(article: { title?: string | null; content?: string | null; 
 }
 
 function extract() {
-  // 記事の HTML を意味ブロック単位で再構成し、heading の取りこぼしを避ける。
   const article = new Readability(document.cloneNode(true) as Document, { charThreshold: 100 }).parse();
   const text = article ? articleText(article) : "";
   return text.length >= 100
@@ -49,14 +38,8 @@ function extract() {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "filoExtract") {
-    sendResponse(extract());
-    return false;
-  }
-  if (message?.type === "filoWebEvent") {
-    window.postMessage({ source: EXTENSION_SOURCE, type: "event", event: message.event }, "*");
-    return false;
-  }
+  if (message?.type !== "filoExtract") return false;
+  sendResponse(extract());
   return false;
 });
 
