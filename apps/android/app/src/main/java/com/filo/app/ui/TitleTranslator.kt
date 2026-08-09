@@ -96,15 +96,21 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
     var preparing by mutableStateOf<String?>(null)
         private set
 
+    // Web/iOS と同じく、端末で利用可能な翻訳候補がない場合は一覧の
+    // 翻訳トグル自体を表示しない。初回確認前だけは、確認を開始できるよう表示する。
+    val isSupported: Boolean
+        get() = !hasCheckedLanguages && candidates.value.isNotEmpty() ||
+            languages.any { it.status != TitleTranslationLanguage.Status.UNSUPPORTED }
+
     // 候補は「購読に実在する言語」。訳す必要がない言語は除く
-    private var candidates: List<String> = emptyList()
+    private val candidates = mutableStateOf<List<String>>(emptyList())
 
     fun titleFor(articleId: Int): String? = titles[articleId]
 
     // MARK: 準備（オンボーディング）
 
     fun setCandidates(subscriptions: List<Subscription>) {
-        candidates = subscriptions
+        candidates.value = subscriptions
             .mapNotNull { it.feed.language }
             .distinct()
             .filter { code ->
@@ -128,7 +134,7 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
         val targetTag = TranslateLanguage.fromLanguageTag(target)
         val targetReady = targetTag != null && downloaded.contains(targetTag)
 
-        languages = candidates.map { code ->
+        languages = candidates.value.map { code ->
             val tag = TranslateLanguage.fromLanguageTag(code)
             val status = when {
                 tag == null -> TitleTranslationLanguage.Status.UNSUPPORTED
@@ -279,6 +285,7 @@ private suspend fun <T> Task<T>.await(): T? = suspendCancellableCoroutine { cont
 // 一覧のツールバーに置く翻訳トグル
 @Composable
 fun TitleTranslationToggle(store: TitleTranslationStore) {
+    if (!store.isSupported) return
     IconButton(onClick = { store.toggle() }) {
         Icon(
             Icons.Default.Translate,
