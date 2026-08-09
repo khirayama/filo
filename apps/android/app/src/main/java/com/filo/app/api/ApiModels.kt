@@ -76,17 +76,7 @@ data class ReadingSessionItem(
     val articleId: Int,
     val sortOrder: Int,
     val article: ReadingSessionArticle,
-)
-
-data class PlaybackStateData(
-    val currentArticleId: Int?,
-    val contentLanguage: String?,
-    val positionPercent: Double,
-)
-
-data class ReadingSessionData(
-    val items: List<ReadingSessionItem>,
-    val playbackState: PlaybackStateData?,
+    val isRead: Boolean = false,
 )
 
 data class ArticleContent(
@@ -251,34 +241,6 @@ internal fun parseSavedArticle(json: JSONObject): SavedArticle =
         url = json.optString("url", ""),
         created = json.optBoolean("created", false),
     )
-
-internal fun parsePlaybackState(json: JSONObject?): PlaybackStateData? = json?.let {
-    PlaybackStateData(
-        currentArticleId = if (it.isNull("currentArticleId")) null else it.optInt("currentArticleId"),
-        contentLanguage = it.optStringOrNull("contentLanguage"),
-        positionPercent = it.optDouble("positionPercent", 0.0),
-    )
-}
-
-internal fun parseReadingSession(json: JSONObject): ReadingSessionData {
-    val array = json.optJSONArray("items") ?: JSONArray()
-    val items = (0 until array.length()).map { index ->
-        val row = array.getJSONObject(index)
-        val article = row.getJSONObject("article")
-        ReadingSessionItem(
-            articleId = row.getInt("articleId"),
-            sortOrder = row.optInt("sortOrder", index),
-            article = ReadingSessionArticle(
-                id = article.getInt("id"),
-                title = article.optString("title", ""),
-                sourceLanguage = article.optStringOrNull("sourceLanguage"),
-                canonicalUrl = article.optStringOrNull("canonicalUrl"),
-                feedTitle = article.optJSONObject("feed")?.optString("title", "") ?: "",
-            ),
-        )
-    }
-    return ReadingSessionData(items, parsePlaybackState(json.optJSONObject("playbackState")))
-}
 
 internal fun parseArticleContent(json: JSONObject): ArticleContent = ArticleContent(
     status = json.optString("status", "not_requested"),

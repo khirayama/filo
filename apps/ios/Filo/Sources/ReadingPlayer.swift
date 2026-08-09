@@ -76,6 +76,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                     sortOrder: 0,
                     article: article,
                     createdAt: nil,
+                    isRead: false,
                 )]
                 index = 0
                 readingListItems = (try? await loadReadingList()) ?? []
@@ -90,20 +91,15 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                     publishedAt: nil,
                     feed: .init(id: 0, title: "共有ページ", faviconUrl: nil),
                 )
-                items = [ReadingSessionItem(articleId: 0, sortOrder: 0, article: article, createdAt: nil)]
+                items = [ReadingSessionItem(articleId: 0, sortOrder: 0, article: article, createdAt: nil, isRead: false)]
                 index = 0
             } else {
                 temporary = false
-                let session = try await APIClient.shared.startReadingSession()
-                items = session.items
-                readingListItems = session.items
-                if let currentId = session.playbackState?.currentArticleId,
-                   let currentIndex = items.firstIndex(where: { $0.articleId == currentId }) {
-                    index = currentIndex
-                } else {
-                    index = -1
-                    errorMessage = "未読の記事がありません。"
-                }
+                let readingList = try await loadReadingList()
+                items = readingList
+                readingListItems = readingList
+                index = items.firstIndex(where: { !$0.isRead }) ?? -1
+                if index < 0 { errorMessage = "未読の記事がありません。" }
             }
             resetExtractedContent()
         } catch {
@@ -280,6 +276,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                     sortOrder: startIndex + offset,
                     article: ReadingSessionArticle(article),
                     createdAt: nil,
+                    isRead: article.userState.isRead,
                 )
             }
             result.append(contentsOf: pageItems)

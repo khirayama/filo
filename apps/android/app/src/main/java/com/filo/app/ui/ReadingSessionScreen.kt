@@ -178,10 +178,10 @@ class ReadingPlayerController(
                 index = 0
             } else {
                 temporary = false
-                val session = ApiClient.startReadingSession()
-                items = session.items
-                readingListItems = session.items
-                index = session.playbackState?.currentArticleId?.let { id -> items.indexOfFirst { it.articleId == id } } ?: -1
+                val readingList = loadReadingList()
+                items = readingList
+                readingListItems = readingList
+                index = items.indexOfFirst { !it.isRead }
                 if (index < 0) errorMessage = "未読の記事がありません。"
             }
             resetPage()
@@ -326,6 +326,7 @@ class ReadingPlayerController(
                         canonicalUrl = article.canonicalUrl,
                         feedTitle = article.feedTitle,
                     ),
+                    isRead = article.userState.isRead,
                 )
             }
             cursor = page.nextCursor

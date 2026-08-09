@@ -239,21 +239,6 @@ object ApiClient {
         return parseUserState(JSONObject(sendJson(method, "/api/v1/articles/$id/bookmark")).getJSONObject("data"))
     }
 
-    suspend fun startReadingSession(): ReadingSessionData =
-        parseReadingSession(JSONObject(sendJson("POST", "/api/v1/playback-queue/start", JSONObject())).getJSONObject("data"))
-
-    suspend fun updatePlaybackState(
-        currentArticleId: Int? = null,
-        contentLanguage: String? = null,
-        positionPercent: Double? = null,
-    ): PlaybackStateData? {
-        val body = JSONObject()
-        currentArticleId?.let { body.put("currentArticleId", it) }
-        contentLanguage?.let { body.put("contentLanguage", it) }
-        positionPercent?.let { body.put("positionPercent", it) }
-        return parsePlaybackState(JSONObject(sendJson("PATCH", "/api/v1/playback-queue/state", body)).optJSONObject("data"))
-    }
-
     suspend fun requestArticleContent(id: Int, force: Boolean = false): ArticleContent =
         parseArticleContent(
             JSONObject(sendJson("POST", "/api/v1/articles/$id/content", JSONObject().put("force", force))).getJSONObject("data"),

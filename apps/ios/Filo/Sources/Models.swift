@@ -119,18 +119,7 @@ struct ReadingSessionItem: Codable, Identifiable, Hashable {
     let sortOrder: Int
     let article: ReadingSessionArticle
     let createdAt: String?
-}
-
-struct PlaybackStateData: Codable, Hashable {
-    let currentArticleId: Int?
-    let contentLanguage: String?
-    let positionPercent: Double
-    let updatedAt: String?
-}
-
-struct ReadingSessionData: Codable, Hashable {
-    let items: [ReadingSessionItem]
-    let playbackState: PlaybackStateData?
+    let isRead: Bool
 }
 
 struct ArticleContent: Codable, Hashable {
