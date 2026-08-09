@@ -13,7 +13,6 @@ import { adminRoutes } from "./routes/admin";
 import { articleRoutes } from "./routes/articles";
 import { contentRoutes } from "./routes/content";
 import { opmlRoutes } from "./routes/opml";
-import { playbackQueueRoutes } from "./routes/playbackQueue";
 import { settingsRoutes } from "./routes/settings";
 import { statusRoutes } from "./routes/status";
 import { subscriptionRoutes } from "./routes/subscriptions";
@@ -72,7 +71,6 @@ authed.route("/subscriptions", subscriptionRoutes);
 authed.route("/tags", tagRoutes);
 authed.route("/articles", articleRoutes);
 authed.route("/articles", contentRoutes);
-authed.route("/playback-queue", playbackQueueRoutes);
 authed.route("/opml", opmlRoutes);
 
 const admin = new Hono<AppContext>();

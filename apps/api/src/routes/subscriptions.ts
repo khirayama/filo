@@ -9,7 +9,6 @@ import {
 } from "../lib/serialize";
 import { readCursorFor, unreadCountsForSubscriptions } from "../lib/readCursor";
 import { attachTags, resolveTagIdsByNames, tagIdsForSubscriptions } from "../lib/tagops";
-import { feedUrlAliases } from "../lib/net";
 import { nowIso, parseId, parseLimit, toIso } from "../lib/util";
 
 async function loadSubscription(db: D1Database, userId: number, subscriptionId: number): Promise<SubscriptionRow> {
@@ -22,9 +21,8 @@ async function loadSubscription(db: D1Database, userId: number, subscriptionId: 
 }
 
 async function findFeedByUrl(db: D1Database, feedUrl: string) {
-  const [canonical, alternate] = feedUrlAliases(feedUrl);
-  return db.prepare("SELECT id FROM feeds WHERE feed_url IN (?, ?) LIMIT 1")
-    .bind(canonical, alternate)
+  return db.prepare("SELECT id FROM feeds WHERE feed_url = ?")
+    .bind(feedUrl)
     .first<{ id: number }>();
 }
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeCursor, encodeCursor } from "../src/lib/cursor";
 import { discoverFeed } from "../src/lib/discovery";
 import { dedupeKeyFor, discoverFeedUrlsInHtml, parseFeed } from "../src/lib/feed";
-import { canonicalizeFeedUrl, canonicalizeUrl, feedUrlAliases, safeFetch } from "../src/lib/net";
+import { canonicalizeFeedUrl, canonicalizeUrl, safeFetch } from "../src/lib/net";
 import { buildOpml, parseOpml } from "../src/lib/opml";
 import { htmlToText, normalizeTagName, previewFrom } from "../src/lib/util";
 
@@ -209,14 +209,10 @@ describe("canonicalizeUrl", () => {
     );
   });
 
-  it("preserves trailing slashes for feed endpoints and recognises both slash forms", () => {
+  it("preserves trailing slashes for feed endpoints", () => {
     expect(canonicalizeFeedUrl("https://Example.com:443/Path/?utm_source=x&a=1&fbclid=y")).toBe(
       "https://example.com/Path/?a=1"
     );
-    expect(feedUrlAliases("https://example.com/Path/")).toEqual([
-      "https://example.com/Path/",
-      "https://example.com/Path",
-    ]);
   });
 });
 

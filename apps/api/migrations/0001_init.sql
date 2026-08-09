@@ -129,9 +129,9 @@ CREATE TABLE subscription_tags (
 
 -- Articles
 
--- `source_language` is what the translation model reported about the title, so
--- it stays NULL until the article has been through a translation drain. No
--- local language inference writes it.
+-- `source_language` is the language inferred from the feed and article text.
+-- Clients use it to decide whether an on-device translation is needed and to
+-- select a voice for reading.
 CREATE TABLE articles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   feed_id INTEGER NOT NULL,
@@ -151,7 +151,7 @@ CREATE TABLE articles (
   FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE RESTRICT
 );
 
--- Body extraction exists for the reading part (speech queue) only. A row here
+-- Body extraction exists for the reading part only. A row here
 -- always means an extraction was requested, so `pending` means a job is in
 -- flight and nothing else may create the row.
 CREATE TABLE article_contents (
@@ -163,24 +163,6 @@ CREATE TABLE article_contents (
   error_message TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- One row per (article, target language). These rows are the translation work
--- ledger: `pending` is queued, `processing_at` marks a pair in flight to the
--- model, `ready`/`error` are terminal. There is no separate translation job.
-CREATE TABLE article_listing_translations (
-  article_id INTEGER NOT NULL,
-  language TEXT NOT NULL,
-  title TEXT,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'ready', 'error')),
-  attempt_count INTEGER NOT NULL DEFAULT 0,
-  processing_at TEXT,
-  error_message TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (article_id, language),
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
 );
 
 -- Explicit read overrides. A missing row does not mean unread: the feed read
@@ -254,8 +236,7 @@ CREATE TABLE feed_fetch_logs (
 
 -- A user-requested feed fetch. The row is written before the queue message, so
 -- a lost message still leaves a row the status screen shows as interrupted and
--- the user can re-run. Title translation has no job row; its ledger is
--- article_listing_translations.
+-- the user can re-run.
 CREATE TABLE feed_jobs (
   user_id INTEGER NOT NULL,
   feed_id INTEGER NOT NULL,
@@ -269,29 +250,6 @@ CREATE TABLE feed_jobs (
   PRIMARY KEY (user_id, feed_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
-);
-
--- Playback queue
-
-CREATE TABLE playback_queue_items (
-  user_id INTEGER NOT NULL,
-  article_id INTEGER NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (user_id, article_id),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
-);
-
-CREATE TABLE playback_states (
-  user_id INTEGER PRIMARY KEY,
-  current_article_id INTEGER,
-  content_language TEXT,
-  position_percent REAL NOT NULL DEFAULT 0
-    CHECK (position_percent >= 0 AND position_percent <= 1),
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (current_article_id) REFERENCES articles(id) ON DELETE SET NULL
 );
 
 -- Indexes
@@ -313,13 +271,9 @@ CREATE INDEX idx_article_read_states_article_id ON article_read_states(article_i
 CREATE INDEX idx_article_user_collections_user_kind_article
   ON article_user_collections(user_id, kind, article_id);
 CREATE INDEX idx_article_user_collections_article_id ON article_user_collections(article_id);
--- The drain selects pending pairs across every article.
-CREATE INDEX idx_article_listing_translations_status
-  ON article_listing_translations(status, article_id);
 CREATE INDEX idx_feed_fetch_states_next_fetch_after ON feed_fetch_states(next_fetch_after);
 CREATE INDEX idx_feed_jobs_user_status ON feed_jobs(user_id, status, updated_at);
 CREATE INDEX idx_feed_jobs_feed_status ON feed_jobs(feed_id, status);
 CREATE INDEX idx_account_deletion_jobs_status_updated_at ON account_deletion_jobs(status, updated_at);
 CREATE INDEX idx_account_deletion_jobs_clerk_user_id ON account_deletion_jobs(clerk_user_id);
 CREATE INDEX idx_opml_import_jobs_user_created_at ON opml_import_jobs(user_id, created_at DESC);
-CREATE INDEX idx_playback_queue_items_user_sort ON playback_queue_items(user_id, sort_order);

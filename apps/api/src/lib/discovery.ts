@@ -1,10 +1,14 @@
 import { ApiError } from "./errors";
 import { COMMON_FEED_PATHS, discoverFeedUrlsInHtml, looksLikeFeed, parseFeed, type ParsedFeed } from "./feed";
-import { alternateTrailingSlashUrl, canonicalizeFeedUrl, feedUrlAliases, readTextCapped, safeFetch } from "./net";
+import { alternateTrailingSlashUrl, canonicalizeFeedUrl, readTextCapped, safeFetch } from "./net";
 
 export interface DiscoveredFeed {
   feedUrl: string;
   parsed: ParsedFeed;
+}
+
+function sameEndpoint(left: string, right: string): boolean {
+  return left.replace(/\/+$/, "") === right.replace(/\/+$/, "");
 }
 
 async function servesParseableFeed(url: string): Promise<boolean> {
@@ -38,7 +42,7 @@ export async function resolveCanonicalFeedUrl(parsed: ParsedFeed, fetchedUrl: st
   } catch {
     return fallback;
   }
-  if (feedUrlAliases(canonical).includes(fallback)) return canonical;
+  if (sameEndpoint(canonical, fallback)) return canonical;
   return (await servesParseableFeed(canonical)) ? canonical : fallback;
 }
 

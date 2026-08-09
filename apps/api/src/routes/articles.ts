@@ -81,9 +81,9 @@ async function saveArticleFromUrl(
   const now = nowIso();
   const title = input.title ?? fallbackSavedArticleTitle(input.url);
 
-  // A saved page is a paused source rather than a subscription. This keeps
-  // the existing article/list/playback schema usable without making it appear
-  // in feed subscription management or feed refresh jobs.
+  // A saved page is a paused source rather than a subscription. This keeps it
+  // in the article/content pipeline without making it appear in feed
+  // subscription management or feed refresh jobs.
   await db.prepare(
     `INSERT INTO feeds (feed_url, site_url, title, status, created_at, updated_at)
      VALUES (?, ?, ?, 'paused', ?, ?)

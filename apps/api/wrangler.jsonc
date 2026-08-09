@@ -13,12 +13,6 @@
       "migrations_dir": "migrations"
     }
   ],
-  // Title translation runs on-device, so the worker no longer owns a
-  // translation drain, its queue, or the watchdog that restarted it.
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["TranslationWatchdog"] },
-    { "tag": "v2", "deleted_classes": ["TranslationWatchdog"] }
-  ],
   "queues": {
     "producers": [
       { "binding": "JOBS", "queue": "filo-jobs" }

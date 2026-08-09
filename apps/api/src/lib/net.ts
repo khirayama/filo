@@ -188,11 +188,3 @@ export function alternateTrailingSlashUrl(rawUrl: string): string | null {
   url.pathname = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : `${url.pathname}/`;
   return url.toString();
 }
-
-// A publisher's feed may be stored under either slash form, so both are
-// recognised as the same feed and an existing row is reused, not duplicated.
-export function feedUrlAliases(rawUrl: string): [string, string] {
-  const canonical = canonicalizeFeedUrl(rawUrl);
-  const alternate = alternateTrailingSlashUrl(canonical);
-  return [canonical, alternate ? canonicalizeFeedUrl(alternate) : canonical];
-}

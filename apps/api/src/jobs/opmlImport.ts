@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import { discoverFeed, faviconUrlFor } from "../lib/discovery";
 import { parseOpml } from "../lib/opml";
-import { feedUrlAliases } from "../lib/net";
+import { canonicalizeFeedUrl } from "../lib/net";
 import { attachTags, resolveTagIdsByNames } from "../lib/tagops";
 import { nowIso } from "../lib/util";
 
@@ -67,21 +67,20 @@ export async function runOpmlImport(env: Env, opmlJobId: number): Promise<void> 
 
   for (const outline of outlines.outlines) {
     try {
-      let feedUrlAliasesForOutline: [string, string];
+      let feedUrl: string;
       try {
-        feedUrlAliasesForOutline = feedUrlAliases(outline.feedUrl);
+        feedUrl = canonicalizeFeedUrl(outline.feedUrl);
       } catch {
         throw new Error("invalid feed URL");
       }
 
-      let feed = await env.DB.prepare("SELECT id FROM feeds WHERE feed_url IN (?, ?) LIMIT 1")
-        .bind(...feedUrlAliasesForOutline)
+      let feed = await env.DB.prepare("SELECT id FROM feeds WHERE feed_url = ?")
+        .bind(feedUrl)
         .first<{ id: number }>();
       if (!feed) {
         const discovered = await discoverFeed(outline.feedUrl);
-        const discoveredAliases = feedUrlAliases(discovered.feedUrl);
-        feed = await env.DB.prepare("SELECT id FROM feeds WHERE feed_url IN (?, ?) LIMIT 1")
-          .bind(...discoveredAliases)
+        feed = await env.DB.prepare("SELECT id FROM feeds WHERE feed_url = ?")
+          .bind(discovered.feedUrl)
           .first<{ id: number }>();
         if (!feed) {
           const ts = nowIso();

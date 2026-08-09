@@ -8,7 +8,6 @@ import {
   alternateTrailingSlashUrl,
   canonicalizeFeedUrl,
   canonicalizeUrl,
-  feedUrlAliases,
   readTextCapped,
   safeFetch,
 } from "../lib/net";
@@ -115,45 +114,13 @@ async function fetchFeedDocument(feedUrl: string, headers: Record<string, string
   throw new Error(fallback.error);
 }
 
-// Persist a feed's new canonical URL, discovered via a permanent redirect or
-// the feed's self link. When another feed row already owns that URL (e.g. an
-// old domain now redirects to a feed users also subscribe to directly), the
-// two rows are the same publication: fold this feed's subscribers into the
-// existing row and pause the legacy one instead of failing on the UNIQUE index.
-async function migrateFeedUrl(env: Env, feedId: number, newFeedUrl: string, now: string): Promise<void> {
-  const [canonical, alternate] = feedUrlAliases(newFeedUrl);
-  const target = await env.DB.prepare("SELECT id FROM feeds WHERE feed_url IN (?, ?) AND id != ?")
-    .bind(canonical, alternate, feedId)
-    .first<{ id: number }>();
-  if (!target) {
-    // OR IGNORE covers a race where the target row appears between the check and the update
-    await env.DB.prepare("UPDATE OR IGNORE feeds SET feed_url = ?, updated_at = ? WHERE id = ?")
-      .bind(canonical, now, feedId)
-      .run();
-    return;
-  }
-  await env.DB.batch([
-    // a user subscribed to both rows keeps the surviving subscription
-    env.DB.prepare(
-      "DELETE FROM subscriptions WHERE feed_id = ? AND user_id IN (SELECT user_id FROM subscriptions WHERE feed_id = ?)"
-    ).bind(feedId, target.id),
-    env.DB.prepare("UPDATE subscriptions SET feed_id = ?, updated_at = ? WHERE feed_id = ?").bind(
-      target.id,
-      now,
-      feedId
-    ),
-    // read cursors are article-id watermarks on a global sequence, so a carried
-    // over cursor still approximates "read up to this point in time"
-    env.DB.prepare(
-      "DELETE FROM feed_read_cursors WHERE feed_id = ? AND user_id IN (SELECT user_id FROM feed_read_cursors WHERE feed_id = ?)"
-    ).bind(feedId, target.id),
-    env.DB.prepare("UPDATE feed_read_cursors SET feed_id = ?, updated_at = ? WHERE feed_id = ?").bind(
-      target.id,
-      now,
-      feedId
-    ),
-    env.DB.prepare("UPDATE feeds SET status = 'paused', updated_at = ? WHERE id = ?").bind(now, feedId),
-  ]);
+// Keep the stored URL aligned with the feed's permanent redirect or self link.
+// A conflicting URL is left untouched; feed identity is established at
+// subscription time and is never merged implicitly during a fetch.
+async function updateFeedUrl(env: Env, feedId: number, newFeedUrl: string, now: string): Promise<void> {
+  await env.DB.prepare("UPDATE OR IGNORE feeds SET feed_url = ?, updated_at = ? WHERE id = ?")
+    .bind(canonicalizeFeedUrl(newFeedUrl), now, feedId)
+    .run();
 }
 
 async function markWaitingSubscriptions(env: Env, feedId: number, status: "ready" | "failed", errorCode: string | null) {
@@ -297,9 +264,8 @@ export async function runFetchFeed(
       await markWaitingSubscriptions(env, feedId, "ready", null);
       await settleFetchJobs(env.DB, feedId, "completed", { finishedAt: now });
       // a permanently redirected feed has moved; follow it so refreshes stop
-      // depending on the old endpoint staying alive
       if (fetched.permanentRedirect) {
-        await migrateFeedUrl(env, feedId, canonicalizeFeedUrl(fetched.finalUrl), now);
+        await updateFeedUrl(env, feedId, fetched.finalUrl, now);
       }
       return;
     }
@@ -366,7 +332,7 @@ export async function runFetchFeed(
         .first<{ id: number; source_language: string | null }>();
       if (existing) {
         // 既存記事の言語は、まだ入っていないときだけ埋める。判定規則を変えるたびに
-        // 全記事を書き換えると、既読・キューなどの下流が理由なく揺れる
+        // 全記事を書き換えると、既読などの下流状態が理由なく揺れる
         await env.DB.prepare(
           `UPDATE articles SET title = ?, author = ?, rss_summary = ?, rss_content_html = ?,
              canonical_url = COALESCE(?, canonical_url), published_at = COALESCE(?, published_at),
@@ -444,10 +410,8 @@ export async function runFetchFeed(
       await env.DB.prepare("UPDATE feeds SET status = 'active', updated_at = ? WHERE id = ?").bind(now, feedId).run();
     }
 
-    // Runs last so waiting subscriptions are settled before any are repointed
-    // to an existing feed row by a merge.
     if (canonicalFeedUrl !== feed.feed_url) {
-      await migrateFeedUrl(env, feedId, canonicalFeedUrl, now);
+      await updateFeedUrl(env, feedId, canonicalFeedUrl, now);
     }
 
   } catch (error) {
