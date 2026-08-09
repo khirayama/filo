@@ -1,6 +1,5 @@
 package com.filo.app.ui
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,7 +69,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.filo.app.ThemePreference
 import com.filo.app.api.ArticleListItem
@@ -88,6 +86,8 @@ fun ArticlesScreen(
     onOpenSubscription: (Int) -> Unit,
     onOpenSubscriptions: () -> Unit,
     onOpenAddFeed: () -> Unit,
+    onOpenAddArticle: () -> Unit,
+    onOpenArticle: (ArticleListItem) -> Unit,
     onOpenTags: () -> Unit,
     onOpenStatus: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -103,7 +103,6 @@ fun ArticlesScreen(
     val isLoading = vm.isLoading
     val isLoadingMore = vm.isLoadingMore
     val errorMessage = vm.errorMessage
-    val openInBrowserByDefault = vm.openInBrowserByDefault
     val nextCursor = vm.nextCursor
 
     var selectedTagId by vm::selectedTagId
@@ -190,6 +189,10 @@ fun ArticlesScreen(
                     onOpenAddFeed = {
                         scope.launch { drawerState.close() }
                         onOpenAddFeed()
+                    },
+                    onOpenAddArticle = {
+                        scope.launch { drawerState.close() }
+                        onOpenAddArticle()
                     },
                     onOpenSubscriptions = {
                         scope.launch { drawerState.close() }
@@ -355,10 +358,14 @@ fun ArticlesScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             when {
-                                subscriptions.isEmpty() -> {
+                                subscriptions.isEmpty() && selectedTagId == null && readFilter == null && !readingListOnly && !bookmarkedOnly -> {
                                     Text("まだ購読がありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Button(onClick = onOpenAddFeed) { Text("フィードを追加して始めましょう") }
                                 }
+                                readingListOnly -> Text("リーディングリストに保存した記事はありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                bookmarkedOnly -> Text("ブックマークした記事はありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                readFilter == false -> Text("未読の記事はありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                readFilter == true -> Text("既読の記事はありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 hasFetchingSubscriptionInScope -> {
                                     CircularProgressIndicator()
                                     Text("記事を取得しています…", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -373,11 +380,7 @@ fun ArticlesScreen(
                         ArticleRow(
                             article = article,
                             translations = translations,
-                            onOpen = {
-                                article.canonicalUrl?.let { url ->
-                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
-                                }
-                            },
+                            onOpen = { onOpenArticle(article) },
                             onToggleRead = { vm.patchState(article, isRead = !article.userState.isRead) },
                             onToggleReadingList = { vm.patchState(article, inReadingList = !article.userState.inReadingList) },
                             onToggleBookmark = { vm.patchState(article, isBookmarked = !article.userState.isBookmarked) },
@@ -446,6 +449,7 @@ private fun SourcesDrawerContent(
     onSelectView: (tagId: Int?, readingList: Boolean, bookmarked: Boolean) -> Unit,
     onOpenSubscription: (Int) -> Unit,
     onOpenAddFeed: () -> Unit,
+    onOpenAddArticle: () -> Unit,
     onOpenSubscriptions: () -> Unit,
     onOpenTags: () -> Unit,
     onOpenStatus: () -> Unit,
@@ -474,6 +478,14 @@ private fun SourcesDrawerContent(
             Icon(Icons.Default.Add, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("フィードを追加")
+        }
+        OutlinedButton(
+            onClick = onOpenAddArticle,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 0.dp),
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("記事を追加")
         }
         NavigationDrawerItem(
             label = { Text("全ての記事") },

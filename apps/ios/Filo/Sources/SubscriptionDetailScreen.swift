@@ -188,6 +188,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
 struct SubscriptionDetailScreen: View {
     @StateObject private var model: SubscriptionDetailViewModel
     @ObservedObject private var translations = TitleTranslationStore.shared
+    let onOpenArticle: (ArticleListItem) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var showRename = false
@@ -196,8 +197,9 @@ struct SubscriptionDetailScreen: View {
     @State private var showMarkAllReadConfirm = false
     @State private var showFeedUrl = false
 
-    init(subscriptionId: Int) {
+    init(subscriptionId: Int, onOpenArticle: @escaping (ArticleListItem) -> Void = { _ in }) {
         _model = StateObject(wrappedValue: SubscriptionDetailViewModel(subscriptionId: subscriptionId))
+        self.onOpenArticle = onOpenArticle
     }
 
     var body: some View {
@@ -289,7 +291,7 @@ struct SubscriptionDetailScreen: View {
                 } else {
                     ForEach(model.articles) { article in
                         Button {
-                            if let value = article.canonicalUrl, let url = URL(string: value) { openURL(url) }
+                            onOpenArticle(article)
                         } label: {
                             ArticleRowView(article: article)
                         }

@@ -26,6 +26,18 @@ struct SourcesDrawer: View {
                 .padding(.bottom, 12)
                 .simultaneousGesture(TapGesture().onEnded { onSelect() })
 
+                NavigationLink(value: AppRoute.addArticle("")) {
+                    Label("記事を追加", systemImage: "doc.badge.plus")
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .simultaneousGesture(TapGesture().onEnded { onSelect() })
+
                 drawerItem("全ての記事", icon: "list.bullet", isActive: model.selectedTagId == nil && !model.readingListOnly && !model.bookmarkedOnly) {
                     model.selectView()
                 }

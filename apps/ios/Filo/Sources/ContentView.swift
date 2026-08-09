@@ -12,6 +12,7 @@ enum AppRoute: Hashable {
     case accountDeletionStatus(String?)
     case readingSession(Bool)
     case readingPage(String)
+    case readingArticle(ReadingSessionArticle)
     case addArticle(String)
 }
 
@@ -105,13 +106,20 @@ struct AppNavigationView: View {
                         case .tags:
                             TagsScreen()
                         case .subscriptionDetail(let id):
-                            SubscriptionDetailScreen(subscriptionId: id)
+                            SubscriptionDetailScreen(
+                                subscriptionId: id,
+                                onOpenArticle: { article in
+                                    path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
+                                },
+                            )
                         case .accountDeletionStatus(let token):
                             AccountDeletionStatusScreen(deletionToken: token)
                         case .readingSession(let autoplay):
                             ReadingSessionScreen(autoplay: autoplay)
                         case .readingPage(let url):
                             ReadingSessionScreen(autoplay: false, temporaryUrl: url)
+                        case .readingArticle(let article):
+                            ReadingSessionScreen(autoplay: false, article: article)
                         case .addArticle(let url):
                             AddArticleScreen(
                                 initialUrl: url,

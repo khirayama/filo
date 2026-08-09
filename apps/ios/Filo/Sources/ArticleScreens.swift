@@ -223,7 +223,6 @@ struct ArticlesScreen: View {
     @State private var showDrawer = false
     @State private var showMarkAllReadConfirm = false
     @State private var showRemoveReadConfirm = false
-    @Environment(\.openURL) private var openURL
 
     private var markAllReadPrompt: String {
         if let tagId = model.selectedTagId, let tag = model.tags.first(where: { $0.id == tagId }) {
@@ -373,8 +372,8 @@ struct ArticlesScreen: View {
                     ArticleRowView(article: article)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
-                            openURL(url)
+                        if let urlString = article.canonicalUrl, URL(string: urlString) != nil {
+                            path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
                         }
                     }
                     .swipeActions(edge: .trailing) {
@@ -426,7 +425,11 @@ struct ArticlesScreen: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if model.subscriptions.isEmpty {
+        if model.subscriptions.isEmpty,
+           model.selectedTagId == nil,
+           model.readFilter == nil,
+           !model.readingListOnly,
+           !model.bookmarkedOnly {
             EmptyStateView {
                 Text("まだ購読がありません。")
                 NavigationLink(value: AppRoute.addFeed) {

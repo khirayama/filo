@@ -518,6 +518,16 @@ private fun RssNavigation(
                 onOpenSubscription = { navController.navigate("subscription/$it") },
                 onOpenSubscriptions = { navController.navigate("subscriptions") },
                 onOpenAddFeed = { navController.navigate("addFeed") },
+                onOpenAddArticle = { navController.navigate("addArticle") },
+                onOpenArticle = { article ->
+                    article.canonicalUrl?.let { url ->
+                        navController.navigate(
+                            "reading-article/${article.id}?url=${Uri.encode(url)}" +
+                                "&title=${Uri.encode(article.title)}" +
+                                "&language=${Uri.encode(article.sourceLanguage ?: "")}",
+                        )
+                    }
+                },
                 onOpenTags = { navController.navigate("tags") },
                 onOpenStatus = { navController.navigate("status") },
                 onOpenSettings = { navController.navigate("settings") },
@@ -539,6 +549,29 @@ private fun RssNavigation(
                 player = readingPlayer,
                 autoplay = false,
                 temporaryUrl = entry.arguments?.getString("url"),
+                onBack = { navController.navigateUp() },
+            )
+        }
+        composable(
+            "reading-article/{articleId}?url={url}&title={title}&language={language}",
+            arguments = listOf(
+                navArgument("articleId") { type = NavType.IntType },
+                navArgument("url") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType },
+                navArgument("language") { type = NavType.StringType },
+            ),
+        ) { entry ->
+            val article = com.filo.app.api.ReadingSessionArticle(
+                id = entry.arguments?.getInt("articleId") ?: 0,
+                title = entry.arguments?.getString("title").orEmpty(),
+                sourceLanguage = entry.arguments?.getString("language")?.takeIf { it.isNotBlank() },
+                canonicalUrl = entry.arguments?.getString("url"),
+                feedTitle = "記事",
+            )
+            com.filo.app.ui.ReadingSessionScreen(
+                player = readingPlayer,
+                autoplay = false,
+                directArticle = article,
                 onBack = { navController.navigateUp() },
             )
         }
@@ -592,6 +625,15 @@ private fun RssNavigation(
                 translations = titleTranslations,
                 subscriptionId = id,
                 onBack = { navController.navigateUp() },
+                onOpenArticle = { article ->
+                    article.canonicalUrl?.let { url ->
+                        navController.navigate(
+                            "reading-article/${article.id}?url=${Uri.encode(url)}" +
+                                "&title=${Uri.encode(article.title)}" +
+                                "&language=${Uri.encode(article.sourceLanguage ?: "")}",
+                        )
+                    }
+                },
             )
         }
         composable("accountDeletion?token={token}") { entry ->

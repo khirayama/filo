@@ -61,6 +61,7 @@ fun SubscriptionDetailScreen(
     subscriptionId: Int,
     translations: TitleTranslationStore,
     onBack: () -> Unit,
+    onOpenArticle: (ArticleListItem) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -379,11 +380,7 @@ fun SubscriptionDetailScreen(
                     ArticleRow(
                         article = article,
                         translations = translations,
-                        onOpen = {
-                            article.canonicalUrl?.let { url ->
-                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
-                            }
-                        },
+                        onOpen = { onOpenArticle(article) },
                         onToggleRead = { patchState(article, isRead = !article.userState.isRead) },
                         onToggleReadingList = {
                             patchState(article, inReadingList = !article.userState.inReadingList)

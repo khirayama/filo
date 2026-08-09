@@ -96,6 +96,23 @@ struct ReadingSessionArticle: Codable, Hashable {
     let feed: Feed
 }
 
+extension ReadingSessionArticle {
+    init(_ article: ArticleListItem) {
+        self.init(
+            id: article.id,
+            title: article.title,
+            sourceLanguage: article.sourceLanguage,
+            canonicalUrl: article.canonicalUrl,
+            publishedAt: article.publishedAt,
+            feed: .init(
+                id: article.feed.id,
+                title: article.feed.title,
+                faviconUrl: article.feed.faviconUrl,
+            ),
+        )
+    }
+}
+
 struct ReadingSessionItem: Codable, Identifiable, Hashable {
     var id: Int { articleId }
     let articleId: Int
