@@ -316,21 +316,6 @@ fun ArticlesScreen(
                         FilterChipButton("既読のみ", readFilter == true) { readFilter = true }
                     }
                 }
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(top = 4.dp, bottom = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        tags.forEach { tag ->
-                            FilterChipButton(tag.name, selectedTagId == tag.id) {
-                                selectedTagId = if (selectedTagId == tag.id) null else tag.id
-                            }
-                        }
-                    }
-                }
                 vm.refreshNotice?.let { notice ->
                     item {
                         Text(

@@ -336,11 +336,6 @@ struct ArticlesScreen: View {
                         FilterChip(label: "既読", isOn: model.readFilter == true) {
                             model.readFilter = model.readFilter == true ? nil : true
                         }
-                        ForEach(model.tags) { tag in
-                            FilterChip(label: tag.name, isOn: model.selectedTagId == tag.id) {
-                                model.selectedTagId = model.selectedTagId == tag.id ? nil : tag.id
-                            }
-                        }
                     }
                 }
                 .listRowSeparator(.hidden)
