@@ -100,6 +100,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "filoGetState") {
+    void loadState().then((state) => sendResponse({ ok: true, data: state }));
+    return true;
+  }
+
   if (message?.type === "filoSetSettings") {
     void saveSettings({
       targetLanguage: typeof message.targetLanguage === "string" ? message.targetLanguage : undefined,

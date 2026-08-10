@@ -20,6 +20,15 @@ interface CurrentPage {
   title: string;
 }
 
+interface ReaderSession {
+  tabId: number;
+  autoplay: boolean;
+  targetLanguage: string;
+  rate: number;
+  voiceName: string | null;
+  playing: boolean;
+}
+
 async function send<T>(message: unknown): Promise<T> {
   const response = await chrome.runtime.sendMessage(message) as { ok?: boolean; error?: string; data?: T } | undefined;
   if (!response?.ok) throw new Error(response?.error ?? "拡張機能を操作できませんでした。");
@@ -45,6 +54,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<{ url: string; title: string } | null>(null);
+  const [readerState, setReaderState] = useState<ReaderSession | null>(null);
 
   const getCurrentPage = useCallback(async (): Promise<CurrentPage | null> => {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -83,6 +93,10 @@ export function App() {
     setSettings(nextSettings);
   }, []);
 
+  const loadReaderState = useCallback(async () => {
+    setReaderState(await send<ReaderSession | null>({ type: "filoGetState" }));
+  }, []);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -90,6 +104,7 @@ export function App() {
       const [nextArticles] = await Promise.all([
         isSignedIn ? api.listReadingArticles() : Promise.resolve([] as ReadingArticle[]),
         loadSettings(),
+        loadReaderState(),
         loadCurrentPage(),
       ]);
       setArticles(nextArticles);
@@ -98,7 +113,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [api, isSignedIn, loadCurrentPage, loadSettings]);
+  }, [api, isSignedIn, loadCurrentPage, loadReaderState, loadSettings]);
 
   useEffect(() => {
     document.title = "Filo Reader";
@@ -110,7 +125,11 @@ export function App() {
 
   useEffect(() => {
     const onStorageChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
-      if (area === "local" && changes["filo:readerSettings"]) void loadSettings().catch(() => undefined);
+      if (area !== "local") return;
+      if (changes["filo:readerSettings"]) void loadSettings().catch(() => undefined);
+      if (changes["filo:readerState"]) {
+        setReaderState((changes["filo:readerState"].newValue as ReaderSession | undefined) ?? null);
+      }
     };
     chrome.storage.onChanged.addListener(onStorageChanged);
     return () => chrome.storage.onChanged.removeListener(onStorageChanged);
@@ -130,6 +149,7 @@ export function App() {
         autoplay: true,
         targetLanguage: settings.targetLanguage,
       }));
+      await loadReaderState();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -182,6 +202,7 @@ export function App() {
         setSettings(nextSettings);
       } else {
         setSettings(await send<ReaderSettings>({ type: "filoControl", action, ...settings }));
+        await loadReaderState();
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -194,6 +215,7 @@ export function App() {
 
   const { targetLanguage, rate, voiceName } = settings;
   const filteredVoices = voices.filter((voice) => !targetLanguage || voice.lang?.startsWith(targetLanguage));
+  const isPlaying = readerState?.playing === true;
 
   return (
     <main className="popup-shell">
@@ -207,8 +229,12 @@ export function App() {
         <section className="current-page" aria-label="現在のページ">
           <p className="section-label">現在のページ</p>
           <h1>{currentPage?.title || "読み上げるページを開いてください"}</h1>
-          <button className="primary-action read-page-button" disabled={busy || !currentPage} onClick={() => void startCurrentPage()}>
-            {currentPage ? "このページを読み上げ" : "読み上げできるページなし"}
+          <button
+            className="primary-action read-page-button"
+            disabled={busy || (!currentPage && !isPlaying)}
+            onClick={() => void (isPlaying ? control("pause") : startCurrentPage())}
+          >
+            {isPlaying ? "読み上げを停止" : currentPage ? "このページを読み上げ" : "読み上げできるページなし"}
           </button>
           <button className="secondary-action read-page-button" disabled={busy || !currentPage} onClick={() => void addCurrentPage()}>
             リーディングリストに追加
