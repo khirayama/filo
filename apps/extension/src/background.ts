@@ -11,6 +11,7 @@ const STATE_KEY = "filo:readerState";
 const SETTINGS_KEY = "filo:readerSettings";
 const DEFAULT_SETTINGS = { targetLanguage: "ja", rate: 1, voiceName: null as string | null };
 let playToken = 0;
+let activePlay: Promise<void> | null = null;
 
 async function loadState(): Promise<ReaderSession | null> {
   const stored = await chrome.storage.local.get(STATE_KEY);
@@ -62,17 +63,18 @@ async function translateBestEffort(text: string, source: string | null, target: 
   }
 }
 
-async function playCurrent(): Promise<void> {
+async function playCurrentImpl(): Promise<void> {
+  const token = ++playToken;
   const state = await loadState();
   if (!state) return;
 
   const extracted = await chrome.tabs.sendMessage(state.tabId, { type: "filoExtract" }).catch(() => null) as
     | { text: string; lang: string | null }
     | null;
-  if (!extracted?.text) return;
+  if (token !== playToken || !extracted?.text) return;
 
   const text = await translateBestEffort(extracted.text, extracted.lang, state.targetLanguage);
-  const token = ++playToken;
+  if (token !== playToken) return;
   state.autoplay = false;
   state.playing = true;
   await saveState(state);
@@ -92,6 +94,15 @@ async function playCurrent(): Promise<void> {
       });
     },
   });
+}
+
+function playCurrent(): Promise<void> {
+  if (activePlay) return activePlay;
+  const run = playCurrentImpl();
+  activePlay = run.finally(() => {
+    activePlay = null;
+  });
+  return activePlay;
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
