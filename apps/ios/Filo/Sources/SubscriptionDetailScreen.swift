@@ -12,6 +12,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var isLoadingMore = false
     @Published var isGone = false
     @Published var errorMessage: String?
+    @Published var openInBrowserByDefault = false
 
     @Published var sort = "published_at_desc" {
         didSet { if sort != oldValue { invalidateArticleRequests() } }
@@ -44,8 +45,9 @@ final class SubscriptionDetailViewModel: ObservableObject {
             subscription = try await APIClient.shared.getSubscription(subscriptionId)
             allTags = (try? await APIClient.shared.listTags()) ?? []
             // 初期並び順は current user の articleSortOrder に従う
-            if let settings = try? await APIClient.shared.getSettings(), sort != settings.articleSortOrder {
-                sort = settings.articleSortOrder
+            if let settings = try? await APIClient.shared.getSettings() {
+                if sort != settings.articleSortOrder { sort = settings.articleSortOrder }
+                openInBrowserByDefault = settings.openInBrowserByDefault
             }
             await reloadArticles()
         } catch let error as APIError where error.status == 404 {
@@ -291,7 +293,13 @@ struct SubscriptionDetailScreen: View {
                 } else {
                     ForEach(model.articles) { article in
                         Button {
-                            onOpenArticle(article)
+                            if model.openInBrowserByDefault,
+                               let urlString = article.canonicalUrl,
+                               let url = URL(string: urlString) {
+                                openURL(url)
+                            } else {
+                                onOpenArticle(article)
+                            }
                         } label: {
                             ArticleRowView(article: article)
                         }

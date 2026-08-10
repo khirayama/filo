@@ -220,6 +220,7 @@ struct ArticlesScreen: View {
     @Binding var path: NavigationPath
     @ObservedObject var model: ArticlesViewModel
     @ObservedObject private var translations = TitleTranslationStore.shared
+    @Environment(\.openURL) private var openURL
     @State private var showDrawer = false
     @State private var showMarkAllReadConfirm = false
     @State private var showRemoveReadConfirm = false
@@ -367,8 +368,12 @@ struct ArticlesScreen: View {
                     ArticleRowView(article: article)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if let urlString = article.canonicalUrl, URL(string: urlString) != nil {
-                            path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
+                        if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
+                            if model.settings?.openInBrowserByDefault == true {
+                                openURL(url)
+                            } else {
+                                path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
+                            }
                         }
                     }
                     .swipeActions(edge: .trailing) {
