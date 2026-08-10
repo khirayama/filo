@@ -78,6 +78,7 @@ fun SubscriptionDetailScreen(
 
     var sort by remember { mutableStateOf("published_at_desc") }
     var readFilter by remember { mutableStateOf<Boolean?>(null) }
+    var openInBrowserByDefault by remember { mutableStateOf(false) }
 
     var showRename by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
@@ -165,7 +166,12 @@ fun SubscriptionDetailScreen(
             subscription = ApiClient.getSubscription(subscriptionId)
             runCatching { allTags = ApiClient.listTags() }
             // 初期並び順は current user の articleSortOrder に従う
-            runCatching { sort = ApiClient.getSettings().articleSortOrder }
+            runCatching {
+                ApiClient.getSettings().let { settings ->
+                    sort = settings.articleSortOrder
+                    openInBrowserByDefault = settings.openInBrowserByDefault
+                }
+            }
             reloadArticles()
         } catch (e: ApiException) {
             if (e.status == 404) isGone = true else errorMessage = ErrorMessages.forError(e)
@@ -380,7 +386,14 @@ fun SubscriptionDetailScreen(
                     ArticleRow(
                         article = article,
                         translations = translations,
-                        onOpen = { onOpenArticle(article) },
+                        onOpen = {
+                            val url = article.canonicalUrl
+                            if (openInBrowserByDefault && url != null) {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                            } else {
+                                onOpenArticle(article)
+                            }
+                        },
                         onToggleRead = { patchState(article, isRead = !article.userState.isRead) },
                         onToggleReadingList = {
                             patchState(article, inReadingList = !article.userState.inReadingList)

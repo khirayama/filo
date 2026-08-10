@@ -1,5 +1,7 @@
 package com.filo.app.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -365,7 +367,14 @@ fun ArticlesScreen(
                         ArticleRow(
                             article = article,
                             translations = translations,
-                            onOpen = { onOpenArticle(article) },
+                            onOpen = {
+                                val url = article.canonicalUrl
+                                if (vm.openInBrowserByDefault && url != null) {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                } else {
+                                    onOpenArticle(article)
+                                }
+                            },
                             onToggleRead = { vm.patchState(article, isRead = !article.userState.isRead) },
                             onToggleReadingList = { vm.patchState(article, inReadingList = !article.userState.inReadingList) },
                             onToggleBookmark = { vm.patchState(article, isBookmarked = !article.userState.isBookmarked) },
