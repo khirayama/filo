@@ -220,10 +220,13 @@ struct ArticlesScreen: View {
     @Binding var path: NavigationPath
     @ObservedObject var model: ArticlesViewModel
     @ObservedObject private var translations = TitleTranslationStore.shared
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var showDrawer = false
     @State private var showMarkAllReadConfirm = false
     @State private var showRemoveReadConfirm = false
+    @State private var selectedArticleIndex = 0
+    @State private var showShortcutHelp = false
 
     private var markAllReadPrompt: String {
         if let tagId = model.selectedTagId, let tag = model.tags.first(where: { $0.id == tagId }) {
@@ -290,11 +293,16 @@ struct ArticlesScreen: View {
         .onChange(of: model.readFilter) { Task { await model.reloadArticles() } }
         .onChange(of: model.bookmarkedOnly) { Task { await model.reloadArticles() } }
         .onChange(of: model.readingListOnly) { Task { await model.reloadArticles() } }
+        .onChange(of: model.articles) { _, articles in
+            selectedArticleIndex = min(selectedArticleIndex, max(articles.count - 1, 0))
+        }
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
         .onChange(of: model.articles, initial: true) { registerTitlesForTranslation() }
         .onChange(of: translations.isEnabled) { registerTitlesForTranslation() }
         // 設定は articles より後に届くので、届いてから表示言語を入れ直す
         .onChange(of: model.settings) { registerTitlesForTranslation() }
+        .background(shortcutButtons)
+        .sheet(isPresented: $showShortcutHelp) { ShortcutHelpView() }
     }
 
     private func registerTitlesForTranslation() {
@@ -423,6 +431,56 @@ struct ArticlesScreen: View {
         }
     }
 
+    private var selectedArticle: ArticleListItem? {
+        guard model.articles.indices.contains(selectedArticleIndex) else { return nil }
+        return model.articles[selectedArticleIndex]
+    }
+
+    private func moveSelection(_ offset: Int) {
+        guard !model.articles.isEmpty else { return }
+        selectedArticleIndex = min(max(selectedArticleIndex + offset, 0), model.articles.count - 1)
+    }
+
+    private func openSelectedArticle(external: Bool) {
+        guard let article = selectedArticle, let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
+        if external { openURL(url) } else { path.append(AppRoute.readingArticle(ReadingSessionArticle(article))) }
+    }
+
+    private var shortcutButtons: some View {
+        VStack(spacing: 0) {
+            Button("", action: { moveSelection(1) }).keyboardShortcut("j", modifiers: [])
+            Button("", action: { moveSelection(1) }).keyboardShortcut(.downArrow, modifiers: [])
+            Button("", action: { moveSelection(-1) }).keyboardShortcut("k", modifiers: [])
+            Button("", action: { moveSelection(-1) }).keyboardShortcut(.upArrow, modifiers: [])
+            Button("", action: { openSelectedArticle(external: false) }).keyboardShortcut(.return, modifiers: [])
+            Button("", action: { openSelectedArticle(external: false) }).keyboardShortcut("o", modifiers: [])
+            Button("", action: { openSelectedArticle(external: true) }).keyboardShortcut("v", modifiers: [])
+            Button("", action: {
+                guard let article = selectedArticle else { return }
+                Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
+            }).keyboardShortcut("m", modifiers: [])
+            Button("", action: {
+                guard let article = selectedArticle else { return }
+                Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
+            }).keyboardShortcut("s", modifiers: [])
+            Button("", action: {
+                guard let article = selectedArticle else { return }
+                Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
+            }).keyboardShortcut("b", modifiers: [])
+            Button("", action: { Task { await model.refreshFeedsAndReload() } }).keyboardShortcut("r", modifiers: [])
+            Button("", action: { if !model.bookmarkedOnly && !model.readingListOnly { showMarkAllReadConfirm = true } })
+                .keyboardShortcut("a", modifiers: [.shift])
+            Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
+            Button("", action: {
+                if showDrawer { closeDrawer() }
+                else if !path.isEmpty { dismiss() }
+            }).keyboardShortcut(.escape, modifiers: [])
+        }
+        .frame(width: 1, height: 1)
+        .opacity(0)
+        .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private var emptyState: some View {
         if model.subscriptions.isEmpty,
@@ -479,5 +537,26 @@ struct ArticlesScreen: View {
 
     private func closeDrawer() {
         withAnimation(.easeIn(duration: 0.2)) { showDrawer = false }
+    }
+}
+
+struct ShortcutHelpView: View {
+    var body: some View {
+        NavigationStack {
+            List {
+                Text("J / ↓  次の記事")
+                Text("K / ↑  前の記事")
+                Text("Enter / O  記事を開く")
+                Text("V  元記事を開く")
+                Text("M  既読／未読")
+                Text("S  リーディングリスト")
+                Text("B  ブックマーク")
+                Text("R  更新")
+                Text("Shift+A  すべて既読")
+                Text("Space  読み上げ開始／停止")
+                Text("Esc  戻る／閉じる")
+            }
+            .navigationTitle("ショートカット")
+        }
     }
 }

@@ -219,6 +219,16 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         resetExtractedContent()
     }
 
+    func selectNext() {
+        guard index + 1 < items.count else { return }
+        select(articleId: items[index + 1].articleId)
+    }
+
+    func selectPrevious() {
+        guard index > 0 else { return }
+        select(articleId: items[index - 1].articleId)
+    }
+
     func setRate(_ value: Float) {
         rate = min(3, max(0.75, value))
         UserDefaults.standard.set(rate, forKey: "filo:readingRate")
@@ -353,7 +363,10 @@ struct ReadingSessionScreen: View {
     let temporaryUrl: String?
     let article: ReadingSessionArticle?
     @EnvironmentObject private var player: ReadingPlayerStore
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var isReadingListPresented = false
+    @State private var showShortcutHelp = false
 
     init(autoplay: Bool, temporaryUrl: String? = nil, article: ReadingSessionArticle? = nil) {
         self.autoplay = autoplay
@@ -409,6 +422,25 @@ struct ReadingSessionScreen: View {
         .onAppear { player.isReadingBrowserVisible = true }
         .onDisappear { player.isReadingBrowserVisible = false }
         .modifier(ReadingTranslationTask(player: player))
+        .background(
+            VStack(spacing: 0) {
+                Button("", action: { if player.isPlaying { player.pause() } else { player.play() } }).keyboardShortcut(.space, modifiers: [])
+                Button("", action: player.selectNext).keyboardShortcut("j", modifiers: [])
+                Button("", action: player.selectNext).keyboardShortcut(.downArrow, modifiers: [])
+                Button("", action: player.selectPrevious).keyboardShortcut("k", modifiers: [])
+                Button("", action: player.selectPrevious).keyboardShortcut(.upArrow, modifiers: [])
+                Button("", action: player.addCurrentPageToReadingList).keyboardShortcut("s", modifiers: [])
+                Button("", action: {
+                    if let urlString = player.currentItem?.article.canonicalUrl, let url = URL(string: urlString) { openURL(url) }
+                }).keyboardShortcut("v", modifiers: [])
+                Button("", action: { dismiss() }).keyboardShortcut(.escape, modifiers: [])
+                Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
+            }
+            .frame(width: 1, height: 1)
+            .opacity(0)
+            .accessibilityHidden(true)
+        )
+        .sheet(isPresented: $showShortcutHelp) { ShortcutHelpView() }
     }
 }
 
