@@ -7,6 +7,7 @@
 - [API.md](./API.md): HTTP API 契約
 - [DATABASE.md](./DATABASE.md): Cloudflare D1 のスキーマと不変条件
 - [SCREENS.md](./SCREENS.md): 画面とナビゲーション
+- [SHORTCUTS.md](./SHORTCUTS.md): Web / Extension / iOS / Android の共通ショートカット
 - [OPERATIONS.md](./OPERATIONS.md): 環境、デプロイ、ジョブ運用、障害対応
 
 ## Architecture Overview
