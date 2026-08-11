@@ -3,6 +3,7 @@ package com.filo.app.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -12,6 +13,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,6 +45,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -460,8 +474,61 @@ fun ReadingSessionScreen(
     directArticle: ReadingSessionArticle? = null,
 ) {
     var showReadingList by remember { mutableStateOf(false) }
+    var showShortcutHelp by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
     LaunchedEffect(autoplay, temporaryUrl, directArticle) { player.start(autoplay, temporaryUrl, directArticle) }
     Scaffold(
+        modifier = Modifier
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
+            if (event.isShiftPressed && event.key == Key.Slash && !hasModifier) {
+                showShortcutHelp = true
+                true
+            } else if (hasModifier) {
+                false
+            } else {
+                when {
+                    event.key == Key.Spacebar -> {
+                        if (player.isPlaying) player.pause() else player.play()
+                        true
+                    }
+                    event.key == Key.J || event.key == Key.DirectionDown -> {
+                        player.currentItem?.let { current ->
+                            val index = player.items.indexOfFirst { it.articleId == current.articleId }
+                            player.items.getOrNull(index + 1)?.let { player.select(it.articleId) }
+                        }
+                        true
+                    }
+                    event.key == Key.K || event.key == Key.DirectionUp -> {
+                        player.currentItem?.let { current ->
+                            val index = player.items.indexOfFirst { it.articleId == current.articleId }
+                            player.items.getOrNull(index - 1)?.let { player.select(it.articleId) }
+                        }
+                        true
+                    }
+                    event.key == Key.S -> {
+                        player.addCurrentPageToReadingList()
+                        true
+                    }
+                    event.key == Key.V -> {
+                        player.currentItem?.article?.canonicalUrl?.let {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
+                        }
+                        true
+                    }
+                    event.key == Key.Escape -> {
+                        onBack()
+                        true
+                    }
+                    else -> false
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text(player.currentItem?.article?.title ?: "リーディングリスト", maxLines = 1) },
@@ -504,6 +571,14 @@ fun ReadingSessionScreen(
                 },
             )
         }
+    }
+    if (showShortcutHelp) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showShortcutHelp = false },
+            title = { Text("ショートカット") },
+            text = { Text("J / ↓  次の記事\nK / ↑  前の記事\nSpace  読み上げ開始／停止\nS  リーディングリストに追加\nV  元記事を開く\nEsc  戻る") },
+            confirmButton = { TextButton(onClick = { showShortcutHelp = false }) { Text("閉じる") } },
+        )
     }
 }
 

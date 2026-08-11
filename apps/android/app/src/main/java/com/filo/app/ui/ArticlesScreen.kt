@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.focusable
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +69,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -117,7 +129,10 @@ fun ArticlesScreen(
     var showMarkAllRead by remember { mutableStateOf(false) }
     var showRemoveReadArticles by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
+    var selectedArticleIndex by remember { mutableStateOf(0) }
+    var showShortcutHelp by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
 
     DisposableEffect(Unit) {
         onDispose { vm.resetLoadState() }
@@ -132,6 +147,10 @@ fun ArticlesScreen(
     }
     LaunchedEffect(selectedTagId, readFilter, readingListOnly, bookmarkedOnly) {
         vm.loadIfNeeded()
+    }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(articles.size) {
+        selectedArticleIndex = selectedArticleIndex.coerceIn(0, (articles.size - 1).coerceAtLeast(0))
     }
     // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
     // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
@@ -169,6 +188,69 @@ fun ArticlesScreen(
     }
 
     ModalNavigationDrawer(
+        modifier = Modifier
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
+                if (event.isShiftPressed && event.key == Key.A && !hasModifier) {
+                    if (!bookmarkedOnly && !readingListOnly) showMarkAllRead = true
+                    true
+                } else if (hasModifier) {
+                    false
+                } else {
+                    when (event.key) {
+                        Key.J, Key.DirectionDown -> {
+                            if (articles.isNotEmpty()) {
+                                selectedArticleIndex = (selectedArticleIndex + 1).coerceAtMost(articles.lastIndex)
+                                scope.launch { listState.animateScrollToItem(selectedArticleIndex + 1) }
+                            }
+                            true
+                        }
+                        Key.K, Key.DirectionUp -> {
+                            selectedArticleIndex = (selectedArticleIndex - 1).coerceAtLeast(0)
+                            scope.launch { listState.animateScrollToItem(selectedArticleIndex + 1) }
+                            true
+                        }
+                        Key.Enter, Key.O -> {
+                            articles.getOrNull(selectedArticleIndex)?.let(onOpenArticle)
+                            true
+                        }
+                        Key.V -> {
+                            articles.getOrNull(selectedArticleIndex)?.canonicalUrl?.let {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
+                            }
+                            true
+                        }
+                        Key.M -> {
+                            articles.getOrNull(selectedArticleIndex)?.let { vm.patchState(it, isRead = !it.userState.isRead) }
+                            true
+                        }
+                        Key.S -> {
+                            articles.getOrNull(selectedArticleIndex)?.let { vm.patchState(it, inReadingList = !it.userState.inReadingList) }
+                            true
+                        }
+                        Key.B -> {
+                            articles.getOrNull(selectedArticleIndex)?.let { vm.patchState(it, isBookmarked = !it.userState.isBookmarked) }
+                            true
+                        }
+                        Key.R -> {
+                            scope.launch { vm.refreshFeedsAndReload() }
+                            true
+                        }
+                        Key.Slash -> {
+                            showShortcutHelp = true
+                            true
+                        }
+                        Key.Escape -> {
+                            scope.launch { drawerState.close() }
+                            true
+                        }
+                        else -> false
+                    }
+                }
+            },
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
@@ -366,6 +448,7 @@ fun ArticlesScreen(
                     items(articles, key = { it.id }) { article ->
                         ArticleRow(
                             article = article,
+                            selected = articles.indexOfFirst { it.id == article.id } == selectedArticleIndex,
                             translations = translations,
                             onOpen = {
                                 val url = article.canonicalUrl
@@ -429,6 +512,17 @@ fun ArticlesScreen(
                 }) { Text("既読記事を削除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { showRemoveReadArticles = false }) { Text("キャンセル") } },
+        )
+    }
+
+    if (showShortcutHelp) {
+        AlertDialog(
+            onDismissRequest = { showShortcutHelp = false },
+            title = { Text("ショートカット") },
+            text = {
+                Text("J / ↓  次の記事\nK / ↑  前の記事\nEnter / O  記事を開く\nV  元記事を開く\nM  既読／未読\nS  リーディングリスト\nB  ブックマーク\nR  更新\nShift+A  すべて既読\nSpace  読み上げ")
+            },
+            confirmButton = { TextButton(onClick = { showShortcutHelp = false }) { Text("閉じる") } },
         )
     }
 }

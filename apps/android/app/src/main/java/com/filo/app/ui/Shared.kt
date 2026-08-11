@@ -167,6 +167,7 @@ fun FaviconImage(url: String?, siteUrl: String? = null, modifier: Modifier = Mod
 @Composable
 fun ArticleRow(
     article: ArticleListItem,
+    selected: Boolean = false,
     onOpen: () -> Unit,
     onToggleRead: (() -> Unit)? = null,
     onToggleReadingList: (() -> Unit)? = null,
@@ -179,7 +180,11 @@ fun ArticleRow(
     val isTranslated = translatedTitle != null
     val displayTitle = if (showOriginal) article.title else translatedTitle ?: article.title
 
-    Surface(onClick = onOpen, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        onClick = onOpen,
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier.padding(vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(1.dp),
