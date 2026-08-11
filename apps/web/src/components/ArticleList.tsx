@@ -101,6 +101,7 @@ export function ArticleRows({
   onRetry,
   onLoadMore,
   onUpdateState,
+  activeArticleId,
   emptyContent,
 }: {
   articles: ArticleListItem[];
@@ -111,6 +112,7 @@ export function ArticleRows({
   onRetry: () => void;
   onLoadMore: () => void;
   onUpdateState?: (articleId: number, patch: ArticleStateMutation) => void;
+  activeArticleId?: number;
   emptyContent: React.ReactNode;
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -148,9 +150,9 @@ export function ArticleRows({
   return (
     <>
       <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0 }}>
-        {articles.map((article) => (
-          <ArticleRow key={article.id} article={article} onUpdateState={onUpdateState} />
-        ))}
+            {articles.map((article) => (
+              <ArticleRow key={article.id} article={article} onUpdateState={onUpdateState} active={article.id === activeArticleId} />
+            ))}
       </ul>
       <div ref={sentinelRef} />
       {loadingMore ? <Spinner /> : null}
@@ -161,9 +163,11 @@ export function ArticleRows({
 function ArticleRow({
   article,
   onUpdateState,
+  active = false,
 }: {
   article: ArticleListItem;
   onUpdateState?: (articleId: number, patch: ArticleStateMutation) => void;
+  active?: boolean;
 }) {
   const isDesktop = useIsDesktop();
   const { t } = useAppData();
@@ -283,6 +287,7 @@ function ArticleRow({
 
   return (
     <li
+      id={`filo-article-${article.id}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -292,6 +297,8 @@ function ArticleRow({
         padding: "6px 8px",
         position: "relative",
         ...(isDesktop ? { alignItems: "center", display: "flex", gap: "8px" } : {}),
+        outline: active ? `2px solid ${palette.accent}` : undefined,
+        outlineOffset: active ? "-2px" : undefined,
       }}
     >
       {isDesktop ? (

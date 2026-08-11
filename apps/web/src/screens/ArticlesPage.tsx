@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import { AppShell, useIsDesktop } from "../components/AppShell";
@@ -23,6 +23,8 @@ function ArticlesListPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [removingReadArticles, setRemovingReadArticles] = useState(false);
+  const [activeArticleIndex, setActiveArticleIndex] = useState(0);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
 
   const apiFilters = useMemo(
     () => ({
@@ -116,6 +118,62 @@ function ArticlesListPage() {
 
   const title = selectedTag?.name ?? (readingListOnly ? t("リーディングリスト") : bookmarkedOnly ? t("ブックマーク") : t("全ての記事"));
 
+  useEffect(() => {
+    setActiveArticleIndex((current) => Math.min(current, Math.max(list.articles.length - 1, 0)));
+  }, [list.articles.length]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, button, [contenteditable='true']")) return;
+      const key = event.key.toLowerCase();
+      const modifier = event.ctrlKey || event.metaKey || event.altKey;
+      if (event.shiftKey && key === "a" && !modifier) {
+        event.preventDefault();
+        if (!bookmarkedOnly && !readingListOnly) void markAllRead();
+        return;
+      }
+      if (modifier || event.repeat) return;
+      if (key === "j" || event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveArticleIndex((current) => Math.min(current + 1, Math.max(list.articles.length - 1, 0)));
+      } else if (key === "k" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveArticleIndex((current) => Math.max(current - 1, 0));
+      } else if (key === "enter" || key === "o" || key === "v") {
+        event.preventDefault();
+        const article = list.articles[activeArticleIndex];
+        if (article?.canonicalUrl) window.open(article.canonicalUrl, "_blank", "noopener,noreferrer");
+      } else if (key === "m" || key === "s" || key === "b") {
+        event.preventDefault();
+        const article = list.articles[activeArticleIndex];
+        if (!article) return;
+        const patch = key === "m"
+          ? { isRead: !article.userState.isRead }
+          : key === "s"
+            ? { inReadingList: !article.userState.inReadingList }
+            : { isBookmarked: !article.userState.isBookmarked };
+        void list.updateState(article.id, patch);
+      } else if (key === "r") {
+        event.preventDefault();
+        void refreshFeeds();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        window.history.back();
+      } else if (event.key === "?") {
+        event.preventDefault();
+        setShowShortcutHelp(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeArticleIndex, bookmarkedOnly, list, markAllRead, readingListOnly, refreshFeeds]);
+
+  useEffect(() => {
+    const article = list.articles[activeArticleIndex];
+    if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "nearest" });
+  }, [activeArticleIndex, list.articles]);
+
   return (
     <AppShell>
       <main style={{ padding: "4px 24px 16px" }}>
@@ -189,10 +247,24 @@ function ArticlesListPage() {
             onRetry={() => void list.reload()}
             onLoadMore={() => void list.loadMore()}
             onUpdateState={(id, patch) => void list.updateState(id, patch)}
+            activeArticleId={list.articles[activeArticleIndex]?.id}
             emptyContent={emptyContent}
           />
         )}
       </main>
+      {showShortcutHelp ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowShortcutHelp(false)}
+          style={{ alignItems: "center", background: "rgba(0,0,0,0.35)", display: "flex", inset: 0, justifyContent: "center", position: "fixed", zIndex: 100 }}
+        >
+          <section onClick={(event) => event.stopPropagation()} style={{ background: palette.surface, borderRadius: "8px", maxWidth: "360px", padding: "20px", width: "calc(100% - 32px)" }}>
+            <h2 style={{ fontSize: "18px", margin: "0 0 12px" }}>{t("ショートカット")}</h2>
+            <pre style={{ fontFamily: "inherit", lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{"J / ↓  次の記事\nK / ↑  前の記事\nEnter / O  記事を開く\nV  元記事を開く\nM  既読／未読\nS  リーディングリスト\nB  ブックマーク\nR  更新\nShift+A  すべて既読\n?  この一覧"}</pre>
+          </section>
+        </div>
+      ) : null}
     </AppShell>
   );
 }
