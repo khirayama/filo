@@ -55,6 +55,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<{ url: string; title: string } | null>(null);
   const [readerState, setReaderState] = useState<ReaderSession | null>(null);
+  const [selectedArticleIndex, setSelectedArticleIndex] = useState(0);
 
   const getCurrentPage = useCallback(async (): Promise<CurrentPage | null> => {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -192,6 +193,41 @@ export function App() {
     }
   };
 
+  const updateSelectedState = async (patch: { isRead?: boolean; inReadingList?: boolean; isBookmarked?: boolean }) => {
+    const article = articles[selectedArticleIndex];
+    if (!article || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const state = patch.isRead !== undefined
+        ? await api.setArticleRead(article.id, patch.isRead)
+        : patch.inReadingList !== undefined
+          ? await api.setReadingListMembership(article.id, patch.inReadingList)
+          : await api.setBookmarkMembership(article.id, patch.isBookmarked === true);
+      setArticles((current) => current.map((item) => item.id === article.id ? { ...item, userState: state } : item));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const showShortcutHelp = () => {
+    window.alert([
+      "J / ↓  次の記事",
+      "K / ↑  前の記事",
+      "Enter / O  記事を開く",
+      "V  元記事を開く",
+      "M  既読／未読",
+      "S  リーディングリストに追加",
+      "B  ブックマーク",
+      "R  更新",
+      "Shift+A  すべて既読",
+      "Space  読み上げ開始／停止",
+      "Esc  ポップアップを閉じる",
+    ].join("\n"));
+  };
+
   const control = async (action: string, settings: Record<string, unknown> = {}) => {
     if (busy) return;
     setBusy(true);
@@ -211,11 +247,68 @@ export function App() {
     }
   };
 
-  if (!isLoaded) return <main className="empty-view">ログイン状態を確認しています…</main>;
-
   const { targetLanguage, rate, voiceName } = settings;
   const filteredVoices = voices.filter((voice) => !targetLanguage || voice.lang?.startsWith(targetLanguage));
   const isPlaying = readerState?.playing === true;
+
+  useEffect(() => {
+    setSelectedArticleIndex((current) => Math.min(current, Math.max(articles.length - 1, 0)));
+  }, [articles.length]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, button, [contenteditable='true']")) return;
+      const key = event.key.toLowerCase();
+      const modifier = event.ctrlKey || event.metaKey || event.altKey;
+      if (event.shiftKey && key === "a" && !modifier) {
+        event.preventDefault();
+        if (isSignedIn && window.confirm("現在のリーディングリストの記事をすべて既読にしますか？")) {
+          void Promise.all(articles.map((article) => api.setArticleRead(article.id, true)))
+            .then(() => loadAll())
+            .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+        }
+        return;
+      }
+      if (modifier || event.repeat) return;
+      if (key === "j" || event.key === "ArrowDown") {
+        event.preventDefault();
+        setSelectedArticleIndex((current) => Math.min(current + 1, Math.max(articles.length - 1, 0)));
+      } else if (key === "k" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setSelectedArticleIndex((current) => Math.max(current - 1, 0));
+      } else if (key === "enter" || key === "o" || key === "v") {
+        event.preventDefault();
+        const article = articles[selectedArticleIndex];
+        if (article?.canonicalUrl) openArticle(article.canonicalUrl);
+      } else if (key === "m") {
+        event.preventDefault();
+        void updateSelectedState({ isRead: !articles[selectedArticleIndex]?.userState.isRead });
+      } else if (key === "s") {
+        event.preventDefault();
+        void addCurrentPage();
+      } else if (key === "b") {
+        event.preventDefault();
+        void updateSelectedState({ isBookmarked: !articles[selectedArticleIndex]?.userState.isBookmarked });
+      } else if (key === "r") {
+        event.preventDefault();
+        void loadAll();
+      } else if (key === " " && currentPage) {
+        event.preventDefault();
+        void (isPlaying ? control("pause") : startCurrentPage());
+      } else if (key === "escape") {
+        event.preventDefault();
+        window.close();
+      } else if (event.key === "?") {
+        event.preventDefault();
+        showShortcutHelp();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [addCurrentPage, api, articles, control, currentPage, isPlaying, isSignedIn, loadAll, selectedArticleIndex, startCurrentPage, updateSelectedState]);
+
+  if (!isLoaded) return <main className="empty-view">ログイン状態を確認しています…</main>;
 
   return (
     <main className="popup-shell">
@@ -272,8 +365,12 @@ export function App() {
           <p className="status-message">リーディングリストに記事がありません。</p>
         ) : (
           <ul className="queue-list">
-            {articles.map((article) => (
-              <li className="queue-item" key={article.id}>
+            {articles.map((article, index) => (
+              <li
+                className={`queue-item${index === selectedArticleIndex ? " queue-item-selected" : ""}`}
+                key={article.id}
+                style={index === selectedArticleIndex ? { outline: "2px solid #4f46e5", outlineOffset: "-2px" } : undefined}
+              >
                 <button className="article-open" disabled={!article.canonicalUrl} onClick={() => openArticle(article.canonicalUrl)}>
                   <span className="queue-item-title">{article.title}</span>
                   <span className="article-meta">{article.userState.isRead ? "既読" : "未読"} · {article.feed.title}</span>

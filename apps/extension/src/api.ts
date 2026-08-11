@@ -68,5 +68,11 @@ export function createExtensionApi(getToken: TokenGetter) {
     removeFromReadingList: async (articleId: number) => {
       await send<unknown>("DELETE", `/api/v1/articles/${articleId}/reading-list`);
     },
+    setArticleRead: async (articleId: number, isRead: boolean) =>
+      (await send<ReadingArticle["userState"]>("PATCH", `/api/v1/articles/${articleId}/state`, { isRead })).data,
+    setReadingListMembership: async (articleId: number, active: boolean) =>
+      (await send<ReadingArticle["userState"]>(active ? "PUT" : "DELETE", `/api/v1/articles/${articleId}/reading-list`)).data,
+    setBookmarkMembership: async (articleId: number, active: boolean) =>
+      (await send<ReadingArticle["userState"]>(active ? "PUT" : "DELETE", `/api/v1/articles/${articleId}/bookmark`)).data,
   };
 }
