@@ -131,6 +131,7 @@ async function saveArticleFromUrl(
 
 export const articleRoutes = new Hono<AppContext>()
   .get("/", async (c) => {
+    const cursorSecret = c.env.CURSOR_SIGNING_KEY ?? c.env.CURSOR_SECRET;
     const user = c.get("user");
     let limit: number;
     try {
@@ -199,7 +200,7 @@ export const articleRoutes = new Hono<AppContext>()
 
     const cursorRaw = c.req.query("cursor");
     if (cursorRaw !== undefined) {
-      const cursor = await decodeCursor(c.env.CURSOR_SECRET, sort, cursorRaw, readOrder);
+      const cursor = await decodeCursor(cursorSecret, sort, cursorRaw, readOrder);
       let within: string;
       const withinBinds: unknown[] = [];
       if (sort === "fetched_at_desc") {
@@ -290,7 +291,7 @@ export const articleRoutes = new Hono<AppContext>()
     let nextCursor: string | null = null;
     if (hasMore && page.length > 0) {
       const last = page[page.length - 1]!;
-      nextCursor = await encodeCursor(c.env.CURSOR_SECRET, sort, {
+      nextCursor = await encodeCursor(cursorSecret, sort, {
         ts: sort === "fetched_at_desc" ? toIso(last.fetched_at) : toIso(last.published_at),
         id: last.id,
         r: last.is_read ? 1 : 0,

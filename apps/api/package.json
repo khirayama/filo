@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run db:migrate:local && wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "npm run db:migrate:local && wrangler dev --env development",
+    "deploy:production": "wrangler deploy --env production --keep-vars",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:migrate:local": "wrangler d1 migrations apply filo-db --local",
-    "db:migrate:remote": "node scripts/ensure-remote-d1-config.mjs && wrangler d1 migrations apply filo-db --remote"
+    "db:migrate:local": "wrangler d1 migrations apply filo-db --local --env development",
+    "db:migrate:remote": "node scripts/ensure-remote-d1-config.mjs && wrangler d1 migrations apply filo-db --remote --env production"
   },
   "dependencies": {
     "@clerk/backend": "^2.6.2",

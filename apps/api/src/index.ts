@@ -24,16 +24,22 @@ const DEV_ALLOWED_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:
 const ALLOWED_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 const ALLOWED_HEADERS = ["Authorization", "Content-Type", "X-Request-Id"];
 
-function resolveCorsOrigin(origin: string | undefined): string | undefined {
+function resolveCorsOrigin(origin: string | undefined, allowedOrigins: string): string | undefined {
   if (!origin) return undefined;
-  if (DEV_ALLOWED_ORIGINS.has(origin)) return origin;
+  const configuredOrigins = new Set(
+    allowedOrigins
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  if (DEV_ALLOWED_ORIGINS.has(origin) || configuredOrigins.has(origin)) return origin;
   return undefined;
 }
 
 app.use(
   "*",
   cors({
-    origin: resolveCorsOrigin,
+    origin: (origin, c) => resolveCorsOrigin(origin, c.env.CORS_ALLOWED_ORIGINS ?? ""),
     allowHeaders: ALLOWED_HEADERS,
     allowMethods: ALLOWED_METHODS,
     exposeHeaders: ["X-Request-Id"],
@@ -58,7 +64,7 @@ app.onError((error, c) => {
 
 app.notFound((c) => c.json({ error: { code: "resource_not_found", message: "Resource not found" } }, 404));
 
-app.get("/api/v1/health", (c) => c.json({ data: { status: "ok", time: nowIso() } }));
+app.get("/api/v1/health", (c) => c.json({ data: { status: "ok", environment: c.env.APP_ENV, time: nowIso() } }));
 
 // account deletion-status accepts a deletionToken without a Clerk session
 app.route("/api/v1/account", accountRoutes);

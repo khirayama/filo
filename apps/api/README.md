@@ -6,7 +6,7 @@ Cloudflare Workers + D1 + Queues implementation of `SPEC/API.md`. Translation is
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars   # fill CLERK_SECRET_KEY
+cp .dev.vars.example .dev.vars   # development Clerk の sk_test_ を設定
 npm run db:migrate:local
 npm run dev                      # http://localhost:8787
 ```
@@ -19,15 +19,22 @@ Expected local web origins:
 ## Deploy
 
 ```bash
-wrangler d1 create filo-db       # copy the returned database_id into wrangler.jsonc
+wrangler d1 create filo-db       # copy the returned database_id into env.production.d1_databases
 # or: wrangler d1 list           # if the DB already exists
 npx wrangler queues create filo-jobs       # initial feed fetches, refreshes, imports
 npm run db:migrate:remote
-wrangler secret put CLERK_SECRET_KEY
-wrangler secret put CURSOR_SECRET
-wrangler secret put CRON_SECRET
-npm run deploy
+npm run deploy:production
 ```
+
+`npm run dev` は常に `development` 環境で起動し、`.dev.vars` の development Clerk
+（`sk_test_`）を使う。本番は `production` 環境へ Clerk 本番インスタンスの
+`sk_live_` と JWKS の PEM 公開鍵を登録してから deploy する。
+
+本番SecretはGitへ書かない。JWT検証用の公開鍵は `wrangler.jsonc` の
+`CLERK_JWT_PUBLIC_KEY`（公開情報）で管理し、`CURSOR_SIGNING_KEY` など
+`CLERK_SECRET_KEY` / `CRON_SECRET` を含むダッシュボードで管理する本番固有の変数は
+`npm run deploy:production` の
+`--keep-vars` で保持する。
 
 ## Verify
 

@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --force",
-    "build": "vite build",
+    "build": "vite build --mode development",
+    "build:development": "vite build --mode development",
+    "build:production": "vite build --mode production",
+    "deploy:production": "npm run build:production && npx wrangler pages deploy dist --project-name filo-web",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit"

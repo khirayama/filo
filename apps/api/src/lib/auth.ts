@@ -24,11 +24,41 @@ export type OpsContext = {
 export async function verifyClerkUserId(env: Env, authHeader: string | undefined): Promise<string> {
   if (!authHeader?.startsWith("Bearer ")) throw errors.unauthorized();
   const token = authHeader.slice("Bearer ".length);
+  let primaryVerificationError: unknown;
   try {
-    const payload = await verifyToken(token, { secretKey: env.CLERK_SECRET_KEY });
+    const jwtKey = (env.CLERK_JWT_PUBLIC_KEY ?? env.CLERK_JWT_KEY)?.replace(/\\n/g, "\n");
+    const verify = async (options: Parameters<typeof verifyToken>[1]) => {
+      const result = await verifyToken(token, options);
+      if ("errors" in result) {
+        const resultErrors = (result as { errors?: unknown[] }).errors;
+        if (resultErrors?.length) throw resultErrors[0];
+      }
+      return result;
+    };
+
+    let payload: Awaited<ReturnType<typeof verifyToken>>;
+    try {
+      payload = await verify({ secretKey: env.CLERK_SECRET_KEY, ...(jwtKey ? { jwtKey } : {}) });
+    } catch (error) {
+      primaryVerificationError = error;
+      if (!jwtKey) throw error;
+      payload = await verify({ secretKey: env.CLERK_SECRET_KEY });
+    }
     if (!payload.sub) throw errors.unauthorized();
     return payload.sub;
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object" && error !== null && "message" in error
+          ? String((error as { message?: unknown }).message)
+          : String(error);
+    const reason =
+      typeof error === "object" && error !== null && "reason" in error
+        ? String((error as { reason?: unknown }).reason)
+        : "unknown";
+    const primary = primaryVerificationError instanceof Error ? primaryVerificationError.message : "none";
+    console.error(`clerk token verification failed message=${message} reason=${reason} primary=${primary}`);
     throw errors.unauthorized();
   }
 }

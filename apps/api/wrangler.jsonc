@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "filo-api",
+  "name": "filo-api-dev",
+  "account_id": "3be94fe02250b737f7a9dcec19a3be39",
   "main": "src/index.ts",
   "compatibility_date": "2026-05-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -29,11 +30,61 @@
   // Cron only retries failed account-deletion jobs; feed refresh is manual (user-triggered).
   "triggers": { "crons": ["0 * * * *"] },
   "vars": {
+    "APP_ENV": "development",
     // Comma separated Clerk user ids that may call /api/v1/admin/*
-    "ADMIN_CLERK_USER_IDS": ""
+    "ADMIN_CLERK_USER_IDS": "",
+    "CORS_ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173"
+  },
+  "env": {
+    "development": {
+      "name": "filo-api-dev",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "filo-db",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "queues": {
+        "producers": [{ "binding": "JOBS", "queue": "filo-jobs" }],
+        "consumers": [{ "queue": "filo-jobs", "max_batch_size": 5, "max_retries": 5, "max_batch_timeout": 5 }]
+      },
+      "triggers": { "crons": ["0 * * * *"] },
+      "vars": {
+        "APP_ENV": "development",
+        "ADMIN_CLERK_USER_IDS": "",
+        "CORS_ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173"
+      }
+    },
+    "production": {
+      "name": "filo-api",
+      "routes": [{ "pattern": "api.filoreader.app", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "filo-db",
+          "database_id": "aaaafd9b-e476-4162-9ffe-e9e4f0aa6ab7",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "queues": {
+        "producers": [{ "binding": "JOBS", "queue": "filo-jobs" }],
+        "consumers": [{ "queue": "filo-jobs", "max_batch_size": 5, "max_retries": 5, "max_batch_timeout": 5 }]
+      },
+      "triggers": { "crons": ["0 * * * *"] },
+      "vars": {
+        "APP_ENV": "production",
+        "ADMIN_CLERK_USER_IDS": "",
+        "CORS_ALLOWED_ORIGINS": "https://filoreader.app,https://filo-web.pages.dev",
+        // Public verification key; keeping this as a deployed variable makes JWT verification networkless.
+        "CLERK_JWT_PUBLIC_KEY": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsuopSyN0iJuagIAtLGVl\nFNqyI0AJI9dOgMuqAxy7KNR25mrrW31gf72P42oxXIl+qsDto6Z6BbkorhAwt5i3\nn9VxhsbnTI6PqTBAMWjO5qlt4yk9kowZBfwgsHriHSn1jvOTjAP3oJcSx4Fg0RHs\nJIGoEvYMmFCRXt20TWmjfwqtwNNTqpZW7qRZxosqCzKCYQjXQQPQUHmI8YDa9D20\nD+47i6/FVO0X7N3hmnZdb5+DAjnlrfd3otu3E5tKzSMYwIyiUNZeSFJSn11znzH7\nj2BvPFx9T/DcxTzDWDTfFEMiaUJTlpAGqWOfic7AxAJwM8mis2FwGrGLVqTYOv5w\nOQIDAQAB\n-----END PUBLIC KEY-----"
+      }
+    }
   }
   // Secrets (set via `wrangler secret put`):
-  //   CLERK_SECRET_KEY    - Clerk backend API key (token verification + account deletion)
+  //   CLERK_SECRET_KEY    - Clerk backend API key for this environment
+  //   CLERK_JWT_KEY      - Clerk public PEM key for this environment
   //   CURSOR_SECRET       - HMAC key for tamper-evident pagination cursors
   //   CRON_SECRET         - Bearer token for internal cron → API calls
 }
