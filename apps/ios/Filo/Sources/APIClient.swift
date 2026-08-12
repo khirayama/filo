@@ -214,6 +214,7 @@ final class APIClient: Sendable {
         if filters.readingList == true { items.append(.init(name: "readingList", value: "true")) }
         if filters.bookmarked == true { items.append(.init(name: "bookmarked", value: "true")) }
         if let sort = filters.sort { items.append(.init(name: "sort", value: sort)) }
+        if let readOrder = filters.readOrder { items.append(.init(name: "readOrder", value: readOrder)) }
         if let cursor { items.append(.init(name: "cursor", value: cursor)) }
         components.queryItems = items
         let query = components.percentEncodedQuery ?? ""

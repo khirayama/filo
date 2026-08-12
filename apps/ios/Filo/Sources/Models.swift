@@ -228,8 +228,10 @@ struct ArticleListFilters: Hashable {
     var read: Bool?
     var readingList: Bool? = nil
     var bookmarked: Bool?
-    // "published_at_desc" | "fetched_at_desc"。nil は server が user 設定を適用する
+    // "published_at_desc" | "fetched_at_desc"
     var sort: String?
+    // "unread_first" | "read_first" | "none"
+    var readOrder: String? = nil
 }
 
 enum DateFormatting {

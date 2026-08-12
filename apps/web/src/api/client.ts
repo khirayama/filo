@@ -134,6 +134,7 @@ export function createApiClient(getToken: TokenGetter) {
       if (filters.readingList !== undefined) params.set("readingList", String(filters.readingList));
       if (filters.bookmarked !== undefined) params.set("bookmarked", String(filters.bookmarked));
       if (filters.sort) params.set("sort", filters.sort);
+      if (filters.readOrder) params.set("readOrder", filters.readOrder);
       if (filters.cursor) params.set("cursor", filters.cursor);
       params.set("limit", String(filters.limit ?? 20));
       const res = await get<ArticleListItem[]>(`/api/v1/articles?${params}`);

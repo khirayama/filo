@@ -4,7 +4,7 @@ import { useApi } from "../api/useApi";
 import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
-import { TitleTranslationToggle } from "../components/TitleTranslationContext";
+import { ArticleListControls } from "../components/ArticleListControls";
 import { EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, palette } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage } from "../lib/messages";
@@ -17,8 +17,8 @@ export function ArticlesPage() {
 function ArticlesListPage() {
   const isDesktop = useIsDesktop();
   const api = useApi();
-  const { tags, subscriptions, error: sideError, refresh: refreshAppData, language, t } = useAppData();
-  const { tagId, bookmarkedOnly, readingListOnly, read, setRead, clearTag } = useArticleFilterParams();
+  const { tags, subscriptions, settings, error: sideError, refresh: refreshAppData, language, t } = useAppData();
+  const { tagId, bookmarkedOnly, readingListOnly, read, sort, readOrder, setRead, setSort, setReadOrder, clearTag } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
@@ -30,10 +30,12 @@ function ArticlesListPage() {
     () => ({
       tagId,
       read,
+      sort,
+      readOrder,
       readingList: readingListOnly ? (true as const) : undefined,
       bookmarked: bookmarkedOnly ? (true as const) : undefined,
     }),
-    [tagId, read, readingListOnly, bookmarkedOnly],
+    [tagId, read, sort, readOrder, readingListOnly, bookmarkedOnly],
   );
 
   const list = useArticleList(api, apiFilters);
@@ -176,7 +178,7 @@ function ArticlesListPage() {
 
   return (
     <AppShell>
-      <main style={{ padding: "4px 24px 16px" }}>
+      <main style={{ padding: "0 24px 16px" }}>
         <header
           style={{
             alignItems: "center",
@@ -193,7 +195,6 @@ function ArticlesListPage() {
           <h1 style={{ flex: 1, fontSize: "20px", margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {title}
           </h1>
-          <TitleTranslationToggle />
           {readingListOnly ? (
             <>
               <IconButton
@@ -207,14 +208,18 @@ function ArticlesListPage() {
           {!bookmarkedOnly && !readingListOnly ? (
             <>
               <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />
-              <IconButton
-                icon="refresh"
-                label={refreshing ? t("更新中…") : t("フィードを更新")}
-                disabled={refreshing}
-                onClick={() => void refreshFeeds()}
-              />
             </>
           ) : null}
+          <ArticleListControls
+            read={read}
+            sort={sort}
+            readOrder={readOrder}
+            defaultSort={settings?.articleSortOrder ?? "published_at_desc"}
+            setRead={setRead}
+            setSort={setSort}
+            setReadOrder={setReadOrder}
+            t={t}
+          />
         </header>
 
         {selectedTag ? (
@@ -222,12 +227,6 @@ function ArticlesListPage() {
             <FilterChip label={`タグ: ${selectedTag.name} ✕`} active onClick={clearTag} />
           </div>
         ) : null}
-
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 0 4px" }}>
-          <FilterChip label={t("全ての記事")} active={read === undefined} onClick={() => setRead(undefined)} />
-          <FilterChip label={t("未読")} active={read === false} onClick={() => setRead(false)} />
-          <FilterChip label={t("既読")} active={read === true} onClick={() => setRead(true)} />
-        </div>
 
         {sideError ? <ErrorBox message={sideError} /> : null}
         {markAllError ? <ErrorBox message={markAllError} /> : null}

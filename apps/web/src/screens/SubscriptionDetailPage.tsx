@@ -3,30 +3,28 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import { ApiRequestError } from "../api/client";
 import type { Subscription } from "../api/types";
-import { AppShell } from "../components/AppShell";
+import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
-import { TitleTranslationToggle } from "../components/TitleTranslationContext";
+import { ArticleListControls } from "../components/ArticleListControls";
 import { Badge, Button, EmptyState, ErrorBox, FilterChip, IconButton, MenuItem, Spinner, menuStyle, palette } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
-import { refreshFeedsAndWait } from "../lib/refresh";
 
 export function SubscriptionDetailPage() {
   const api = useApi();
+  const isDesktop = useIsDesktop();
   const navigate = useNavigate();
   const params = useParams();
   const subscriptionId = Number(params.subscriptionId);
 
   const { tags: allTags, settings, refresh: refreshAppData } = useAppData();
   const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const { read, sort, setRead, setSort } = useArticleFilterParams();
+  const { read, sort, readOrder, setRead, setSort, setReadOrder } = useArticleFilterParams();
   // sort 未指定時は server が current user の articleSortOrder を適用する
   const effectiveSort = sort ?? settings?.articleSortOrder ?? "published_at_desc";
   const filters = useMemo(
@@ -34,8 +32,9 @@ export function SubscriptionDetailPage() {
       subscriptionId,
       read,
       sort,
+      readOrder,
     }),
-    [subscriptionId, read, sort]
+    [subscriptionId, read, sort, readOrder]
   );
   const list = useArticleList(api, filters);
 
@@ -93,23 +92,6 @@ export function SubscriptionDetailPage() {
     }
   };
 
-  const refreshFeed = async () => {
-    if (!subscription || refreshing) return;
-    setRefreshing(true);
-    setRefreshNotice(null);
-    try {
-      const outcome = await refreshFeedsAndWait(api, { feedId: subscription.feed.id });
-      if (outcome.timedOut) {
-        setRefreshNotice("取得に時間がかかっています。あとで再度更新してください。");
-      }
-      await list.reload();
-    } catch (e) {
-      setRefreshNotice(errorMessage(e));
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   const markAllRead = async () => {
     if (!subscription) return;
     if (!window.confirm("このフィードの記事をすべて既読にしますか？")) return;
@@ -160,6 +142,10 @@ export function SubscriptionDetailPage() {
                 display: "flex",
                 gap: "8px",
                 padding: "8px 0",
+                position: "sticky",
+                top: isDesktop ? 0 : "51px",
+                zIndex: 10,
+                background: palette.bg,
               }}
             >
               <IconButton icon="back" label="戻る" onClick={() => navigate(-1)} />
@@ -179,17 +165,10 @@ export function SubscriptionDetailPage() {
               >
                 {subscription.customTitle ?? subscription.feed.title}
               </h1>
-              <TitleTranslationToggle />
               <IconButton
                 icon="checkCircle"
                 label="すべて既読にする"
                 onClick={() => void markAllRead()}
-              />
-              <IconButton
-                icon="refresh"
-                label={refreshing ? "更新中…" : "フィードを更新"}
-                disabled={refreshing}
-                onClick={() => void refreshFeed()}
               />
               <div style={{ position: "relative" }}>
                 <IconButton icon="more" label="購読の操作" onClick={() => setMenuOpen((v) => !v)} />
@@ -231,6 +210,16 @@ export function SubscriptionDetailPage() {
                   </div>
                 ) : null}
               </div>
+              <ArticleListControls
+                read={read}
+                sort={sort}
+                readOrder={readOrder}
+                defaultSort={settings?.articleSortOrder ?? "published_at_desc"}
+                setRead={setRead}
+                setSort={setSort}
+                setReadOrder={setReadOrder}
+                t={(source) => source}
+              />
             </header>
 
             <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 0 0" }}>
@@ -258,26 +247,6 @@ export function SubscriptionDetailPage() {
               ))}
             </div>
 
-            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 0 4px" }}>
-              <FilterChip label="全ての記事" active={read === undefined} onClick={() => setRead(undefined)} />
-              <FilterChip label="未読" active={read === false} onClick={() => setRead(false)} />
-              <FilterChip label="既読" active={read === true} onClick={() => setRead(true)} />
-              <span style={{ color: palette.muted, fontSize: "13px", marginLeft: "auto" }}>並び順</span>
-              <select
-                value={effectiveSort}
-                onChange={(e) => setSort(e.target.value as typeof effectiveSort)}
-                aria-label="並び順"
-                style={{ fontSize: "13px" }}
-              >
-                <option value="published_at_desc">公開日時が新しい順</option>
-                <option value="fetched_at_desc">取得日時が新しい順</option>
-              </select>
-            </div>
-
-            {refreshing ? <Spinner label="フィードを更新しています…" /> : null}
-            {refreshNotice ? (
-              <p style={{ color: palette.muted, fontSize: "13px", margin: "8px 0 0" }}>{refreshNotice}</p>
-            ) : null}
             {error ? <ErrorBox message={error} onRetry={() => void load()} /> : null}
             <ArticleRows
               articles={list.articles}

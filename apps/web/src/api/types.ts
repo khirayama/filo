@@ -1,6 +1,7 @@
 export type Theme = "light" | "dark" | "system";
 export type Language = "ja" | "en" | "zh" | "ko" | "es";
 export type ArticleSortOrder = "published_at_desc" | "fetched_at_desc";
+export type ArticleReadOrder = "unread_first" | "read_first" | "none";
 export type InitialFetchStatus = "fetching" | "ready" | "failed";
 export type FeedHealthStatus = "healthy" | "stale" | "paused";
 export type FeedJobStatus = "pending" | "running" | "completed" | "failed";
@@ -159,6 +160,7 @@ export interface ArticleListFilters {
   readingList?: true;
   bookmarked?: true;
   sort?: ArticleSortOrder;
+  readOrder?: ArticleReadOrder;
   cursor?: string;
   limit?: number;
 }

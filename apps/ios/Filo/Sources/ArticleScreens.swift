@@ -18,6 +18,12 @@ final class ArticlesViewModel: ObservableObject {
     @Published var readFilter: Bool? {
         didSet { if readFilter != oldValue { invalidateArticleRequests() } }
     }
+    @Published var sort = "published_at_desc" {
+        didSet { if sort != oldValue { invalidateArticleRequests() } }
+    }
+    @Published var readOrder = "unread_first" {
+        didSet { if readOrder != oldValue { invalidateArticleRequests() } }
+    }
     @Published var readingListOnly = false {
         didSet { if readingListOnly != oldValue { invalidateArticleRequests() } }
     }
@@ -44,7 +50,9 @@ final class ArticlesViewModel: ObservableObject {
             tagId: selectedTagId,
             read: readFilter,
             readingList: readingListOnly ? true : nil,
-            bookmarked: bookmarkedOnly ? true : nil
+            bookmarked: bookmarkedOnly ? true : nil,
+            sort: sort,
+            readOrder: readOrder
         )
     }
 
@@ -72,6 +80,9 @@ final class ArticlesViewModel: ObservableObject {
             tags = loadedTags ?? tags
             subscriptions = loadedSubscriptions ?? subscriptions
             settings = loadedSettings ?? settings
+            if let loadedSettings {
+                if sort != loadedSettings.articleSortOrder { sort = loadedSettings.articleSortOrder }
+            }
             // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
             if let settings { ThemeManager.shared.theme = settings.theme }
         } catch {
@@ -263,7 +274,6 @@ struct ArticlesScreen: View {
                         Label("閲覧開始", systemImage: "book")
                     }
                 }
-                TitleTranslationToggle(store: translations)
                 if !model.bookmarkedOnly && !model.readingListOnly {
                     Button {
                         showMarkAllReadConfirm = true
@@ -271,6 +281,7 @@ struct ArticlesScreen: View {
                         Label("すべて既読にする", systemImage: "checkmark.circle")
                     }
                 }
+                articleFiltersMenu
                 NavigationLink(value: AppRoute.addFeed) {
                     Label("フィード追加", systemImage: "plus")
                 }
@@ -291,6 +302,8 @@ struct ArticlesScreen: View {
         }
         .onChange(of: model.selectedTagId) { Task { await model.reloadArticles() } }
         .onChange(of: model.readFilter) { Task { await model.reloadArticles() } }
+        .onChange(of: model.sort) { Task { await model.reloadArticles() } }
+        .onChange(of: model.readOrder) { Task { await model.reloadArticles() } }
         .onChange(of: model.bookmarkedOnly) { Task { await model.reloadArticles() } }
         .onChange(of: model.readingListOnly) { Task { await model.reloadArticles() } }
         .onChange(of: model.articles) { _, articles in
@@ -336,22 +349,42 @@ struct ArticlesScreen: View {
 
     private var articleList: some View {
         List {
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        FilterChip(label: "未読", isOn: model.readFilter == false) {
-                            model.readFilter = model.readFilter == false ? nil : false
-                        }
-                        FilterChip(label: "既読", isOn: model.readFilter == true) {
-                            model.readFilter = model.readFilter == true ? nil : true
-                        }
-                    }
-                }
-                .listRowSeparator(.hidden)
-            }
             articleSection
         }
         .listStyle(.plain)
+    }
+
+    private var articleFiltersMenu: some View {
+        Menu {
+            if translations.isDeviceSupported {
+                Picker("翻訳", selection: Binding(
+                    get: { translations.isEnabled },
+                    set: { if $0 != translations.isEnabled { translations.toggle() } }
+                )) {
+                    Text("オフ").tag(false)
+                    Text("オン").tag(true)
+                }
+            }
+            Picker("既読状態", selection: Binding(
+                get: { model.readFilter },
+                set: { model.readFilter = $0 }
+            )) {
+                Text("全ての記事").tag(Bool?.none)
+                Text("未読").tag(Bool?.some(false))
+                Text("既読").tag(Bool?.some(true))
+            }
+            Picker("既読の扱い", selection: $model.readOrder) {
+                Text("既読で並び替えない").tag("none")
+                Text("既読は下").tag("unread_first")
+                Text("既読は上").tag("read_first")
+            }
+            Picker("並び順", selection: $model.sort) {
+                Text("公開日時が新しい順").tag("published_at_desc")
+                Text("取得日時が新しい順").tag("fetched_at_desc")
+            }
+        } label: {
+            Label("表示設定", systemImage: "slider.horizontal.3")
+        }
     }
 
     @ViewBuilder

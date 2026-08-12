@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -121,11 +122,14 @@ fun ArticlesScreen(
 
     var selectedTagId by vm::selectedTagId
     var readFilter by vm::readFilter
+    var sort by vm::sort
+    var readOrder by vm::readOrder
     var readingListOnly by vm::readingListOnly
     var bookmarkedOnly by vm::bookmarkedOnly
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var optionsMenuOpen by remember { mutableStateOf(false) }
+    var articleOptionsMenuOpen by remember { mutableStateOf(false) }
     var showMarkAllRead by remember { mutableStateOf(false) }
     var showRemoveReadArticles by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
@@ -145,7 +149,7 @@ fun ArticlesScreen(
             onInitialSelectedTagConsumed()
         }
     }
-    LaunchedEffect(selectedTagId, readFilter, readingListOnly, bookmarkedOnly) {
+    LaunchedEffect(selectedTagId, readFilter, sort, readOrder, readingListOnly, bookmarkedOnly) {
         vm.loadIfNeeded()
     }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
@@ -300,36 +304,60 @@ fun ArticlesScreen(
     ) {
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = { Text(viewTitle) },
-                    navigationIcon = {
-                        IconButton(onClick = {
-                            scope.launch { drawerState.open() }
-                        }) {
-                            Icon(
-                                Icons.Default.Menu,
-                                contentDescription = "フィードメニュー",
-                            )
-                        }
-                    },
-                    actions = {
-                        if (readingListOnly) {
-                            IconButton(onClick = { showRemoveReadArticles = true }) {
-                                Icon(Icons.Default.Delete, contentDescription = "既読記事を削除")
+                Column {
+                    TopAppBar(
+                        title = { Text(viewTitle) },
+                        navigationIcon = {
+                            IconButton(onClick = {
+                                scope.launch { drawerState.open() }
+                            }) {
+                                Icon(
+                                    Icons.Default.Menu,
+                                    contentDescription = "フィードメニュー",
+                                )
                             }
-                            TextButton(onClick = { onStartReading(false) }) { Text("閲覧開始") }
-                        }
-                        TitleTranslationToggle(translations)
-                        if (!bookmarkedOnly && !readingListOnly) {
-                            IconButton(onClick = { showMarkAllRead = true }) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = "すべて既読にする")
+                        },
+                        actions = {
+                            if (readingListOnly) {
+                                IconButton(onClick = { showRemoveReadArticles = true }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "既読記事を削除")
+                                }
+                                TextButton(onClick = { onStartReading(false) }) { Text("閲覧開始") }
                             }
-                        }
-                        Box {
-                            IconButton(onClick = { optionsMenuOpen = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "メニュー")
+                            if (!bookmarkedOnly && !readingListOnly) {
+                                IconButton(onClick = { showMarkAllRead = true }) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "すべて既読にする")
+                                }
                             }
-                            DropdownMenu(expanded = optionsMenuOpen, onDismissRequest = { optionsMenuOpen = false }) {
+                            Box {
+                                IconButton(onClick = { articleOptionsMenuOpen = true }) {
+                                    Icon(Icons.Default.Tune, contentDescription = "表示設定")
+                                }
+                                DropdownMenu(expanded = articleOptionsMenuOpen, onDismissRequest = { articleOptionsMenuOpen = false }) {
+                                    if (translations.isSupported) {
+                                        DropdownMenuItem(
+                                            text = { Text(if (translations.isEnabled) "翻訳（オン）" else "翻訳（オフ）") },
+                                            onClick = { translations.toggle(); articleOptionsMenuOpen = false },
+                                        )
+                                    }
+                                    DropdownMenuItem(enabled = false, text = { Text("既読状態") }, onClick = {})
+                                    DropdownMenuItem(text = { Text("全ての記事") }, onClick = { readFilter = null; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text("未読") }, onClick = { readFilter = false; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text("既読") }, onClick = { readFilter = true; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(enabled = false, text = { Text("並び順") }, onClick = {})
+                                    DropdownMenuItem(text = { Text("公開日時が新しい順") }, onClick = { sort = "published_at_desc"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text("取得日時が新しい順") }, onClick = { sort = "fetched_at_desc"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(enabled = false, text = { Text("既読の扱い") }, onClick = {})
+                                    DropdownMenuItem(text = { Text("既読で並び替えない") }, onClick = { readOrder = "none"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text("既読は下") }, onClick = { readOrder = "unread_first"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text("既読は上") }, onClick = { readOrder = "read_first"; articleOptionsMenuOpen = false })
+                                }
+                            }
+                            Box {
+                                IconButton(onClick = { optionsMenuOpen = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "メニュー")
+                                }
+                                DropdownMenu(expanded = optionsMenuOpen, onDismissRequest = { optionsMenuOpen = false }) {
                                 DropdownMenuItem(
                                     text = { Text("購読管理") },
                                     onClick = {
@@ -358,10 +386,11 @@ fun ArticlesScreen(
                                         onOpenSettings()
                                     },
                                 )
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                }
             },
             floatingActionButton = {
                 FloatingActionButton(onClick = onOpenAddFeed) {
@@ -387,19 +416,6 @@ fun ArticlesScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(top = 4.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FilterChipButton("すべて", readFilter == null) { readFilter = null }
-                        FilterChipButton("未読のみ", readFilter == false) { readFilter = false }
-                        FilterChipButton("既読のみ", readFilter == true) { readFilter = true }
-                    }
-                }
                 vm.refreshNotice?.let { notice ->
                     item {
                         Text(

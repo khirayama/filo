@@ -20,6 +20,9 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var readFilter: Bool? {
         didSet { if readFilter != oldValue { invalidateArticleRequests() } }
     }
+    @Published var readOrder = "unread_first" {
+        didSet { if readOrder != oldValue { invalidateArticleRequests() } }
+    }
 
     private var articleGeneration = 0
 
@@ -34,7 +37,8 @@ final class SubscriptionDetailViewModel: ObservableObject {
             subscriptionId: subscriptionId,
             tagId: nil,
             read: readFilter,
-            sort: sort
+            sort: sort,
+            readOrder: readOrder
         )
     }
 
@@ -219,12 +223,13 @@ struct SubscriptionDetailScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                TitleTranslationToggle(store: translations)
+                articleFiltersMenu
             }
         }
         .task { await model.load() }
         .onChange(of: model.sort) { Task { await model.reloadArticles() } }
         .onChange(of: model.readFilter) { Task { await model.reloadArticles() } }
+        .onChange(of: model.readOrder) { Task { await model.reloadArticles() } }
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
         .onChange(of: model.articles, initial: true) { translations.register(model.articles) }
         .onChange(of: translations.isEnabled) { translations.register(model.articles) }
@@ -248,19 +253,6 @@ struct SubscriptionDetailScreen: View {
                         Button("フィードURLを表示") { showFeedUrl = true }
                     }
                     Button("購読解除", role: .destructive) { showUnsubscribeConfirm = true }
-                }
-                Section {
-                    Picker("並び順", selection: $model.sort) {
-                        Text("公開日時が新しい順").tag("published_at_desc")
-                        Text("取得日時が新しい順").tag("fetched_at_desc")
-                    }
-                    .pickerStyle(.menu)
-                    Picker("既読状態", selection: $model.readFilter) {
-                        Text("すべて").tag(Bool?.none)
-                        Text("未読のみ").tag(Bool?.some(false))
-                        Text("既読のみ").tag(Bool?.some(true))
-                    }
-                    .pickerStyle(.segmented)
                 }
             }
             if model.isRefreshingFeed {
@@ -366,6 +358,36 @@ struct SubscriptionDetailScreen: View {
                     if await model.unsubscribe() { dismiss() }
                 }
             }
+        }
+    }
+
+    private var articleFiltersMenu: some View {
+        Menu {
+            if translations.isDeviceSupported {
+                Picker("翻訳", selection: Binding(
+                    get: { translations.isEnabled },
+                    set: { if $0 != translations.isEnabled { translations.toggle() } }
+                )) {
+                    Text("オフ").tag(false)
+                    Text("オン").tag(true)
+                }
+            }
+            Picker("既読状態", selection: $model.readFilter) {
+                Text("全ての記事").tag(Bool?.none)
+                Text("未読").tag(Bool?.some(false))
+                Text("既読").tag(Bool?.some(true))
+            }
+            Picker("既読の扱い", selection: $model.readOrder) {
+                Text("既読で並び替えない").tag("none")
+                Text("既読は下").tag("unread_first")
+                Text("既読は上").tag("read_first")
+            }
+            Picker("並び順", selection: $model.sort) {
+                Text("公開日時が新しい順").tag("published_at_desc")
+                Text("取得日時が新しい順").tag("fetched_at_desc")
+            }
+        } label: {
+            Label("表示設定", systemImage: "slider.horizontal.3")
         }
     }
 

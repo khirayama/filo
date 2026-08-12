@@ -210,6 +210,7 @@ object ApiClient {
         if (filters.readingList == true) params.add("readingList=true")
         if (filters.bookmarked == true) params.add("bookmarked=true")
         filters.sort?.let { params.add("sort=$it") }
+        filters.readOrder?.let { params.add("readOrder=$it") }
         cursor?.let { params.add("cursor=" + URLEncoder.encode(it, "UTF-8")) }
         val (data, next) = getList("/api/v1/articles?" + params.joinToString("&"))
         return ArticlePage(

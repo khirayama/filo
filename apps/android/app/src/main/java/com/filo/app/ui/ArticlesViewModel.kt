@@ -30,6 +30,8 @@ class ArticlesViewModel : ViewModel() {
 
     var selectedTagId by mutableStateOf<Int?>(null)
     var readFilter by mutableStateOf<Boolean?>(null)
+    var sort by mutableStateOf("published_at_desc")
+    var readOrder by mutableStateOf("unread_first")
     var readingListOnly by mutableStateOf(false)
     var bookmarkedOnly by mutableStateOf(false)
 
@@ -41,6 +43,8 @@ class ArticlesViewModel : ViewModel() {
         read = readFilter,
         readingList = if (readingListOnly) true else null,
         bookmarked = if (bookmarkedOnly) true else null,
+        sort = sort,
+        readOrder = readOrder,
     )
 
     fun resetLoadState() {
@@ -48,7 +52,7 @@ class ArticlesViewModel : ViewModel() {
     }
 
     fun loadIfNeeded() {
-        val current = "${selectedTagId}|${readFilter}|${readingListOnly}|${bookmarkedOnly}"
+        val current = "${selectedTagId}|${readFilter}|${readingListOnly}|${bookmarkedOnly}|${sort}|${readOrder}"
         if (lastLoadedFilters == current) return
         lastLoadedFilters = current
         viewModelScope.launch { reload() }
@@ -80,6 +84,7 @@ class ArticlesViewModel : ViewModel() {
                     theme = settings.theme
                     language = settings.language
                     readableLanguages = settings.readableLanguages
+                    sort = settings.articleSortOrder
                 }
             }
         } catch (e: Exception) {

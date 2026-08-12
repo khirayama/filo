@@ -160,8 +160,10 @@ data class ArticleListFilters(
     val read: Boolean? = null,
     val readingList: Boolean? = null,
     val bookmarked: Boolean? = null,
-    // "published_at_desc" | "fetched_at_desc"。null は server が user 設定を適用する
+    // "published_at_desc" | "fetched_at_desc"
     val sort: String? = null,
+    // "unread_first" | "read_first" | "none"
+    val readOrder: String? = null,
 )
 
 data class ArticlePage(val articles: List<ArticleListItem>, val nextCursor: String?)
