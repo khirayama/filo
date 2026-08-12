@@ -348,10 +348,18 @@ struct ArticlesScreen: View {
     }
 
     private var articleList: some View {
-        List {
-            articleSection
+        ScrollViewReader { proxy in
+            List {
+                articleSection
+            }
+            .listStyle(.plain)
+            .onChange(of: selectedArticleIndex) { _, index in
+                guard model.articles.indices.contains(index) else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    proxy.scrollTo(model.articles[index].id, anchor: .center)
+                }
+            }
         }
-        .listStyle(.plain)
     }
 
     private var articleFiltersMenu: some View {
@@ -407,6 +415,7 @@ struct ArticlesScreen: View {
             } else {
                 ForEach(model.articles) { article in
                     ArticleRowView(article: article)
+                    .id(article.id)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         if let urlString = article.canonicalUrl, let url = URL(string: urlString) {

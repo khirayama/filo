@@ -173,7 +173,7 @@ function ArticlesListPage() {
 
   useEffect(() => {
     const article = list.articles[activeArticleIndex];
-    if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "nearest" });
+    if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "center" });
   }, [activeArticleIndex, list.articles]);
 
   return (

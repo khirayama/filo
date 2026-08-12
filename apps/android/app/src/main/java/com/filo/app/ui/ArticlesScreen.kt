@@ -92,6 +92,8 @@ import com.filo.app.api.Tag
 import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 
+private const val ARTICLE_SELECTION_BUFFER = 3
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArticlesScreen(
@@ -153,6 +155,12 @@ fun ArticlesScreen(
         vm.loadIfNeeded()
     }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    fun scrollToSelectedArticle(index: Int) {
+        val headerCount = if (vm.refreshNotice != null) 1 else 0
+        val articleListIndex = index + headerCount
+        val targetIndex = (articleListIndex - ARTICLE_SELECTION_BUFFER).coerceAtLeast(headerCount)
+        scope.launch { listState.animateScrollToItem(targetIndex) }
+    }
     LaunchedEffect(articles.size) {
         selectedArticleIndex = selectedArticleIndex.coerceIn(0, (articles.size - 1).coerceAtLeast(0))
     }
@@ -207,14 +215,16 @@ fun ArticlesScreen(
                     when (event.key) {
                         Key.J, Key.DirectionDown -> {
                             if (articles.isNotEmpty()) {
-                                selectedArticleIndex = (selectedArticleIndex + 1).coerceAtMost(articles.lastIndex)
-                                scope.launch { listState.animateScrollToItem(selectedArticleIndex + 1) }
+                                val nextIndex = (selectedArticleIndex + 1).coerceAtMost(articles.lastIndex)
+                                selectedArticleIndex = nextIndex
+                                scrollToSelectedArticle(nextIndex)
                             }
                             true
                         }
                         Key.K, Key.DirectionUp -> {
-                            selectedArticleIndex = (selectedArticleIndex - 1).coerceAtLeast(0)
-                            scope.launch { listState.animateScrollToItem(selectedArticleIndex + 1) }
+                            val nextIndex = (selectedArticleIndex - 1).coerceAtLeast(0)
+                            selectedArticleIndex = nextIndex
+                            scrollToSelectedArticle(nextIndex)
                             true
                         }
                         Key.Enter, Key.O -> {

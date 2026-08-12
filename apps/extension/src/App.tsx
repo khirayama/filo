@@ -256,6 +256,11 @@ export function App() {
   }, [articles.length]);
 
   useEffect(() => {
+    const article = articles[selectedArticleIndex];
+    if (article) document.getElementById(`filo-queue-${article.id}`)?.scrollIntoView({ block: "center" });
+  }, [articles, selectedArticleIndex]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, button, [contenteditable='true']")) return;
@@ -367,6 +372,7 @@ export function App() {
           <ul className="queue-list">
             {articles.map((article, index) => (
               <li
+                id={`filo-queue-${article.id}`}
                 className={`queue-item${index === selectedArticleIndex ? " queue-item-selected" : ""}`}
                 key={article.id}
                 style={index === selectedArticleIndex ? { outline: "2px solid #4f46e5", outlineOffset: "-2px" } : undefined}
