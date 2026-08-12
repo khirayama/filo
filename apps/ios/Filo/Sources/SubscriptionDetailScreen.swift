@@ -166,6 +166,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
     func retryInitialFetch() async {
         do {
             subscription = try await APIClient.shared.retryInitialFetch(subscriptionId)
+            FiloAnalytics.track("retry_feed_fetch", parameters: ["subscription_id": subscriptionId])
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
@@ -181,6 +182,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
         refreshNotice = nil
         do {
             let result = try await APIClient.shared.refreshFeed(feedId)
+            FiloAnalytics.track("refresh_feed", parameters: ["feed_id": feedId])
             let done = await ArticlesViewModel.awaitRefreshCompletion(queuedAtIso: result.queuedAt, feedId: feedId)
             if !done { refreshNotice = "取得に時間がかかっています。あとで再度更新してください。" }
         } catch {

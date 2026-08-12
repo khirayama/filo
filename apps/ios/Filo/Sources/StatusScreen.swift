@@ -173,6 +173,7 @@ struct StatusScreen: View {
         notice = nil
         do {
             let result = try await APIClient.shared.refreshFeeds(force: true)
+            FiloAnalytics.track("refresh_feeds", parameters: ["source": "status", "enqueued": result.enqueued])
             notice = result.enqueued > 0
                 ? "\(result.enqueued)件のフィードの取得を開始しました。"
                 : "取得対象のフィードがありません。"
@@ -189,6 +190,7 @@ struct StatusScreen: View {
         notice = nil
         do {
             _ = try await APIClient.shared.refreshFeed(feedId)
+            FiloAnalytics.track("refresh_feed", parameters: ["source": "status", "feed_id": feedId])
             notice = "フィードの取得を開始しました。"
             await load()
         } catch {

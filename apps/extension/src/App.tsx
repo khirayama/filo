@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth, useUser } from "@clerk/chrome-extension";
 import { createExtensionApi, type ReadingArticle } from "./api";
 import { webAppPath } from "./config";
+import { trackEvent } from "./analytics";
 
 interface ReaderSettings {
   targetLanguage: string;
@@ -56,6 +57,7 @@ export function App() {
   const [currentPage, setCurrentPage] = useState<{ url: string; title: string } | null>(null);
   const [readerState, setReaderState] = useState<ReaderSession | null>(null);
   const [selectedArticleIndex, setSelectedArticleIndex] = useState(0);
+  const viewedArticleIds = useRef("");
 
   const getCurrentPage = useCallback(async (): Promise<CurrentPage | null> => {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -118,6 +120,7 @@ export function App() {
 
   useEffect(() => {
     document.title = "Filo Reader";
+    trackEvent("screen_view", { screen_name: "extension_popup" });
   }, []);
 
   useEffect(() => {
@@ -144,6 +147,7 @@ export function App() {
       const page = await getCurrentPage();
       setCurrentPage(page);
       if (!page) throw new Error("読み上げできるページがありません。");
+      trackEvent("start_reading", { source: "extension_current_page" });
       setSettings(await send<ReaderSettings>({
         type: "filoStartPage",
         page,
@@ -171,6 +175,7 @@ export function App() {
       setCurrentPage(page);
       if (!page) throw new Error("追加できるページがありません。");
       await api.importArticle({ url: page.url, title: page.title });
+      trackEvent("add_to_reading_list", { source: "extension_current_page" });
       setArticles(await api.listReadingArticles());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -185,6 +190,7 @@ export function App() {
     setError(null);
     try {
       await api.removeFromReadingList(articleId);
+      trackEvent("remove_from_reading_list", { article_id: articleId });
       setArticles((current) => current.filter((article) => article.id !== articleId));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -204,6 +210,9 @@ export function App() {
         : patch.inReadingList !== undefined
           ? await api.setReadingListMembership(article.id, patch.inReadingList)
           : await api.setBookmarkMembership(article.id, patch.isBookmarked === true);
+      if (patch.isRead !== undefined) trackEvent(patch.isRead ? "mark_article_read" : "mark_article_unread", { article_id: article.id });
+      if (patch.inReadingList !== undefined) trackEvent(patch.inReadingList ? "add_to_reading_list" : "remove_from_reading_list", { article_id: article.id });
+      if (patch.isBookmarked !== undefined) trackEvent(patch.isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", { article_id: article.id });
       setArticles((current) => current.map((item) => item.id === article.id ? { ...item, userState: state } : item));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -235,6 +244,8 @@ export function App() {
     try {
       if (action === "settings") {
         const nextSettings = await send<ReaderSettings>({ type: "filoSetSettings", ...settings });
+        const setting = Object.keys(settings)[0];
+        if (setting) trackEvent("settings_change", { setting, value: String(settings[setting]) });
         setSettings(nextSettings);
       } else {
         setSettings(await send<ReaderSettings>({ type: "filoControl", action, ...settings }));
@@ -256,6 +267,14 @@ export function App() {
   }, [articles.length]);
 
   useEffect(() => {
+    if (!isSignedIn || loading || articles.length === 0) return;
+    const ids = articles.map((article) => article.id).join(",");
+    if (viewedArticleIds.current === ids) return;
+    viewedArticleIds.current = ids;
+    trackEvent("view_item_list", { item_list_name: "extension_reading_list", item_count: articles.length });
+  }, [articles, isSignedIn, loading]);
+
+  useEffect(() => {
     const article = articles[selectedArticleIndex];
     if (article) document.getElementById(`filo-queue-${article.id}`)?.scrollIntoView({ block: "center" });
   }, [articles, selectedArticleIndex]);
@@ -270,7 +289,7 @@ export function App() {
         event.preventDefault();
         if (isSignedIn && window.confirm("現在のリーディングリストの記事をすべて既読にしますか？")) {
           void Promise.all(articles.map((article) => api.setArticleRead(article.id, true)))
-            .then(() => loadAll())
+            .then(() => { trackEvent("mark_all_articles_read", { scope: "reading_list" }); return loadAll(); })
             .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
         }
         return;
@@ -297,6 +316,7 @@ export function App() {
         void updateSelectedState({ isBookmarked: !articles[selectedArticleIndex]?.userState.isBookmarked });
       } else if (key === "r") {
         event.preventDefault();
+        trackEvent("refresh_feeds", { source: "extension" });
         void loadAll();
       } else if (key === " " && currentPage) {
         event.preventDefault();
@@ -330,7 +350,10 @@ export function App() {
           <button
             className="primary-action read-page-button"
             disabled={busy || (!currentPage && !isPlaying)}
-            onClick={() => void (isPlaying ? control("pause") : startCurrentPage())}
+            onClick={() => {
+              if (isPlaying) { trackEvent("reading_stop"); void control("pause"); }
+              else void startCurrentPage();
+            }}
           >
             {isPlaying ? "読み上げを停止" : currentPage ? "このページを読み上げ" : "読み上げできるページなし"}
           </button>
@@ -377,7 +400,7 @@ export function App() {
                 key={article.id}
                 style={index === selectedArticleIndex ? { outline: "2px solid #4f46e5", outlineOffset: "-2px" } : undefined}
               >
-                <button className="article-open" disabled={!article.canonicalUrl} onClick={() => openArticle(article.canonicalUrl)}>
+                <button className="article-open" disabled={!article.canonicalUrl} onClick={() => { trackEvent("select_item", { article_id: article.id }); openArticle(article.canonicalUrl); }}>
                   <span className="queue-item-title">{article.title}</span>
                   <span className="article-meta">{article.userState.isRead ? "既読" : "未読"} · {article.feed.title}</span>
                 </button>

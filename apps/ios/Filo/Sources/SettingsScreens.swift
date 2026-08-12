@@ -204,6 +204,11 @@ struct SettingsScreen: View {
                 articleSortOrder: articleSortOrder,
                 openInBrowserByDefault: openInBrowserByDefault
             )
+            if let theme { FiloAnalytics.track("settings_change", parameters: ["setting": "theme", "value": theme]) }
+            if let language { FiloAnalytics.track("settings_change", parameters: ["setting": "language", "value": language]) }
+            if let readableLanguages { FiloAnalytics.track("settings_change", parameters: ["setting": "readable_languages", "value": readableLanguages.count]) }
+            if let articleSortOrder { FiloAnalytics.track("settings_change", parameters: ["setting": "article_sort_order", "value": articleSortOrder]) }
+            if let openInBrowserByDefault { FiloAnalytics.track("settings_change", parameters: ["setting": "open_in_browser_by_default", "value": openInBrowserByDefault]) }
             if let language { languageManager.language = language }
             if let settings {
                 ThemeManager.shared.theme = settings.theme
@@ -224,6 +229,7 @@ struct SettingsScreen: View {
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: url)
             let job = try await APIClient.shared.importOpml(fileData: data, fileName: url.lastPathComponent)
+            FiloAnalytics.track("import_opml", parameters: ["file_type": url.pathExtension.lowercased()])
             importJob = job
             pollImport(job.jobId)
         } catch {
@@ -249,6 +255,7 @@ struct SettingsScreen: View {
         errorMessage = nil
         do {
             let data = try await APIClient.shared.exportOpml()
+            FiloAnalytics.track("export_opml")
             let url = FileManager.default.temporaryDirectory.appending(path: "filo-subscriptions.opml")
             try data.write(to: url)
             exportedFileURL = url

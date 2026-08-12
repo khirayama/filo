@@ -7,6 +7,7 @@ import com.clerk.api.ClerkConfigurationOptions
 class FiloApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        Analytics.initialize(this)
 
         if (BuildConfig.CLERK_PUBLISHABLE_KEY.isBlank()) {
             return

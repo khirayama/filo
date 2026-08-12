@@ -139,6 +139,7 @@ fun ArticlesScreen(
     var showShortcutHelp by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
+    var viewedArticleIds by remember { mutableStateOf("") }
 
     DisposableEffect(Unit) {
         onDispose { vm.resetLoadState() }
@@ -163,6 +164,15 @@ fun ArticlesScreen(
     }
     LaunchedEffect(articles.size) {
         selectedArticleIndex = selectedArticleIndex.coerceIn(0, (articles.size - 1).coerceAtLeast(0))
+    }
+    LaunchedEffect(articles, isLoading) {
+        if (!isLoading && articles.isNotEmpty()) {
+            val ids = articles.joinToString(",") { it.id.toString() }
+            if (ids != viewedArticleIds) {
+                viewedArticleIds = ids
+                com.filo.app.Analytics.track("view_item_list", mapOf("item_list_name" to "articles", "item_count" to articles.size))
+            }
+        }
     }
     // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
     // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする

@@ -493,6 +493,12 @@ private fun RssNavigation(
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val isReadingBrowser = currentBackStackEntry?.destination?.route?.startsWith("reading") == true
 
+    LaunchedEffect(currentBackStackEntry?.destination?.route) {
+        currentBackStackEntry?.destination?.route?.let { route ->
+            Analytics.screen(route.substringBefore('/').substringBefore('?'))
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose { readingPlayer.shutdown() }
     }
@@ -549,9 +555,14 @@ private fun RssNavigation(
                 },
                 onOpenSubscription = { navController.navigate("subscription/$it") },
                 onOpenSubscriptions = { navController.navigate("subscriptions") },
-                onOpenAddFeed = { navController.navigate("addFeed") },
-                onOpenAddArticle = { navController.navigate("addArticle") },
+                onOpenAddFeed = {
+                    navController.navigate("addFeed")
+                },
+                onOpenAddArticle = {
+                    navController.navigate("addArticle")
+                },
                 onOpenArticle = { article ->
+                    Analytics.track("select_item", mapOf("article_id" to article.id))
                     article.canonicalUrl?.let { url ->
                         navController.navigate(
                             "reading-article/${article.id}?url=${Uri.encode(url)}" +
@@ -563,7 +574,10 @@ private fun RssNavigation(
                 onOpenTags = { navController.navigate("tags") },
                 onOpenStatus = { navController.navigate("status") },
                 onOpenSettings = { navController.navigate("settings") },
-                onStartReading = { autoplay -> navController.navigate("reading/$autoplay") },
+                onStartReading = { autoplay ->
+                    Analytics.track("start_reading", mapOf("autoplay" to autoplay))
+                    navController.navigate("reading/$autoplay")
+                },
             )
         }
         composable("reading/{autoplay}") { entry ->

@@ -123,6 +123,10 @@ class ArticlesViewModel : ViewModel() {
     // by polling /status, then reload the visible list.
     suspend fun refreshFeedsAndReload(feedId: Int? = null) {
         if (isRefreshingFeeds) return
+        com.filo.app.Analytics.track(
+            "refresh_feeds",
+            mapOf("scope" to if (feedId == null) "all" else "feed"),
+        )
         isRefreshingFeeds = true
         refreshNotice = null
         try {
@@ -142,6 +146,7 @@ class ArticlesViewModel : ViewModel() {
 
     // 表示中スコープ(全購読 or 選択タグ配下)の既読カーソルを一括前進させる
     suspend fun markAllRead() {
+        com.filo.app.Analytics.track("mark_all_articles_read")
         try {
             ApiClient.markAllArticlesRead(selectedTagId)
             reload()
@@ -151,6 +156,7 @@ class ArticlesViewModel : ViewModel() {
     }
 
     suspend fun removeReadArticlesFromReadingList() {
+        com.filo.app.Analytics.track("remove_read_articles_from_reading_list")
         try {
             ApiClient.removeReadArticlesFromReadingList()
             reload()
@@ -162,6 +168,15 @@ class ArticlesViewModel : ViewModel() {
     fun patchState(article: ArticleListItem, isRead: Boolean? = null, inReadingList: Boolean? = null, isBookmarked: Boolean? = null) {
         viewModelScope.launch {
             try {
+                com.filo.app.Analytics.track(
+                    when {
+                        isRead != null -> if (isRead) "mark_article_read" else "mark_article_unread"
+                        inReadingList != null -> if (inReadingList) "add_to_reading_list" else "remove_from_reading_list"
+                        isBookmarked != null -> if (isBookmarked) "add_to_wishlist" else "remove_from_wishlist"
+                        else -> return@launch
+                    },
+                    mapOf("article_id" to article.id),
+                )
                 val state = when {
                     isRead != null -> ApiClient.setArticleRead(article.id, isRead)
                     inReadingList != null -> ApiClient.setReadingListMembership(article.id, inReadingList)

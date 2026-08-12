@@ -4,6 +4,7 @@ import { useApi } from "../api/useApi";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { Button, ErrorBox, palette } from "../components/ui";
+import { trackEvent } from "../lib/analytics";
 
 export function AddArticlePage() {
   const api = useApi();
@@ -26,6 +27,7 @@ export function AddArticlePage() {
     setError(null);
     try {
       await api.importArticle({ url: url.trim() });
+      trackEvent("add_to_reading_list", { source: "manual_url" });
       navigate("/articles?readingList=1", { replace: true });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

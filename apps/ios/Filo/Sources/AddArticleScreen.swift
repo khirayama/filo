@@ -53,6 +53,7 @@ struct AddArticleScreen: View {
         errorMessage = nil
         do {
             let saved = try await APIClient.shared.importArticle(url: url.trimmingCharacters(in: .whitespacesAndNewlines))
+            FiloAnalytics.track("add_to_reading_list", parameters: ["source": "manual_url", "created": saved.created])
             result = saved.created ? "リーディングリストに追加しました。" : "リーディングリストに保存済みです。"
         } catch {
             errorMessage = ErrorMessages.message(for: error)

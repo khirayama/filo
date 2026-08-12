@@ -116,6 +116,7 @@ final class ArticlesViewModel: ObservableObject {
     // /status, then reload the list.
     func refreshFeedsAndReload() async {
         guard !isRefreshingFeeds else { return }
+        FiloAnalytics.track("refresh_feeds")
         isRefreshingFeeds = true
         refreshNotice = nil
         do {
@@ -180,6 +181,7 @@ final class ArticlesViewModel: ObservableObject {
 
     // 表示中スコープ(全購読 or 選択タグ配下)の既読カーソルを一括前進させる
     func markAllRead() async {
+        FiloAnalytics.track("mark_all_articles_read")
         do {
             _ = try await APIClient.shared.markAllArticlesRead(tagId: selectedTagId)
             await reloadArticles()
@@ -190,6 +192,7 @@ final class ArticlesViewModel: ObservableObject {
     }
 
     func removeReadArticlesFromReadingList() async {
+        FiloAnalytics.track("remove_read_articles_from_reading_list")
         do {
             _ = try await APIClient.shared.removeReadArticlesFromReadingList()
             await reloadArticles()
@@ -200,6 +203,13 @@ final class ArticlesViewModel: ObservableObject {
 
     func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
         do {
+            if let isRead {
+                FiloAnalytics.track(isRead ? "mark_article_read" : "mark_article_unread", parameters: ["article_id": articleId])
+            } else if let inReadingList {
+                FiloAnalytics.track(inReadingList ? "add_to_reading_list" : "remove_from_reading_list", parameters: ["article_id": articleId])
+            } else if let isBookmarked {
+                FiloAnalytics.track(isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", parameters: ["article_id": articleId])
+            }
             let state: ArticleUserState
             if let isRead {
                 state = try await APIClient.shared.setArticleRead(articleId, isRead: isRead)
@@ -237,6 +247,7 @@ struct ArticlesScreen: View {
     @State private var showMarkAllReadConfirm = false
     @State private var showRemoveReadConfirm = false
     @State private var selectedArticleIndex = 0
+    @State private var viewedArticleIds = ""
     @State private var showShortcutHelp = false
 
     private var markAllReadPrompt: String {
@@ -308,6 +319,11 @@ struct ArticlesScreen: View {
         .onChange(of: model.readingListOnly) { Task { await model.reloadArticles() } }
         .onChange(of: model.articles) { _, articles in
             selectedArticleIndex = min(selectedArticleIndex, max(articles.count - 1, 0))
+            let ids = articles.map { String($0.id) }.joined(separator: ",")
+            if !ids.isEmpty && ids != viewedArticleIds {
+                viewedArticleIds = ids
+                FiloAnalytics.track("view_item_list", parameters: ["item_list_name": "articles", "item_count": articles.count])
+            }
         }
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
         .onChange(of: model.articles, initial: true) { registerTitlesForTranslation() }
@@ -418,6 +434,7 @@ struct ArticlesScreen: View {
                     .id(article.id)
                     .contentShape(Rectangle())
                     .onTapGesture {
+                        FiloAnalytics.track("select_item", parameters: ["article_id": article.id])
                         if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
                             if model.settings?.openInBrowserByDefault == true {
                                 openURL(url)

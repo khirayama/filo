@@ -9,6 +9,7 @@ import { EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, pa
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage } from "../lib/messages";
 import { refreshFeedsAndWait } from "../lib/refresh";
+import { trackEvent } from "../lib/analytics";
 
 export function ArticlesPage() {
   return <ArticlesListPage />;
@@ -83,6 +84,12 @@ function ArticlesListPage() {
       } else if (outcome.timedOut) {
         setRefreshNotice(t("取得に時間がかかっています。あとで再度更新してください。"));
       }
+      trackEvent("refresh_feeds", {
+        enqueued: outcome.enqueued,
+        skipped: outcome.skipped,
+        source: "articles",
+        timed_out: outcome.timedOut,
+      });
       await list.reload();
       void refreshAppData();
     } catch (e) {
@@ -97,6 +104,7 @@ function ArticlesListPage() {
     if (!window.confirm(`${scope}${t("の記事をすべて既読にしますか？")}`)) return;
     try {
       await api.markAllArticlesRead(tagId);
+      trackEvent("mark_all_articles_read", { scope: selectedTag ? "tag" : "all_articles" });
       setMarkAllError(null);
       await list.reload();
       void refreshAppData();
@@ -110,6 +118,7 @@ function ArticlesListPage() {
     setRemovingReadArticles(true);
     try {
       await api.removeReadArticlesFromReadingList();
+      trackEvent("remove_read_articles_from_reading_list");
       await list.reload();
     } catch (e) {
       setMarkAllError(errorMessage(e, language));

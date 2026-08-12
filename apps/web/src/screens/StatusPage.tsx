@@ -16,6 +16,7 @@ import {
   sectionStyle,
 } from "../components/ui";
 import { errorMessage } from "../lib/messages";
+import { trackEvent } from "../lib/analytics";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -90,6 +91,7 @@ export function StatusPage() {
   const refreshAll = () =>
     run({ kind: "refresh", target: "all" }, async () => {
       const result = await api.refreshFeeds(true);
+      trackEvent("refresh_feeds", { source: "status", enqueued: result.enqueued, skipped: result.skipped });
       return result.enqueued > 0
         ? `${result.enqueued}${t("件のフィードの取得を開始しました。")}`
         : t("取得対象のフィードがありません。");
@@ -98,6 +100,7 @@ export function StatusPage() {
   const refreshFeed = (feedId: number) =>
     run({ kind: "refresh", target: feedId }, async () => {
       await api.refreshFeed(feedId);
+      trackEvent("refresh_feed", { feed_id: String(feedId), source: "status" });
       return t("フィードの取得を開始しました。");
     });
 

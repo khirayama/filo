@@ -17,6 +17,7 @@ import {
   sectionStyle,
 } from "../components/ui";
 import { errorMessage, LANGUAGE_NAMES, SUPPORTED_LANGUAGES } from "../lib/messages";
+import { trackEvent } from "../lib/analytics";
 
 export function SettingsPage() {
   const api = useApi();
@@ -38,6 +39,12 @@ export function SettingsPage() {
   const update = async (patch: Parameters<typeof api.updateSettings>[0]) => {
     try {
       setSettings(await api.updateSettings(patch));
+      for (const [setting, value] of Object.entries(patch)) {
+        trackEvent("settings_change", {
+          setting,
+          value: Array.isArray(value) ? value.length : value,
+        });
+      }
     } catch (e) {
       setError(errorMessage(e, language));
     }
@@ -65,6 +72,7 @@ export function SettingsPage() {
     setError(null);
     try {
       const job = await api.importOpml(file);
+      trackEvent("import_opml", { file_type: file.name.toLowerCase().endsWith(".xml") ? "xml" : "opml" });
       setImportJob(job);
       pollImport(job.jobId);
     } catch (e) {
@@ -84,6 +92,7 @@ export function SettingsPage() {
       a.download = "filo-subscriptions.opml";
       a.click();
       URL.revokeObjectURL(url);
+      trackEvent("export_opml");
     } catch (e) {
       setError(errorMessage(e, language));
     }

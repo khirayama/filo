@@ -3,6 +3,9 @@ packages:
   Clerk:
     url: https://github.com/clerk/clerk-ios
     exactVersion: 1.1.3
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    exactVersion: 11.15.0
 options:
   deploymentTarget:
     iOS: "18.0"
@@ -26,6 +29,8 @@ targets:
       - path: Filo/Sources
       - path: Filo/Resources
         buildPhase: resources
+      - path: GoogleService-Info.plist
+        buildPhase: resources
       - path: LocalSecrets.plist
         buildPhase: resources
     settings:
@@ -43,6 +48,8 @@ targets:
         product: ClerkKit
       - package: Clerk
         product: ClerkKitUI
+      - package: Firebase
+        product: FirebaseAnalytics
     scheme:
       testTargets:
         - FiloTests

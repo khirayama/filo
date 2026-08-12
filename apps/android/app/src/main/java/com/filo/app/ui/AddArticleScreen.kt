@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.filo.app.api.ApiClient
 import com.filo.app.api.ErrorMessages
+import com.filo.app.Analytics
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,6 +72,10 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onReadAloud: (Strin
                         result = null
                         try {
                             val saved = ApiClient.importArticle(url.trim())
+                            Analytics.track(
+                                "add_to_reading_list",
+                                mapOf("source" to "manual_url", "created" to saved.created),
+                            )
                             result = if (saved.created) "リーディングリストに追加しました。" else "リーディングリストに保存済みです。"
                         } catch (cause: Exception) {
                             error = ErrorMessages.forError(cause)

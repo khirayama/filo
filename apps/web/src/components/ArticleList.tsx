@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { ApiClient } from "../api/client";
 import type { ArticleListFilters, ArticleListItem } from "../api/types";
 import { errorMessage } from "../lib/messages";
+import { articleItem, trackEvent } from "../lib/analytics";
 import { useIsDesktop } from "./AppShell";
 import { useAppData } from "./AppDataContext";
 import { useTitleTranslation } from "./TitleTranslationContext";
@@ -66,11 +67,22 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   const updateState = useCallback(
     async (articleId: number, patch: ArticleStateMutation) => {
       try {
+        const article = articles.find((candidate) => candidate.id === articleId);
         const state = "isRead" in patch
           ? await api.setArticleRead(articleId, patch.isRead)
         : "inReadingList" in patch
           ? await api.setReadingListMembership(articleId, patch.inReadingList)
           : await api.setBookmarkMembership(articleId, patch.isBookmarked);
+        if (article) {
+          const item = articleItem(article);
+          if ("isRead" in patch) {
+            trackEvent(patch.isRead ? "mark_article_read" : "mark_article_unread", { article_id: String(article.id) });
+          } else if ("inReadingList" in patch) {
+            trackEvent(patch.inReadingList ? "add_to_reading_list" : "remove_from_reading_list", { article_id: String(article.id) });
+          } else {
+            trackEvent(patch.isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", { items: [item] });
+          }
+        }
         const currentFilters = JSON.parse(filtersKey) as ArticleListFilters;
         setArticles((prev) =>
           prev.flatMap((a) => {
@@ -86,7 +98,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
         setError(errorMessage(e));
       }
     },
-    [api, filtersKey],
+    [api, articles, filtersKey],
   );
 
   return { articles, nextCursor, loading, loadingMore, error, reload: load, loadMore, updateState };
@@ -116,7 +128,19 @@ export function ArticleRows({
   emptyContent: React.ReactNode;
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const viewedArticleIds = useRef("");
   const { enabled: translationEnabled, request: requestTranslations } = useTitleTranslation();
+
+  useEffect(() => {
+    if (loading || articles.length === 0) return;
+    const articleIds = articles.map((article) => article.id).join(",");
+    if (viewedArticleIds.current === articleIds) return;
+    viewedArticleIds.current = articleIds;
+    trackEvent("view_item_list", {
+      item_list_name: "articles",
+      items: articles.slice(0, 100).map(articleItem),
+    });
+  }, [articles, loading]);
 
   // 翻訳トグルが ON の間は、表示された記事(スクロールで増えた分も含む)を翻訳対象にする
   useEffect(() => {
@@ -370,6 +394,7 @@ function ArticleRow({
           target="_blank"
           rel="noreferrer"
           aria-label={article.title}
+          onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}
           style={{ inset: 0, position: "absolute", zIndex: 0 }}
         />
       ) : null}

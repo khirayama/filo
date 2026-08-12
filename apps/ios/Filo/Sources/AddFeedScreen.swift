@@ -95,6 +95,7 @@ struct AddFeedScreen: View {
                 tagIds: Array(selectedTagIds),
                 tagNames: names
             )
+            FiloAnalytics.track("add_feed", parameters: ["tag_count": selectedTagIds.count])
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
@@ -106,6 +107,7 @@ struct AddFeedScreen: View {
         isRetrying = true
         do {
             self.created = try await APIClient.shared.retryInitialFetch(created.id)
+            FiloAnalytics.track("retry_feed_fetch")
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }

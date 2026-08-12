@@ -94,6 +94,15 @@ fun SettingsScreen(
                 settings = ApiClient.updateSettings(
                     theme, language, readableLanguages, articleSortOrder, openInBrowserByDefault,
                 )
+                listOf(
+                    "theme" to theme,
+                    "language" to language,
+                    "readable_languages" to readableLanguages?.size,
+                    "article_sort_order" to articleSortOrder,
+                    "open_in_browser_by_default" to openInBrowserByDefault,
+                ).filter { it.second != null }.forEach { (setting, value) ->
+                    com.filo.app.Analytics.track("settings_change", mapOf("setting" to setting, "value" to value.toString()))
+                }
                 settings?.let {
                     ThemePreference.set(context, it.theme)
                     LanguagePreference.set(context, it.language)
@@ -112,6 +121,7 @@ fun SettingsScreen(
                 val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: throw IllegalStateException("could not read file")
                 var job = ApiClient.importOpml(bytes, "import.opml")
+                com.filo.app.Analytics.track("import_opml", mapOf("file_type" to "opml"))
                 importJob = job
                 while (job.status == "pending" || job.status == "running") {
                     delay(3000)
@@ -229,6 +239,7 @@ fun SettingsScreen(
                         scope.launch {
                             try {
                                 exportedBytes = ApiClient.exportOpml()
+                                com.filo.app.Analytics.track("export_opml")
                                 exportLauncher.launch("filo-subscriptions.opml")
                             } catch (e: Exception) {
                                 errorMessage = ErrorMessages.forError(e)

@@ -1,10 +1,12 @@
 import ClerkKit
 import ClerkKitUI
+import FirebaseCore
 import SwiftUI
 
 @main
 struct FiloApp: App {
     init() {
+        FirebaseApp.configure()
         if !ClerkConfiguration.isPlaceholderKey {
             Clerk.configure(publishableKey: ClerkConfiguration.publishableKey)
         }

@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { SignIn, SignUp, useAuth } from "@clerk/clerk-react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppDataProvider } from "./components/AppDataContext";
 import { TitleTranslationProvider } from "./components/TitleTranslationContext";
 import { TitleTranslationSetup } from "./components/TitleTranslationSetup";
@@ -14,6 +14,7 @@ import { StatusPage } from "./screens/StatusPage";
 import { SubscriptionDetailPage } from "./screens/SubscriptionDetailPage";
 import { SubscriptionsPage } from "./screens/SubscriptionsPage";
 import { TagsPage } from "./screens/TagsPage";
+import { trackPageView } from "./lib/analytics";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isLoaded, userId } = useAuth();
@@ -39,9 +40,34 @@ function RootRedirect() {
   return <Navigate replace to={userId ? "/articles" : "/sign-in"} />;
 }
 
+function SignOutPage() {
+  const { isLoaded, signOut } = useAuth();
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    void (async () => {
+      await signOut();
+      window.location.replace("/sign-in");
+    })();
+  }, [isLoaded, signOut]);
+
+  return <AuthLayout><p style={{ textAlign: "center" }}>サインアウト中…</p></AuthLayout>;
+}
+
+function AnalyticsPageView() {
+  const location = useLocation();
+
+  useEffect(() => {
+    trackPageView(location.pathname, location.search);
+  }, [location.pathname, location.search]);
+
+  return null;
+}
+
 export function App() {
   return (
     <BrowserRouter>
+      <AnalyticsPageView />
       <AppDataProvider>
       <TitleTranslationProvider>
       <Routes>
@@ -62,6 +88,7 @@ export function App() {
             </AuthLayout>
           }
         />
+        <Route path="/sign-out" element={<SignOutPage />} />
         {/* Web は記事詳細画面を持たない。一覧から元記事を開くか Extension に引き継ぐ (SPEC/SCREENS.md) */}
         <Route path="/articles" element={<ProtectedRoute><ArticlesPage /></ProtectedRoute>} />
         <Route path="/articles/new" element={<ProtectedRoute><AddArticlePage /></ProtectedRoute>} />

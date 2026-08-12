@@ -67,6 +67,7 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(themeManager.colorScheme)
+        .onAppear { FiloAnalytics.screen("auth") }
     }
 }
 
@@ -90,6 +91,7 @@ struct AppNavigationView: View {
                     path: $path,
                     model: articlesModel,
                 )
+                .onAppear { FiloAnalytics.screen("articles") }
                     .navigationDestination(for: AppRoute.self) { route in
                         switch route {
                         case .subscriptions:
@@ -97,14 +99,15 @@ struct AppNavigationView: View {
                                 articlesModel.selectView(tagId: tagId)
                                 path = NavigationPath()
                             })
+                            .onAppear { FiloAnalytics.screen("subscriptions") }
                         case .settings:
-                            SettingsScreen()
+                            SettingsScreen().onAppear { FiloAnalytics.screen("settings") }
                         case .status:
-                            StatusScreen()
+                            StatusScreen().onAppear { FiloAnalytics.screen("status") }
                         case .addFeed:
-                            AddFeedScreen()
+                            AddFeedScreen().onAppear { FiloAnalytics.screen("add_feed") }
                         case .tags:
-                            TagsScreen()
+                            TagsScreen().onAppear { FiloAnalytics.screen("tags") }
                         case .subscriptionDetail(let id):
                             SubscriptionDetailScreen(
                                 subscriptionId: id,
@@ -112,14 +115,17 @@ struct AppNavigationView: View {
                                     path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
                                 },
                             )
+                            .onAppear { FiloAnalytics.screen("subscription_detail") }
                         case .accountDeletionStatus(let token):
                             AccountDeletionStatusScreen(deletionToken: token)
                         case .readingSession(let autoplay):
-                            ReadingSessionScreen(autoplay: autoplay)
+                            ReadingSessionScreen(autoplay: autoplay).onAppear { FiloAnalytics.screen("reading") }
                         case .readingPage(let url):
-                            ReadingSessionScreen(autoplay: false, temporaryUrl: url)
+                            ReadingSessionScreen(autoplay: false, temporaryUrl: url).onAppear { FiloAnalytics.screen("reading_page") }
                         case .readingArticle(let article):
-                            ReadingSessionScreen(autoplay: false, article: article)
+                            ReadingSessionScreen(autoplay: false, article: article).onAppear {
+                                FiloAnalytics.screen("reading_article")
+                            }
                         case .addArticle(let url):
                             AddArticleScreen(
                                 initialUrl: url,
@@ -129,6 +135,7 @@ struct AppNavigationView: View {
                                     path.append(AppRoute.readingPage(sharedUrl))
                                 },
                             )
+                            .onAppear { FiloAnalytics.screen("add_article") }
                         }
                     }
             }

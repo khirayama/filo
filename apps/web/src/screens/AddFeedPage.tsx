@@ -6,6 +6,7 @@ import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { Badge, Button, ErrorBox, IconButton, palette, sectionStyle } from "../components/ui";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
+import { trackEvent } from "../lib/analytics";
 
 export function AddFeedPage() {
   const api = useApi();
@@ -35,6 +36,10 @@ export function AddFeedPage() {
         tagNames,
       });
       setCreated(subscription);
+      trackEvent("add_feed", {
+        has_custom_tags: tagNames.length > 0,
+        tag_count: selectedTagIds.size + tagNames.length,
+      });
       void refreshAppData();
     } catch (e) {
       setError(errorMessage(e, language));
@@ -49,6 +54,7 @@ export function AddFeedPage() {
     try {
       const updated = await api.retryInitialFetch(created.id);
       setCreated(updated);
+      trackEvent("retry_feed_fetch");
     } catch (e) {
       setError(errorMessage(e, language));
     } finally {

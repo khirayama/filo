@@ -261,6 +261,7 @@ fun SubscriptionDetailScreen(
                                     scope.launch {
                                         try {
                                             subscription = ApiClient.retryInitialFetch(subscriptionId)
+                                            com.filo.app.Analytics.track("retry_feed_fetch", mapOf("subscription_id" to subscriptionId))
                                         } catch (e: Exception) {
                                             errorMessage = ErrorMessages.forError(e)
                                         }

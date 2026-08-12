@@ -434,6 +434,7 @@ fun AddFeedScreen(onBack: () -> Unit) {
                                     tagIds = selectedTagIds.toList(),
                                     tagNames = newTagNames.split(",", "、").map { it.trim() }.filter { it.isNotEmpty() },
                                 )
+                                com.filo.app.Analytics.track("add_feed", mapOf("tag_count" to selectedTagIds.size))
                             } catch (e: Exception) {
                                 errorMessage = ErrorMessages.forError(e)
                             }
@@ -468,6 +469,7 @@ fun AddFeedScreen(onBack: () -> Unit) {
                                             isRetrying = true
                                             try {
                                                 created = ApiClient.retryInitialFetch(subscription.id)
+                                                com.filo.app.Analytics.track("retry_feed_fetch")
                                             } catch (e: Exception) {
                                                 errorMessage = ErrorMessages.forError(e)
                                             }

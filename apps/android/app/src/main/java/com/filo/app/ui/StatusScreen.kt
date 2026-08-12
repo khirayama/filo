@@ -135,6 +135,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                 notice = null
                                 try {
                                     val result = ApiClient.refreshFeeds(force = true)
+                                    com.filo.app.Analytics.track("refresh_feeds", mapOf("source" to "status", "enqueued" to result.enqueued))
                                     notice = if (result.enqueued > 0) {
                                         "${result.enqueued}件のフィードの取得を開始しました。"
                                     } else {
@@ -221,6 +222,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                             notice = null
                                             try {
                                                 ApiClient.refreshFeed(sub.feedId)
+                                                com.filo.app.Analytics.track("refresh_feed", mapOf("source" to "status", "feed_id" to sub.feedId))
                                                 notice = "フィードの取得を開始しました。"
                                                 load()
                                             } catch (e: Exception) {

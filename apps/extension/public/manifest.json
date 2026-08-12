@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Read a Filo reading list in the original article pages",
   "permissions": ["cookies", "storage", "tabs", "tts"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "host_permissions": ["http://*/*", "https://*/*", "https://www.google-analytics.com/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
