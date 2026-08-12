@@ -20,10 +20,14 @@ filo は Cloudflare Workers、Cloudflare D1、Cloudflare Queues、Workers Cron�
 
 ## Environments
 
-- `local`: ローカル開発。D1 local database（`wrangler dev`）と Clerk development instance を使う
-- `production`: 実ユーザー環境
+- `local` / `development`: ローカル開発。D1 local database（`wrangler dev --env development`）と Clerk development instance を使う
+- `production`: 実ユーザー環境。Cloudflare Pages / Worker と Clerk production instance を使う
 
-現時点で staging 環境は存在しない。`wrangler.jsonc` の `database_id` は placeholder のままで、リモート D1 は未作成である。production data を local にコピーしない。
+開発用と本番用の Clerk は同じユーザー基盤として扱わない。publishable key、backend
+secret、JWT公開鍵、データベースを環境ごとに分ける。本番ビルドへ `pk_test_` や
+localhost のURLを渡すと、Web / Extension のVite設定がエラーで停止する。
+
+現時点で staging 環境は存在しない。production data を local にコピーしない。
 
 ## Required Configuration
 
@@ -37,10 +41,13 @@ Bindings（`wrangler.jsonc`）:
 Vars（`wrangler.jsonc`）:
 
 - `ADMIN_CLERK_USER_IDS`: `/api/v1/admin/*` を呼べる Clerk user id のカンマ区切り。admin 判定はこれ一本で行う
+- `APP_ENV`: `development` または `production`。health endpoint の環境確認にも使う
+- `CORS_ALLOWED_ORIGINS`: 環境ごとのWebとChrome Extensionのoriginをカンマ区切りで指定する。localの2 originは常に許可する
 
 Secrets（`wrangler secret put`）:
 
-- `CLERK_SECRET_KEY`: Clerk backend API key（token 検証と account deletion）
+- `CLERK_SECRET_KEY`: 環境ごとのClerk backend API key（token 検証と account deletion）
+- `CLERK_JWT_KEY`: 同じ環境のClerk JWKSから取得したPEM公開鍵（Worker内のJWT検証用）
 - `CURSOR_SECRET`: pagination cursor の HMAC 鍵
 - `CRON_SECRET`: 内部 cron → API 呼び出しの Bearer token
 
@@ -65,7 +72,7 @@ HTTP / API:
 - 転送障害のみ `2` 回まで再試行する。validation / redirect policy エラーは再試行しない
 - OPML import file size: max `5MB`、outline 件数: max `2000`、失敗要約の保存件数: max `50`
 - response header は `Cache-Control: no-store` を既定とする
-- CORS で許可する origin は `http://localhost:5173` と `http://127.0.0.1:5173` のみ
+- CORS のdevelopment環境は `http://localhost:5173` と `http://127.0.0.1:5173`、production環境は `https://filoreader.app` と `https://filo-web.pages.dev` を許可する
 
 feed fetch:
 
@@ -86,14 +93,26 @@ feed fetch:
 
 ```bash
 cd apps/api
-wrangler d1 create filo-db          # 返ってきた database_id を wrangler.jsonc に書く
+wrangler d1 create filo-db          # 返ってきた database_id を env.production.d1_databases に書く
 npx wrangler queues create filo-jobs
 npm run db:migrate:remote           # placeholder のままなら script が止める
-wrangler secret put CLERK_SECRET_KEY
-wrangler secret put CURSOR_SECRET
-wrangler secret put CRON_SECRET
-npm run deploy
+npm run deploy:production
 ```
+
+JWT検証用の公開鍵は `apps/api/wrangler.jsonc` の production 用
+`CLERK_JWT_PUBLIC_KEY` に設定する。`CURSOR_SIGNING_KEY` などCloudflare
+ダッシュボードで管理するproduction固有の変数は、`npm run deploy:production`
+が `--keep-vars` を使って保持するため、production設定に登録した値を別途Gitへ保存しない。
+
+Web本番は `apps/web/.env.production.example` を参照し、Pagesのproduction build
+environmentへ `VITE_CLERK_PUBLISHABLE_KEY=pk_live_...` と
+`VITE_API_BASE_URL=https://api.filoreader.app` を登録する。development用ファイルの値を
+Pagesへアップロードしない。Pages deployは `--branch` を付けずproductionへ行う。
+
+ローカルWebは `apps/web/.env.development.local` の `pk_test_...` と localhost APIを使い、
+`npm run dev` または `npm run build` で起動・確認する。本番ビルドは明示的に
+`npm run build:production`、本番デプロイは `npm run deploy:production` を使う。
+本番ビルドへ開発設定が混ざった場合はViteの検査で停止する。
 
 - スキーマ変更は新しい migration ファイルを追加して行う
 - D1 の破壊的 migration と対応 Worker は一括適用し、旧 Worker への rollback は行わず forward-fix を優先する
