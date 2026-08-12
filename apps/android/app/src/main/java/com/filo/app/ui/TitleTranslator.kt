@@ -76,7 +76,7 @@ data class TitleTranslationLanguage(
 class TitleTranslationStore(private val context: Context, private val scope: CoroutineScope) {
     // 翻訳が届いた分から順に差し替わる。セッション内だけのキャッシュで、永続化しない。
     private val titles = mutableStateMapOf<Int, String>()
-    var isEnabled by mutableStateOf(prefs().getBoolean(ENABLED_KEY, false))
+    var isEnabled by mutableStateOf(prefs().getBoolean(ENABLED_KEY, true))
         private set
     var isTranslating by mutableStateOf(false)
         private set

@@ -13,6 +13,7 @@ import { IconButton } from "./ui";
 // 一覧タイトルの翻訳は手動トグルでのみ起動する(SPEC/APP.md)。翻訳は端末内で走り、
 // 結果はサーバーへ送らない。状態は画面をまたいで共有し、端末ローカルに永続する。
 const STORAGE_KEY = "filo.translateTitles";
+const DEFAULT_READABLE_LANGUAGES = ["ja"];
 
 export interface TitleTranslationLanguage {
   code: string;
@@ -44,9 +45,9 @@ const TitleTranslationContext = createContext<TitleTranslation | null>(null);
 
 export function TitleTranslationProvider({ children }: { children: ReactNode }) {
   const { language, settings, subscriptions, t } = useAppData();
-  const readableLanguages = settings?.readableLanguages ?? ["ja"];
+  const readableLanguages = settings?.readableLanguages ?? DEFAULT_READABLE_LANGUAGES;
   const [enabled, setEnabled] = useState(
-    () => titleTranslationSupported && localStorage.getItem(STORAGE_KEY) === "1",
+    () => titleTranslationSupported && localStorage.getItem(STORAGE_KEY) !== "0",
   );
   const [titles, setTitles] = useState<Map<number, string>>(new Map());
   const [translating, setTranslating] = useState(false);

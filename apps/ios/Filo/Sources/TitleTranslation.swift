@@ -99,7 +99,7 @@ final class TitleTranslationStore: ObservableObject {
     private var subscriptionLanguages: [String] = []
 
     private init() {
-        isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        isEnabled = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true
     }
 
     func title(for articleId: Int) -> String? { titles[articleId] }
