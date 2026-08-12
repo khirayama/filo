@@ -98,8 +98,8 @@ Content-Type: `application/json`
 - first request: `GET /api/v1/articles?limit=20`
 - next page: `GET /api/v1/articles?limit=20&cursor=...`
 - `limit` 未指定時は `20`、最大値は `100` とし、超過時は `validation_error` を返す
-- `sort=published_at_desc` の cursor は `(publishedAt, id)` を基準にする
-- `sort=fetched_at_desc` の cursor は `(fetchedAt, id)` を基準にする
+- `sort=published_at_desc` の cursor は `(readOrder, publishedAt, id)` を基準にする
+- `sort=fetched_at_desc` の cursor は `(readOrder, fetchedAt, id)` を基準にする
 - 同一 timestamp 内では `id DESC` を tie-breaker とする
 - `publishedAt = null` は最も古い値として扱い、`published_at_desc` では non-null の後ろに並べる
 - cursor は改ざん検知可能な opaque string として扱い、不正な場合は `invalid_cursor` を返す
@@ -347,6 +347,7 @@ Deletes a tag owned by the current user.
 
 - filters: `subscriptionId`, `tagId`, `read`, `readingList`, `bookmarked`, `cursor`, `limit`, `sort`
 - `sort`: `published_at_desc | fetched_at_desc`
+- `readOrder`: `unread_first | read_first | none`。未指定時は `unread_first`（既読を下）
 - `sort` 未指定時は current user の `settings.articleSortOrder` を適用する
 - `readingList`, `bookmarked` は `true` のみ受け付け、`article_user_collections` の対応 membership を持つ記事に限定する
 - `read` は実効既読状態で評価する。`article_read_states` row があればその `is_read` を正とし、なければ `feed_read_cursors.last_read_article_id >= article.id` で既読とみなす

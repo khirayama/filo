@@ -28,13 +28,13 @@ async function hmac(secret: string, payload: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
 }
 
-export async function encodeCursor(secret: string, sort: string, cursor: ArticleCursor): Promise<string> {
-  const payload = JSON.stringify({ s: sort, ts: cursor.ts, id: cursor.id, r: cursor.r });
+export async function encodeCursor(secret: string, sort: string, cursor: ArticleCursor, readOrder = "unread_first"): Promise<string> {
+  const payload = JSON.stringify({ s: sort, o: readOrder, ts: cursor.ts, id: cursor.id, r: cursor.r });
   const sig = b64urlEncode((await hmac(secret, payload)).slice(0, 16));
   return `${b64urlEncode(new TextEncoder().encode(payload))}.${sig}`;
 }
 
-export async function decodeCursor(secret: string, sort: string, raw: string): Promise<ArticleCursor> {
+export async function decodeCursor(secret: string, sort: string, raw: string, readOrder = "unread_first"): Promise<ArticleCursor> {
   const [body, sig] = raw.split(".");
   if (!body || !sig) throw errors.invalidCursor();
   let payload: string;
@@ -45,12 +45,14 @@ export async function decodeCursor(secret: string, sort: string, raw: string): P
   }
   const expected = b64urlEncode((await hmac(secret, payload)).slice(0, 16));
   if (expected !== sig) throw errors.invalidCursor();
-  let parsed: { s?: string; ts?: string | null; id?: number; r?: number };
+  let parsed: { s?: string; o?: string; ts?: string | null; id?: number; r?: number };
   try {
     parsed = JSON.parse(payload);
   } catch {
     throw errors.invalidCursor();
   }
-  if (parsed.s !== sort || typeof parsed.id !== "number" || typeof parsed.r !== "number") throw errors.invalidCursor();
+  if (parsed.s !== sort || (parsed.o ?? "unread_first") !== readOrder || typeof parsed.id !== "number" || typeof parsed.r !== "number") {
+    throw errors.invalidCursor();
+  }
   return { ts: parsed.ts ?? null, id: parsed.id, r: parsed.r };
 }

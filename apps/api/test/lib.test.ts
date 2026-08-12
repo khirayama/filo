@@ -20,6 +20,25 @@ describe("cursor", () => {
     const cursor = await encodeCursor("secret", "published_at_desc", { ts: null, id: 7, r: 1 });
     expect(await decodeCursor("secret", "published_at_desc", cursor)).toEqual({ ts: null, id: 7, r: 1 });
   });
+
+  it("binds pagination cursors to the selected read order", async () => {
+    const cursor = await encodeCursor("secret", "published_at_desc", { ts: "2026-05-10T22:00:00Z", id: 42, r: 1 }, "read_first");
+    await expect(decodeCursor("secret", "published_at_desc", cursor, "read_first")).resolves.toEqual({
+      ts: "2026-05-10T22:00:00Z",
+      id: 42,
+      r: 1,
+    });
+    await expect(decodeCursor("secret", "published_at_desc", cursor, "unread_first")).rejects.toMatchObject({ code: "invalid_cursor" });
+  });
+
+  it("supports a cursor without read-state ordering", async () => {
+    const cursor = await encodeCursor("secret", "published_at_desc", { ts: "2026-05-10T22:00:00Z", id: 42, r: 0 }, "none");
+    await expect(decodeCursor("secret", "published_at_desc", cursor, "none")).resolves.toEqual({
+      ts: "2026-05-10T22:00:00Z",
+      id: 42,
+      r: 0,
+    });
+  });
 });
 
 describe("feed parsing", () => {

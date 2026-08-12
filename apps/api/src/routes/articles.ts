@@ -156,6 +156,10 @@ export const articleRoutes = new Hono<AppContext>()
     if (!sort) {
       sort = settings?.article_sort_order ?? "published_at_desc";
     }
+    const readOrder = c.req.query("readOrder") ?? "unread_first";
+    if (readOrder !== "unread_first" && readOrder !== "read_first" && readOrder !== "none") {
+      throw errors.validation("invalid readOrder");
+    }
 
     const conditions: string[] = [];
     const binds: unknown[] = [];
@@ -195,7 +199,7 @@ export const articleRoutes = new Hono<AppContext>()
 
     const cursorRaw = c.req.query("cursor");
     if (cursorRaw !== undefined) {
-      const cursor = await decodeCursor(c.env.CURSOR_SECRET, sort, cursorRaw);
+      const cursor = await decodeCursor(c.env.CURSOR_SECRET, sort, cursorRaw, readOrder);
       let within: string;
       const withinBinds: unknown[] = [];
       if (sort === "fetched_at_desc") {
@@ -208,16 +212,26 @@ export const articleRoutes = new Hono<AppContext>()
         within = "(a.published_at IS NULL AND a.id < ?)";
         withinBinds.push(cursor.id);
       }
-      // Unread (0) sorts before read (1): later pages are same-state-and-older
-      // or in a later read-state group.
-      conditions.push(`((${EFFECTIVE_IS_READ}) > ? OR ((${EFFECTIVE_IS_READ}) = ? AND ${within}))`);
-      binds.push(cursor.r, cursor.r, ...withinBinds);
+      if (readOrder === "none") {
+        conditions.push(within);
+        binds.push(...withinBinds);
+      } else {
+        // The selected read state group comes first; later pages continue
+        // within that group and then move to the other group.
+        const laterReadState = readOrder === "read_first" ? "<" : ">";
+        conditions.push(`((${EFFECTIVE_IS_READ}) ${laterReadState} ? OR ((${EFFECTIVE_IS_READ}) = ? AND ${within}))`);
+        binds.push(cursor.r, cursor.r, ...withinBinds);
+      }
     }
 
     const orderBy =
-      sort === "fetched_at_desc"
-        ? `(${EFFECTIVE_IS_READ}) ASC, a.fetched_at DESC, a.id DESC`
-        : `(${EFFECTIVE_IS_READ}) ASC, (a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC`;
+      readOrder === "none"
+        ? sort === "fetched_at_desc"
+          ? "a.fetched_at DESC, a.id DESC"
+          : "(a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC"
+        : sort === "fetched_at_desc"
+          ? `(${EFFECTIVE_IS_READ}) ${readOrder === "read_first" ? "DESC" : "ASC"}, a.fetched_at DESC, a.id DESC`
+          : `(${EFFECTIVE_IS_READ}) ${readOrder === "read_first" ? "DESC" : "ASC"}, (a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC`;
     const readingListJoin = readingList === true ? "JOIN" : "LEFT JOIN";
     const bookmarkJoin = bookmarked === true ? "JOIN" : "LEFT JOIN";
 
@@ -280,7 +294,7 @@ export const articleRoutes = new Hono<AppContext>()
         ts: sort === "fetched_at_desc" ? toIso(last.fetched_at) : toIso(last.published_at),
         id: last.id,
         r: last.is_read ? 1 : 0,
-      });
+      }, readOrder);
     }
     return c.json({ data, meta: { nextCursor } });
   })
