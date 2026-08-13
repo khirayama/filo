@@ -6,12 +6,22 @@ default:
 android:
   cd apps/android && just build && just run
 
+android-release:
+  cd apps/android && just build-release
+
 ios:
   cd apps/ios && just build && just run
+
+ios-release:
+  cd apps/ios && just build-release
 
 native:
   just android
   just ios
+
+native-release:
+  just android-release
+  just ios-release
 
 web:
   cd apps/web && npm run dev
