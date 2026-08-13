@@ -11,9 +11,15 @@ Jetpack Compose app with Clerk-based email/password authentication.
    the host's loopback, where `just api` listens). On a physical device set it to
    the host's LAN IP instead.
 
+For a production release build, set `productionClerkPublishableKey` to the
+production Clerk `pk_live_...` key and `productionApiBaseUrl` to
+`https://api.filoreader.app` in `local.properties`. `just build-release` rejects
+development Clerk keys and local API URLs.
+
 ## Commands
 
 - `just build`
+- `just build-release`
 - `just run`
 
 ## Emulator can't reach the local API

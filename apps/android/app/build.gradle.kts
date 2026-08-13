@@ -16,8 +16,31 @@ val localProperties =
         }
     }
 
-val clerkPublishableKey = localProperties.getProperty("clerkPublishableKey", "")
-val apiBaseUrl = localProperties.getProperty("apiBaseUrl", "http://10.0.2.2:8787")
+fun configuredProperty(name: String, defaultValue: String = ""): String =
+    providers.gradleProperty(name).orElse(localProperties.getProperty(name, defaultValue)).get()
+
+val developmentClerkPublishableKey = configuredProperty("clerkPublishableKey")
+val developmentApiBaseUrl = configuredProperty("apiBaseUrl", "http://10.0.2.2:8787")
+val productionClerkPublishableKey = configuredProperty("productionClerkPublishableKey")
+val productionApiBaseUrl = configuredProperty("productionApiBaseUrl")
+
+fun asBuildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+fun validateProductionConfiguration() {
+    require(productionClerkPublishableKey.startsWith("pk_live_")) {
+        "Release builds require productionClerkPublishableKey=pk_live_... in local.properties or -PproductionClerkPublishableKey=..."
+    }
+    require(productionApiBaseUrl == "https://api.filoreader.app") {
+        "Release builds require productionApiBaseUrl=https://api.filoreader.app"
+    }
+}
+
+gradle.taskGraph.whenReady {
+    if (allTasks.any { it.name.contains("Release") }) {
+        validateProductionConfiguration()
+    }
+}
 
 android {
     namespace = "com.filo.app"
@@ -25,8 +48,6 @@ android {
 
     defaultConfig {
         applicationId = "com.filo.app"
-        buildConfigField("String", "CLERK_PUBLISHABLE_KEY", "\"$clerkPublishableKey\"")
-        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -39,7 +60,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "CLERK_PUBLISHABLE_KEY", asBuildConfigString(developmentClerkPublishableKey))
+            buildConfigField("String", "API_BASE_URL", asBuildConfigString(developmentApiBaseUrl))
+        }
+
         release {
+            buildConfigField("String", "CLERK_PUBLISHABLE_KEY", asBuildConfigString(productionClerkPublishableKey))
+            buildConfigField("String", "API_BASE_URL", asBuildConfigString(productionApiBaseUrl))
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
