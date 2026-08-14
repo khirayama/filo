@@ -23,6 +23,10 @@ val developmentClerkPublishableKey = configuredProperty("clerkPublishableKey")
 val developmentApiBaseUrl = configuredProperty("apiBaseUrl", "http://10.0.2.2:8787")
 val productionClerkPublishableKey = configuredProperty("productionClerkPublishableKey")
 val productionApiBaseUrl = configuredProperty("productionApiBaseUrl")
+val releaseKeystorePath = configuredProperty("releaseKeystorePath")
+val releaseKeystorePassword = configuredProperty("releaseKeystorePassword")
+val releaseKeyAlias = configuredProperty("releaseKeyAlias")
+val releaseKeyPassword = configuredProperty("releaseKeyPassword")
 
 fun asBuildConfigString(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
@@ -36,9 +40,22 @@ fun validateProductionConfiguration() {
     }
 }
 
+fun validateReleaseSigningConfiguration() {
+    require(releaseKeystorePath.isNotBlank()) {
+        "Release builds require releaseKeystorePath in local.properties"
+    }
+    require(rootProject.file(releaseKeystorePath).isFile) {
+        "Release keystore was not found at $releaseKeystorePath"
+    }
+    require(releaseKeystorePassword.isNotBlank() && releaseKeyAlias.isNotBlank() && releaseKeyPassword.isNotBlank()) {
+        "Release builds require release keystore credentials in local.properties"
+    }
+}
+
 gradle.taskGraph.whenReady {
     if (allTasks.any { it.name.contains("Release") }) {
         validateProductionConfiguration()
+        validateReleaseSigningConfiguration()
     }
 }
 
@@ -59,6 +76,15 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file(releaseKeystorePath)
+            storePassword = releaseKeystorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("String", "CLERK_PUBLISHABLE_KEY", asBuildConfigString(developmentClerkPublishableKey))
@@ -68,6 +94,7 @@ android {
         release {
             buildConfigField("String", "CLERK_PUBLISHABLE_KEY", asBuildConfigString(productionClerkPublishableKey))
             buildConfigField("String", "API_BASE_URL", asBuildConfigString(productionApiBaseUrl))
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

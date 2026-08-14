@@ -2,6 +2,8 @@
 build
 app/build
 local.properties
+*.keystore
+*.jks
 .DS_Store
 *.log
 app/google-services.json
