@@ -246,7 +246,7 @@ struct ArticlesScreen: View {
     @State private var showDrawer = false
     @State private var showMarkAllReadConfirm = false
     @State private var showRemoveReadConfirm = false
-    @State private var selectedArticleIndex = 0
+    @State private var selectedArticleIndex: Int? = nil
     @State private var listScrollPosition: Int? = nil
     @State private var viewedArticleIds = ""
     @State private var showShortcutHelp = false
@@ -319,7 +319,9 @@ struct ArticlesScreen: View {
         .onChange(of: model.bookmarkedOnly) { Task { await model.reloadArticles() } }
         .onChange(of: model.readingListOnly) { Task { await model.reloadArticles() } }
         .onChange(of: model.articles) { _, articles in
-            selectedArticleIndex = min(selectedArticleIndex, max(articles.count - 1, 0))
+            if let selectedArticleIndex {
+                self.selectedArticleIndex = min(selectedArticleIndex, max(articles.count - 1, 0))
+            }
             let ids = articles.map { String($0.id) }.joined(separator: ",")
             if !ids.isEmpty && ids != viewedArticleIds {
                 viewedArticleIds = ids
@@ -373,7 +375,7 @@ struct ArticlesScreen: View {
             .scrollPosition(id: $listScrollPosition)
             .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .onChange(of: selectedArticleIndex) { _, index in
-                guard model.articles.indices.contains(index) else { return }
+                guard let index, model.articles.indices.contains(index) else { return }
                 withAnimation(.easeInOut(duration: 0.15)) {
                     proxy.scrollTo(model.articles[index].id, anchor: .center)
                 }
@@ -494,13 +496,14 @@ struct ArticlesScreen: View {
     }
 
     private var selectedArticle: ArticleListItem? {
-        guard model.articles.indices.contains(selectedArticleIndex) else { return nil }
+        guard let selectedArticleIndex, model.articles.indices.contains(selectedArticleIndex) else { return nil }
         return model.articles[selectedArticleIndex]
     }
 
     private func moveSelection(_ offset: Int) {
         guard !model.articles.isEmpty else { return }
-        selectedArticleIndex = min(max(selectedArticleIndex + offset, 0), model.articles.count - 1)
+        let nextIndex = selectedArticleIndex.map { $0 + offset } ?? 0
+        selectedArticleIndex = min(max(nextIndex, 0), model.articles.count - 1)
     }
 
     private func openSelectedArticle(external: Bool) {
