@@ -35,6 +35,12 @@ class ArticlesViewModel : ViewModel() {
     var readingListOnly by mutableStateOf(false)
     var bookmarkedOnly by mutableStateOf(false)
 
+    var savedListFirstVisibleItemIndex = 0
+        private set
+    var savedListFirstVisibleItemScrollOffset = 0
+        private set
+    private var savedListPositionFilterKey: String? = null
+
     private var lastLoadedFilters = ""
     private var articleGeneration = 0L
 
@@ -47,6 +53,23 @@ class ArticlesViewModel : ViewModel() {
         readOrder = readOrder,
     )
 
+    private fun listPositionFilterKey() =
+        "${selectedTagId}|${readFilter}|${readingListOnly}|${bookmarkedOnly}|${sort}|${readOrder}"
+
+    fun saveListPosition(index: Int, offset: Int) {
+        savedListFirstVisibleItemIndex = index
+        savedListFirstVisibleItemScrollOffset = offset
+        savedListPositionFilterKey = listPositionFilterKey()
+    }
+
+    fun listPositionForCurrentFilter(): Pair<Int, Int> {
+        return if (savedListPositionFilterKey == listPositionFilterKey()) {
+            savedListFirstVisibleItemIndex to savedListFirstVisibleItemScrollOffset
+        } else {
+            0 to 0
+        }
+    }
+
     fun resetLoadState() {
         lastLoadedFilters = ""
     }
@@ -54,6 +77,10 @@ class ArticlesViewModel : ViewModel() {
     fun loadIfNeeded() {
         val current = "${selectedTagId}|${readFilter}|${readingListOnly}|${bookmarkedOnly}|${sort}|${readOrder}"
         if (lastLoadedFilters == current) return
+        if (lastLoadedFilters.isNotEmpty() && savedListPositionFilterKey != current) {
+            saveListPosition(0, 0)
+            savedListPositionFilterKey = null
+        }
         lastLoadedFilters = current
         viewModelScope.launch { reload() }
     }

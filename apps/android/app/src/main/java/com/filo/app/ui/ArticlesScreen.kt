@@ -68,6 +68,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -90,6 +91,7 @@ import com.filo.app.api.ArticleListItem
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import androidx.compose.material3.AlertDialog
 
 private const val ARTICLE_SELECTION_BUFFER = 3
@@ -142,7 +144,10 @@ fun ArticlesScreen(
     var viewedArticleIds by remember { mutableStateOf("") }
 
     DisposableEffect(Unit) {
-        onDispose { vm.resetLoadState() }
+        onDispose {
+            vm.saveListPosition(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+            vm.resetLoadState()
+        }
     }
     LaunchedEffect(initialSelectedTagId) {
         if (initialSelectedTagId != null) {
@@ -155,7 +160,19 @@ fun ArticlesScreen(
     LaunchedEffect(selectedTagId, readFilter, sort, readOrder, readingListOnly, bookmarkedOnly) {
         vm.loadIfNeeded()
     }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        snapshotFlow { isLoading to articles.isNotEmpty() }
+            .first { (loading, hasArticles) -> !loading && hasArticles }
+        val (index, offset) = vm.listPositionForCurrentFilter()
+        if (index > 0 || offset > 0) {
+            listState.scrollToItem(index, offset)
+        }
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (firstVisibleItemIndex, firstVisibleItemScrollOffset) ->
+                vm.saveListPosition(firstVisibleItemIndex, firstVisibleItemScrollOffset)
+            }
+    }
     fun scrollToSelectedArticle(index: Int) {
         val headerCount = if (vm.refreshNotice != null) 1 else 0
         val articleListIndex = index + headerCount
@@ -433,8 +450,8 @@ fun ArticlesScreen(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 vm.refreshNotice?.let { notice ->
                     item {

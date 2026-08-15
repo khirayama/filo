@@ -186,7 +186,7 @@ fun ArticleRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 4.dp),
+            modifier = Modifier.padding(vertical = 2.dp),
             verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             Text(
