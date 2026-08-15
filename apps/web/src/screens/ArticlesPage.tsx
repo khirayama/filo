@@ -187,7 +187,7 @@ function ArticlesListPage() {
 
   return (
     <AppShell>
-      <main style={{ padding: "0 24px 16px" }}>
+      <main className="articles-page" style={{ padding: "0 0 16px" }}>
         <header
           style={{
             alignItems: "center",
