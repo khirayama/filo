@@ -24,7 +24,7 @@ function ArticlesListPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [removingReadArticles, setRemovingReadArticles] = useState(false);
-  const [activeArticleIndex, setActiveArticleIndex] = useState(0);
+  const [activeArticleIndex, setActiveArticleIndex] = useState<number | null>(null);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
 
   const apiFilters = useMemo(
@@ -130,7 +130,7 @@ function ArticlesListPage() {
   const title = selectedTag?.name ?? (readingListOnly ? t("リーディングリスト") : bookmarkedOnly ? t("ブックマーク") : t("全ての記事"));
 
   useEffect(() => {
-    setActiveArticleIndex((current) => Math.min(current, Math.max(list.articles.length - 1, 0)));
+    setActiveArticleIndex((current) => current == null ? null : Math.min(current, Math.max(list.articles.length - 1, 0)));
   }, [list.articles.length]);
 
   useEffect(() => {
@@ -147,17 +147,21 @@ function ArticlesListPage() {
       if (modifier || event.repeat) return;
       if (key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
-        setActiveArticleIndex((current) => Math.min(current + 1, Math.max(list.articles.length - 1, 0)));
+        setActiveArticleIndex((current) => current == null ? 0 : Math.min(current + 1, Math.max(list.articles.length - 1, 0)));
       } else if (key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
-        setActiveArticleIndex((current) => Math.max(current - 1, 0));
+        setActiveArticleIndex((current) => current == null ? 0 : Math.max(current - 1, 0));
       } else if (key === "enter" || key === "o" || key === "v") {
         event.preventDefault();
-        const article = list.articles[activeArticleIndex];
+        const articleIndex = activeArticleIndex ?? 0;
+        setActiveArticleIndex((current) => current ?? 0);
+        const article = list.articles[articleIndex];
         if (article?.canonicalUrl) window.open(article.canonicalUrl, "_blank", "noopener,noreferrer");
       } else if (key === "m" || key === "s" || key === "b") {
         event.preventDefault();
-        const article = list.articles[activeArticleIndex];
+        const articleIndex = activeArticleIndex ?? 0;
+        setActiveArticleIndex((current) => current ?? 0);
+        const article = list.articles[articleIndex];
         if (!article) return;
         const patch = key === "m"
           ? { isRead: !article.userState.isRead }
@@ -181,7 +185,7 @@ function ArticlesListPage() {
   }, [activeArticleIndex, bookmarkedOnly, list, markAllRead, readingListOnly, refreshFeeds]);
 
   useEffect(() => {
-    const article = list.articles[activeArticleIndex];
+    const article = activeArticleIndex == null ? undefined : list.articles[activeArticleIndex];
     if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "center" });
   }, [activeArticleIndex, list.articles]);
 
@@ -255,7 +259,7 @@ function ArticlesListPage() {
             onRetry={() => void list.reload()}
             onLoadMore={() => void list.loadMore()}
             onUpdateState={(id, patch) => void list.updateState(id, patch)}
-            activeArticleId={list.articles[activeArticleIndex]?.id}
+            activeArticleId={activeArticleIndex == null ? undefined : list.articles[activeArticleIndex]?.id}
             emptyContent={emptyContent}
           />
         )}
