@@ -72,6 +72,9 @@ class MainActivity : ComponentActivity() {
         LanguagePreference.apply(this)
         ThemePreference.load(this)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         setContent {
             FiloTheme {
                 Surface(

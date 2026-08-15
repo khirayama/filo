@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -173,6 +174,7 @@ fun ArticleRow(
     onToggleReadingList: (() -> Unit)? = null,
     onToggleBookmark: (() -> Unit)? = null,
     translations: TitleTranslationStore? = null,
+    horizontalPadding: Dp = 0.dp,
 ) {
     var showOriginal by remember { mutableStateOf(false) }
     // 翻訳は端末内で走るので、届いた分から順に差し替わる。行のトグルで原文に戻せる。
@@ -186,7 +188,7 @@ fun ArticleRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 2.dp),
             verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             Text(
