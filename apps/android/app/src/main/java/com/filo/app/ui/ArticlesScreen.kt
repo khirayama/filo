@@ -137,7 +137,7 @@ fun ArticlesScreen(
     var showMarkAllRead by remember { mutableStateOf(false) }
     var showRemoveReadArticles by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
-    var selectedArticleIndex by remember { mutableStateOf(0) }
+    var selectedArticleIndex by remember { mutableStateOf<Int?>(null) }
     var showShortcutHelp by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
@@ -180,7 +180,9 @@ fun ArticlesScreen(
         scope.launch { listState.animateScrollToItem(targetIndex) }
     }
     LaunchedEffect(articles.size) {
-        selectedArticleIndex = selectedArticleIndex.coerceIn(0, (articles.size - 1).coerceAtLeast(0))
+        selectedArticleIndex?.let { index ->
+            selectedArticleIndex = index.coerceIn(0, (articles.size - 1).coerceAtLeast(0))
+        }
     }
     LaunchedEffect(articles, isLoading) {
         if (!isLoading && articles.isNotEmpty()) {
@@ -226,6 +228,13 @@ fun ArticlesScreen(
         } ?: subscriptions.any { it.initialFetchStatus == "fetching" }
     }
 
+    fun selectedArticleOrFirst(): ArticleListItem? {
+        if (articles.isEmpty()) return null
+        val index = (selectedArticleIndex ?: 0).coerceIn(0, articles.lastIndex)
+        selectedArticleIndex = index
+        return articles[index]
+    }
+
     ModalNavigationDrawer(
         modifier = Modifier
             .focusRequester(focusRequester)
@@ -242,38 +251,40 @@ fun ArticlesScreen(
                     when (event.key) {
                         Key.J, Key.DirectionDown -> {
                             if (articles.isNotEmpty()) {
-                                val nextIndex = (selectedArticleIndex + 1).coerceAtMost(articles.lastIndex)
+                                val nextIndex = (selectedArticleIndex?.plus(1) ?: 0).coerceAtMost(articles.lastIndex)
                                 selectedArticleIndex = nextIndex
                                 scrollToSelectedArticle(nextIndex)
                             }
                             true
                         }
                         Key.K, Key.DirectionUp -> {
-                            val nextIndex = (selectedArticleIndex - 1).coerceAtLeast(0)
-                            selectedArticleIndex = nextIndex
-                            scrollToSelectedArticle(nextIndex)
+                            if (articles.isNotEmpty()) {
+                                val nextIndex = (selectedArticleIndex?.minus(1) ?: 0).coerceAtLeast(0)
+                                selectedArticleIndex = nextIndex
+                                scrollToSelectedArticle(nextIndex)
+                            }
                             true
                         }
                         Key.Enter, Key.O -> {
-                            articles.getOrNull(selectedArticleIndex)?.let(onOpenArticle)
+                            selectedArticleOrFirst()?.let(onOpenArticle)
                             true
                         }
                         Key.V -> {
-                            articles.getOrNull(selectedArticleIndex)?.canonicalUrl?.let {
+                            selectedArticleOrFirst()?.canonicalUrl?.let {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
                             }
                             true
                         }
                         Key.M -> {
-                            articles.getOrNull(selectedArticleIndex)?.let { vm.patchState(it, isRead = !it.userState.isRead) }
+                            selectedArticleOrFirst()?.let { vm.patchState(it, isRead = !it.userState.isRead) }
                             true
                         }
                         Key.S -> {
-                            articles.getOrNull(selectedArticleIndex)?.let { vm.patchState(it, inReadingList = !it.userState.inReadingList) }
+                            selectedArticleOrFirst()?.let { vm.patchState(it, inReadingList = !it.userState.inReadingList) }
                             true
                         }
                         Key.B -> {
-                            articles.getOrNull(selectedArticleIndex)?.let { vm.patchState(it, isBookmarked = !it.userState.isBookmarked) }
+                            selectedArticleOrFirst()?.let { vm.patchState(it, isBookmarked = !it.userState.isBookmarked) }
                             true
                         }
                         Key.R -> {
