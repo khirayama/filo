@@ -247,6 +247,7 @@ struct ArticlesScreen: View {
     @State private var showMarkAllReadConfirm = false
     @State private var showRemoveReadConfirm = false
     @State private var selectedArticleIndex = 0
+    @State private var listScrollPosition: Int? = nil
     @State private var viewedArticleIds = ""
     @State private var showShortcutHelp = false
 
@@ -369,6 +370,8 @@ struct ArticlesScreen: View {
                 articleSection
             }
             .listStyle(.plain)
+            .scrollPosition(id: $listScrollPosition)
+            .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
             .onChange(of: selectedArticleIndex) { _, index in
                 guard model.articles.indices.contains(index) else { return }
                 withAnimation(.easeInOut(duration: 0.15)) {

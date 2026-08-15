@@ -66,7 +66,7 @@ struct ArticleRowView: View {
     private var displayTitle: String { (showOriginal ? nil : translatedTitle) ?? article.title }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             Text(displayTitle)
                 .font(.subheadline.weight(article.userState.isRead ? .regular : .semibold))
                 .foregroundStyle(article.userState.isRead ? .secondary : .primary)
@@ -110,6 +110,6 @@ struct ArticleRowView: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
     }
 }
