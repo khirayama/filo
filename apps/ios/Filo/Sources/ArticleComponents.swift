@@ -57,6 +57,7 @@ struct FilterChip: View {
 
 struct ArticleRowView: View {
     let article: ArticleListItem
+    var horizontalPadding: CGFloat = 0
     @ObservedObject private var translations = TitleTranslationStore.shared
     @State private var showOriginal = false
 
@@ -110,6 +111,7 @@ struct ArticleRowView: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, horizontalPadding)
         .padding(.vertical, 1)
     }
 }

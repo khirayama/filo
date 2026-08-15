@@ -371,7 +371,7 @@ struct ArticlesScreen: View {
             }
             .listStyle(.plain)
             .scrollPosition(id: $listScrollPosition)
-            .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
+            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .onChange(of: selectedArticleIndex) { _, index in
                 guard model.articles.indices.contains(index) else { return }
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -433,7 +433,7 @@ struct ArticlesScreen: View {
                 emptyState
             } else {
                 ForEach(model.articles) { article in
-                    ArticleRowView(article: article)
+                    ArticleRowView(article: article, horizontalPadding: 16)
                     .id(article.id)
                     .contentShape(Rectangle())
                     .onTapGesture {
