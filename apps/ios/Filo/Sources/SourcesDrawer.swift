@@ -9,20 +9,34 @@ struct SourcesDrawer: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Spacer()
+                    Button {
+                        onSelect()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("閉じる")
+                }
+                .padding(.horizontal, 12)
+
                 Text("Filo")
                     .font(.title3.bold())
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 12)
 
                 NavigationLink(value: AppRoute.addFeed) {
                     Label("フィードを追加", systemImage: "plus")
                         .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary, lineWidth: 1))
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.bottom, 12)
                 .simultaneousGesture(TapGesture().onEnded { onSelect() })
 
@@ -34,7 +48,7 @@ struct SourcesDrawer: View {
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.bottom, 12)
                 .simultaneousGesture(TapGesture().onEnded { onSelect() })
 

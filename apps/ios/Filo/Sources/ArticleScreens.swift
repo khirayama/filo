@@ -592,7 +592,7 @@ struct ArticlesScreen: View {
                 .onTapGesture { closeDrawer() }
                 .transition(.opacity)
             SourcesDrawer(model: model, onSelect: { closeDrawer() })
-                .frame(width: 300)
+                .frame(width: 280)
                 .frame(maxHeight: .infinity)
                 .background(Color(uiColor: .systemBackground))
                 .transition(.move(edge: .leading))
