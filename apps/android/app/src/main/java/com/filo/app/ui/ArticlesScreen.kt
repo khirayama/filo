@@ -621,11 +621,11 @@ private fun SourcesDrawerContent(
             "Filo",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         )
-        OutlinedButton(
+        Button(
             onClick = onOpenAddFeed,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Icon(Icons.Default.Add, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
@@ -633,7 +633,7 @@ private fun SourcesDrawerContent(
         }
         OutlinedButton(
             onClick = onOpenAddArticle,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 0.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 0.dp),
         ) {
             Icon(Icons.Default.Add, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
