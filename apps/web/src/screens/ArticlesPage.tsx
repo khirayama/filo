@@ -198,7 +198,7 @@ function ArticlesListPage() {
             borderBottom: `1px solid ${palette.mutedBorder}`,
             display: "flex",
             gap: "8px",
-            padding: isDesktop ? "8px 0" : "8px",
+            padding: "8px",
             position: "sticky",
             top: isDesktop ? 0 : "51px",
             zIndex: 10,
