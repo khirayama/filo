@@ -428,7 +428,7 @@ struct ArticlesScreen: View {
                     .foregroundStyle(.secondary)
             }
             if model.isLoading, model.articles.isEmpty {
-                ProgressView("読み込み中…")
+                ProgressView("記事一覧を読み込んでいます…")
             } else if let error = model.errorMessage, model.articles.isEmpty {
                 ErrorBanner(message: error) { Task { await model.load() } }
             } else if model.articles.isEmpty {
@@ -486,7 +486,7 @@ struct ArticlesScreen: View {
                     }
                 }
                 if model.nextCursor != nil {
-                    Button(model.isLoadingMore ? "読み込み中…" : "さらに読み込む") {
+                    Button(model.isLoadingMore ? "次の記事を読み込んでいます…" : "さらに読み込む") {
                         Task { await model.loadMore() }
                     }
                     .disabled(model.isLoadingMore)

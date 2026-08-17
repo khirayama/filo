@@ -270,7 +270,7 @@ struct SubscriptionDetailScreen: View {
             }
             Section {
                 if model.isLoading {
-                    ProgressView("読み込み中…")
+                    ProgressView("購読記事を読み込んでいます…")
                 } else if model.articles.isEmpty {
                     if model.readFilter == false {
                         EmptyStateView { Text("未読の記事はありません。") }
@@ -331,7 +331,7 @@ struct SubscriptionDetailScreen: View {
                         }
                     }
                     if model.nextCursor != nil {
-                        Button(model.isLoadingMore ? "読み込み中…" : "さらに読み込む") {
+                        Button(model.isLoadingMore ? "次の記事を読み込んでいます…" : "さらに読み込む") {
                             Task { await model.loadMore() }
                         }
                         .disabled(model.isLoadingMore)
