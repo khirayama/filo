@@ -198,7 +198,7 @@ function ArticlesListPage() {
             borderBottom: `1px solid ${palette.mutedBorder}`,
             display: "flex",
             gap: "8px",
-            padding: "8px 0",
+            padding: isDesktop ? "8px 0" : "8px",
             position: "sticky",
             top: isDesktop ? 0 : "51px",
             zIndex: 10,
@@ -223,6 +223,12 @@ function ArticlesListPage() {
               <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />
             </>
           ) : null}
+          <IconButton
+            icon="refresh"
+            label={t("フィードを更新")}
+            disabled={refreshing}
+            onClick={() => void refreshFeeds()}
+          />
           <ArticleListControls
             read={read}
             sort={sort}
@@ -236,7 +242,7 @@ function ArticlesListPage() {
         </header>
 
         {selectedTag ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 0 4px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 8px 4px" }}>
             <FilterChip label={`タグ: ${selectedTag.name} ✕`} active onClick={clearTag} />
           </div>
         ) : null}

@@ -129,6 +129,7 @@ export function ArticleRows({
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const viewedArticleIds = useRef("");
+  const isDesktop = useIsDesktop();
   const { enabled: translationEnabled, request: requestTranslations } = useTitleTranslation();
 
   useEffect(() => {
@@ -173,7 +174,7 @@ export function ArticleRows({
   if (articles.length === 0) return <>{emptyContent}</>;
   return (
     <>
-      <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0 }}>
+      <ul style={{ listStyle: "none", margin: isDesktop ? "8px 0 0" : 0, padding: 0 }}>
             {articles.map((article) => (
               <ArticleRow key={article.id} article={article} onUpdateState={onUpdateState} active={article.id === activeArticleId} />
             ))}
@@ -318,7 +319,7 @@ function ArticleRow({
         background: hovered ? palette.hover : "transparent",
         borderBottom: `1px solid ${palette.mutedBorder}`,
         opacity: isRead ? 0.55 : 1,
-        padding: "6px 8px",
+        padding: isDesktop ? "6px 8px" : "4px 8px 8px",
         position: "relative",
         ...(isDesktop ? { alignItems: "center", display: "flex", gap: "8px" } : {}),
         outline: active ? `2px solid ${palette.accent}` : undefined,
@@ -359,17 +360,17 @@ function ArticleRow({
       ) : (
         <>
           <div style={{ alignItems: "center", display: "flex", gap: "8px" }}>
-            {faviconEl}
+            {isDesktop ? faviconEl : null}
             {feedNameEl}
             {translationLabel}
             <span style={{ flex: 1 }} />
             {dateEl}
             {actions}
           </div>
-          <div style={{ fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: 1.4, marginTop: "2px" }}>
+          <div style={{ fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: 1.4, marginTop: 0 }}>
             {displayTitle}
           </div>
-          {article.previewText ? (
+          {isDesktop && article.previewText ? (
             <div
               style={{
                 color: palette.muted,

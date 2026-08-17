@@ -119,7 +119,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               top: 0,
               transform: drawerShown ? "translateX(0)" : "translateX(-100%)",
               transition: `transform ${DRAWER_ANIMATION_MS}ms ease`,
-              width: `${SIDEBAR_WIDTH}px`,
+              width: "100vw",
             }}
           >
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
