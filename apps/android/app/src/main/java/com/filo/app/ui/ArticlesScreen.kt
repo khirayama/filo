@@ -478,7 +478,10 @@ fun ArticlesScreen(
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(40.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                        ) { CircularProgressIndicator() }
+                        ) {
+                            CircularProgressIndicator()
+                            Text("記事一覧を読み込んでいます…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 } else if (errorMessage != null && articles.isEmpty()) {
                     item { ErrorBanner(errorMessage!!) { scope.launch { vm.reload() } } }
@@ -538,7 +541,7 @@ fun ArticlesScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !isLoadingMore,
                                 onClick = { vm.loadMore() },
-                            ) { Text(if (isLoadingMore) "読み込み中…" else "さらに読み込む") }
+                            ) { Text(if (isLoadingMore) "次の記事を読み込んでいます…" else "さらに読み込む") }
                         }
                     }
                 }
