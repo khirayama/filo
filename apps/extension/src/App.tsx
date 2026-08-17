@@ -389,7 +389,7 @@ export function App() {
         <div className="section-heading">
           <p className="section-label">リーディングリスト</p>
         </div>
-        {loading ? <p className="status-message">読み込み中…</p> : articles.length === 0 ? (
+        {loading ? <p className="status-message">リーディングリストを読み込んでいます…</p> : articles.length === 0 ? (
           <p className="status-message">リーディングリストに記事がありません。</p>
         ) : (
           <ul className="queue-list">
