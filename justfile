@@ -9,11 +9,17 @@ android:
 android-release:
   cd apps/android && just build-release
 
+emulator target='Pixel_9_API_35':
+  cd apps/android && just emulator "{{target}}"
+
 ios:
   cd apps/ios && just build && just run
 
 ios-release:
   cd apps/ios && just build-release
+
+simulator target='DEACF1DB-C035-439D-BB01-D07B25C7B8A7':
+  cd apps/ios && just simulator "{{target}}"
 
 native:
   just android
