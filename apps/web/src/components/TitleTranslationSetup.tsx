@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useAppData } from "./AppDataContext";
 import { useTitleTranslation } from "./TitleTranslationContext";
-import { Button, Spinner, palette } from "./ui";
+import { Button, Spinner, palette, useDialogFocus } from "./ui";
 
 // 翻訳の準備（オンボーディング）。
 //
@@ -29,6 +29,9 @@ export function TitleTranslationSetup() {
   useEffect(() => {
     if (showSetup) void refreshLanguages();
   }, [showSetup, refreshLanguages]);
+
+  const closeSetup = useCallback(() => setShowSetup(false), [setShowSetup]);
+  useDialogFocus(showSetup, "filo-translation-setup", closeSetup);
 
   if (!supported || !showSetup) return null;
 
@@ -70,7 +73,10 @@ export function TitleTranslationSetup() {
   return (
     <div
       role="dialog"
-      aria-label={t("翻訳の準備")}
+      id="filo-translation-setup"
+      aria-modal="true"
+      aria-labelledby="filo-translation-setup-title"
+      aria-describedby="filo-translation-setup-description"
       onClick={() => setShowSetup(false)}
       style={{
         alignItems: "center",
@@ -97,11 +103,11 @@ export function TitleTranslationSetup() {
         }}
       >
         <div style={{ alignItems: "center", display: "flex", gap: "8px", marginBottom: "12px" }}>
-          <h2 style={{ flex: 1, fontSize: "16px", margin: 0 }}>{t("翻訳の準備")}</h2>
+          <h2 id="filo-translation-setup-title" style={{ flex: 1, fontSize: "16px", margin: 0 }}>{t("翻訳の準備")}</h2>
           <Button onClick={() => setShowSetup(false)}>{t("閉じる")}</Button>
         </div>
 
-        <p style={{ color: palette.muted, fontSize: "13px", margin: "0 0 16px" }}>
+        <p id="filo-translation-setup-description" style={{ color: palette.muted, fontSize: "13px", margin: "0 0 16px" }}>
           {t("タイトルの翻訳はこの端末の中で行います。はじめに、翻訳したい言語をダウンロードしてください。")}
         </p>
 
@@ -118,7 +124,7 @@ export function TitleTranslationSetup() {
             }}
           >
             <div style={{ color: palette.text, fontSize: "13px", marginBottom: "8px" }}>{progressLabel}</div>
-            <progress max={100} value={progressValue} style={{ display: "block", width: "100%" }} />
+            <progress aria-label={progressLabel} max={100} value={progressValue} style={{ display: "block", width: "100%" }} />
             <div style={{ color: palette.muted, fontSize: "12px", marginTop: "6px" }}>
               {progressValue == null ? t("進捗を確認しています…") : `${Math.round(progressValue)}%`}
               {progressBytes ? ` · ${progressBytes}` : ""}
@@ -156,7 +162,7 @@ export function TitleTranslationSetup() {
                 {entry.status === "installed" ? (
                   <span style={{ color: palette.muted, fontSize: "13px" }}>{t("準備済み")}</span>
                 ) : entry.status === "downloadable" ? (
-                  <Button disabled={preparing != null} onClick={() => void prepare(entry.code)}>
+                  <Button ariaBusy={preparing === entry.code} disabled={preparing != null} onClick={() => void prepare(entry.code)}>
                     {preparing === entry.code ? t("ダウンロード中…") : t("ダウンロード")}
                   </Button>
                 ) : (

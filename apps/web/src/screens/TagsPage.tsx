@@ -118,12 +118,21 @@ export function TagsPage() {
           <IconButton icon="back" label={t("戻る")} onClick={() => navigate(-1)} />
           <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("タグ管理")}</h1>
         </header>
-        <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void create();
+          }}
+          style={{ display: "flex", gap: "8px", marginTop: "16px" }}
+        >
           <input
+            id="new-tag-name"
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder={t("新しいタグ名")}
+            aria-label={t("新しいタグ名")}
+            required
             style={{
               border: `1px solid ${palette.border}`,
               borderRadius: "6px",
@@ -131,10 +140,10 @@ export function TagsPage() {
               padding: "10px",
             }}
           />
-          <Button kind="primary" onClick={() => void create()} disabled={creating || !newName.trim()}>
+          <Button type="submit" kind="primary" disabled={creating || !newName.trim()} ariaBusy={creating}>
             {t("追加")}
           </Button>
-        </div>
+        </form>
         {error ? <ErrorBox message={error} onRetry={() => void load()} /> : null}
         {loading ? (
           <Spinner />
@@ -151,12 +160,21 @@ export function TagsPage() {
                 }}
               >
                 {editingTag?.id === tag.id ? (
-                  <div style={{ display: "grid", gap: "8px" }}>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void saveEdit();
+                    }}
+                    style={{ display: "grid", gap: "8px" }}
+                  >
                     <div style={{ alignItems: "center", display: "flex", gap: "8px" }}>
                       <input
+                        id={`edit-tag-name-${tag.id}`}
                         type="text"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
+                        aria-label={`${tag.name}の名前`}
+                        required
                         style={{
                           border: `1px solid ${palette.border}`,
                           borderRadius: "6px",
@@ -167,6 +185,7 @@ export function TagsPage() {
                       <label style={{ alignItems: "center", display: "flex", gap: "4px", fontSize: "13px" }}>
                         色
                         <input
+                          id={`edit-tag-color-${tag.id}`}
                           type="color"
                           value={editColor || "#3B82F6"}
                           onChange={(e) => setEditColor(e.target.value)}
@@ -191,14 +210,14 @@ export function TagsPage() {
                       </label>
                     </div>
                     <div style={{ display: "flex", gap: "4px" }}>
-                      <Button small kind="primary" onClick={() => void saveEdit()}>
+                      <Button small type="submit" kind="primary">
                         保存
                       </Button>
                       <Button small onClick={cancelEdit}>
                         キャンセル
                       </Button>
                     </div>
-                  </div>
+                  </form>
                 ) : (
                   <div style={{ alignItems: "center", display: "flex", gap: "8px", justifyContent: "space-between" }}>
                     <div style={{ alignItems: "center", display: "flex", gap: "8px", minWidth: 0 }}>

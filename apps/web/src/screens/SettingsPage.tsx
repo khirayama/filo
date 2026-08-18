@@ -130,8 +130,9 @@ export function SettingsPage() {
         ) : (
           <>
             <section style={sectionStyle}>
-              <SettingRow label={t("テーマ")}>
+              <SettingRow label={t("テーマ")} htmlFor="setting-theme">
                 <select
+                  id="setting-theme"
                   value={settings.theme}
                   onChange={(e) => void update({ theme: e.target.value as Settings["theme"] })}
                   style={selectStyle}
@@ -141,8 +142,9 @@ export function SettingsPage() {
                   <option value="dark">{t("ダーク")}</option>
                 </select>
               </SettingRow>
-              <SettingRow label={t("言語")}>
+              <SettingRow label={t("言語")} htmlFor="setting-language">
                 <select
+                  id="setting-language"
                   value={settings.language}
                   onChange={(e) => void update({ language: e.target.value as Settings["language"] })}
                   style={selectStyle}
@@ -177,8 +179,9 @@ export function SettingsPage() {
                   ))}
                 </div>
               </SettingRow>
-              <SettingRow label={t("記事の並び順")}>
+              <SettingRow label={t("記事の並び順")} htmlFor="setting-article-sort">
                 <select
+                  id="setting-article-sort"
                   value={settings.articleSortOrder}
                   onChange={(e) => void update({ articleSortOrder: e.target.value as Settings["articleSortOrder"] })}
                   style={selectStyle}
@@ -187,8 +190,9 @@ export function SettingsPage() {
                   <option value="fetched_at_desc">{t("取得日時が新しい順")}</option>
                 </select>
               </SettingRow>
-              <SettingRow label={t("リンクを常にブラウザで開く")}>
+              <SettingRow label={t("リンクを常にブラウザで開く")} htmlFor="setting-open-in-browser">
                 <input
+                  id="setting-open-in-browser"
                   type="checkbox"
                   checked={settings.openInBrowserByDefault}
                   onChange={(e) => void update({ openInBrowserByDefault: e.target.checked })}
@@ -197,7 +201,7 @@ export function SettingsPage() {
             </section>
 
             <section style={sectionStyle}>
-              <p style={{ marginTop: 0, fontWeight: 600 }}>OPML</p>
+              <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600 }}>OPML</p>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <Button onClick={() => fileInputRef.current?.click()} disabled={importing}>
                   {importing ? t("アップロード中…") : t("インポート")}
@@ -206,6 +210,7 @@ export function SettingsPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
+                  aria-label={t("OPMLファイル")}
                   accept=".opml,.xml,text/xml,text/x-opml"
                   style={{ display: "none" }}
                   onChange={(e) => {
@@ -240,21 +245,21 @@ export function SettingsPage() {
             </section>
 
             <section style={sectionStyle}>
-              <p style={{ marginTop: 0, fontWeight: 600 }}>{t("既読履歴について")}</p>
+              <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600 }}>{t("既読履歴について")}</p>
               <p style={{ color: palette.muted, fontSize: "13px" }}>
                 閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。
               </p>
             </section>
 
             <section style={sectionStyle}>
-              <p style={{ marginTop: 0, fontWeight: 600 }}>{t("セッション")}</p>
+              <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600 }}>{t("セッション")}</p>
               <SignOutButton>
                 <Button>{t("サインアウト")}</Button>
               </SignOutButton>
             </section>
 
             <section style={{ ...sectionStyle, borderColor: palette.danger }}>
-              <p style={{ marginTop: 0, fontWeight: 600, color: palette.danger }}>{t("危険な操作")}</p>
+              <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600, color: palette.danger }}>{t("危険な操作")}</p>
               <p style={{ color: palette.muted, fontSize: "13px" }}>
                 アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。
               </p>
@@ -275,7 +280,7 @@ const selectStyle = {
   padding: "8px",
 } as const;
 
-function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
+function SettingRow({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
   return (
     <div
       style={{
@@ -287,7 +292,7 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
         padding: "12px 0",
       }}
     >
-      <span>{label}</span>
+      {htmlFor ? <label htmlFor={htmlFor}>{label}</label> : <span>{label}</span>}
       {children}
     </div>
   );

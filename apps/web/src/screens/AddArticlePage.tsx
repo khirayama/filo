@@ -40,19 +40,22 @@ export function AddArticlePage() {
     <AppShell>
       <main style={{ maxWidth: "720px", padding: "24px", margin: "0 auto" }}>
         <h1 style={{ fontSize: "20px", marginTop: 0 }}>{t("記事を追加")}</h1>
-        <p style={{ color: palette.muted }}>{t("URLをリーディングリストに保存します。")}</p>
+        <p id="article-url-help" style={{ color: palette.muted }}>{t("URLをリーディングリストに保存します。")}</p>
         <form onSubmit={submit} style={{ display: "grid", gap: "12px" }}>
           <input
+            id="article-url"
             autoFocus
             type="url"
+            required
             value={url}
             onChange={(event) => setUrl(event.target.value)}
             placeholder="https://example.com/article"
             aria-label={t("記事URL")}
+            aria-describedby="article-url-help"
             style={{ background: palette.surface, border: `1px solid ${palette.border}`, borderRadius: "6px", color: palette.text, font: "inherit", padding: "10px 12px" }}
           />
           <div style={{ display: "flex", gap: "8px" }}>
-            <Button type="submit" kind="primary" disabled={isSubmitting || !url.trim()}>
+            <Button type="submit" kind="primary" disabled={isSubmitting || !url.trim()} ariaBusy={isSubmitting}>
               {isSubmitting ? t("保存中…") : t("追加")}
             </Button>
             <Button onClick={() => navigate(-1)} disabled={isSubmitting}>{t("戻る")}</Button>

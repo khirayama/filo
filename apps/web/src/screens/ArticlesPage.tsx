@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
-import { EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, palette } from "../components/ui";
+import { Button, EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, palette, useDialogFocus } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage } from "../lib/messages";
 import { refreshFeedsAndWait } from "../lib/refresh";
@@ -26,6 +26,8 @@ function ArticlesListPage() {
   const [removingReadArticles, setRemovingReadArticles] = useState(false);
   const [activeArticleIndex, setActiveArticleIndex] = useState<number | null>(null);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
+  useDialogFocus(showShortcutHelp, "filo-shortcut-help", closeShortcutHelp);
 
   const apiFilters = useMemo(
     () => ({
@@ -135,6 +137,11 @@ function ArticlesListPage() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (showShortcutHelp && event.key === "Escape") {
+        event.preventDefault();
+        setShowShortcutHelp(false);
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, button, [contenteditable='true']")) return;
       const key = event.key.toLowerCase();
@@ -182,7 +189,7 @@ function ArticlesListPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeArticleIndex, bookmarkedOnly, list, markAllRead, readingListOnly, refreshFeeds]);
+  }, [activeArticleIndex, bookmarkedOnly, list, markAllRead, readingListOnly, refreshFeeds, showShortcutHelp]);
 
   useEffect(() => {
     const article = activeArticleIndex == null ? undefined : list.articles[activeArticleIndex];
@@ -251,7 +258,7 @@ function ArticlesListPage() {
         {markAllError ? <ErrorBox message={markAllError} /> : null}
         {refreshing ? <Spinner label={t("フィードを更新しています…")} /> : null}
         {refreshNotice ? (
-          <p style={{ color: palette.muted, fontSize: "13px", margin: "8px 0 0" }}>{refreshNotice}</p>
+          <p role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "13px", margin: "8px 0 0" }}>{refreshNotice}</p>
         ) : null}
         {list.loading && list.articles.length === 0 ? (
           <Spinner />
@@ -273,13 +280,16 @@ function ArticlesListPage() {
       {showShortcutHelp ? (
         <div
           role="dialog"
+          id="filo-shortcut-help"
           aria-modal="true"
+          aria-labelledby="filo-shortcut-help-title"
           onClick={() => setShowShortcutHelp(false)}
           style={{ alignItems: "center", background: "rgba(0,0,0,0.35)", display: "flex", inset: 0, justifyContent: "center", position: "fixed", zIndex: 100 }}
         >
           <section onClick={(event) => event.stopPropagation()} style={{ background: palette.surface, borderRadius: "8px", maxWidth: "360px", padding: "20px", width: "calc(100% - 32px)" }}>
-            <h2 style={{ fontSize: "18px", margin: "0 0 12px" }}>{t("ショートカット")}</h2>
+            <h2 id="filo-shortcut-help-title" style={{ fontSize: "18px", margin: "0 0 12px" }}>{t("ショートカット")}</h2>
             <pre style={{ fontFamily: "inherit", lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{"J / ↓  次の記事\nK / ↑  前の記事\nEnter / O  記事を開く\nV  元記事を開く\nM  既読／未読\nS  リーディングリスト\nB  ブックマーク\nR  更新\nShift+A  すべて既読\n?  この一覧"}</pre>
+            <Button onClick={() => setShowShortcutHelp(false)}>{t("閉じる")}</Button>
           </section>
         </div>
       ) : null}

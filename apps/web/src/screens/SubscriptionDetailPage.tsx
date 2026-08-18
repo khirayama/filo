@@ -55,6 +55,18 @@ export function SubscriptionDetailPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
+
   const rename = async () => {
     if (!subscription) return;
     const title = window.prompt("購読名を変更（空欄でフィード名に戻す）", subscription.customTitle ?? "");
@@ -171,11 +183,19 @@ export function SubscriptionDetailPage() {
                 onClick={() => void markAllRead()}
               />
               <div style={{ position: "relative" }}>
-                <IconButton icon="more" label="購読の操作" onClick={() => setMenuOpen((v) => !v)} />
+                <IconButton
+                  icon="more"
+                  label="購読の操作"
+                  ariaExpanded={menuOpen}
+                  ariaHaspopup="menu"
+                  ariaControls="filo-subscription-actions"
+                  onClick={() => setMenuOpen((v) => !v)}
+                />
                 {menuOpen ? (
-                  <div style={{ ...menuStyle, minWidth: "180px" }}>
+                  <div id="filo-subscription-actions" role="menu" aria-label="購読の操作" style={{ ...menuStyle, minWidth: "180px" }}>
                     <MenuItem
                       label="名前を変更"
+                      role="menuitem"
                       onClick={() => {
                         setMenuOpen(false);
                         void rename();
@@ -184,6 +204,7 @@ export function SubscriptionDetailPage() {
                     {subscription.feed.siteUrl ? (
                       <MenuItem
                         label="サイトを開く"
+                        role="menuitem"
                         onClick={() => {
                           setMenuOpen(false);
                           window.open(subscription.feed.siteUrl ?? "", "_blank", "noreferrer");
@@ -193,6 +214,7 @@ export function SubscriptionDetailPage() {
                     {subscription.feed.feedUrl ? (
                       <MenuItem
                         label="フィードURLを表示"
+                        role="menuitem"
                         onClick={() => {
                           setMenuOpen(false);
                           window.prompt("フィードURL", subscription.feed.feedUrl);
@@ -201,6 +223,7 @@ export function SubscriptionDetailPage() {
                     ) : null}
                     <MenuItem
                       label="購読解除"
+                      role="menuitem"
                       danger
                       onClick={() => {
                         setMenuOpen(false);

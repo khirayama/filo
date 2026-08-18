@@ -85,6 +85,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const visibleError = hasCurrentUserData ? error : null;
   const visibleLoading = Boolean(userId) && (!hasCurrentUserData || loading);
   const language = normalizeLanguage(visibleSettings?.language ?? navigator.language);
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
   const t = useCallback((source: string, values?: Record<string, string | number>) => translate(source, language, values), [language]);
 
   const value = useMemo(

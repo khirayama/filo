@@ -130,6 +130,7 @@ export function ArticleRows({
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const viewedArticleIds = useRef("");
   const isDesktop = useIsDesktop();
+  const { t } = useAppData();
   const { enabled: translationEnabled, request: requestTranslations } = useTitleTranslation();
 
   useEffect(() => {
@@ -174,12 +175,12 @@ export function ArticleRows({
   if (articles.length === 0) return <>{emptyContent}</>;
   return (
     <>
-      <ul style={{ listStyle: "none", margin: isDesktop ? "8px 0 0" : 0, padding: 0 }}>
+      <ul aria-label={t("記事一覧")} style={{ listStyle: "none", margin: isDesktop ? "8px 0 0" : 0, padding: 0 }}>
             {articles.map((article) => (
               <ArticleRow key={article.id} article={article} onUpdateState={onUpdateState} active={article.id === activeArticleId} />
             ))}
       </ul>
-      <div ref={sentinelRef} />
+      <div ref={sentinelRef} aria-hidden="true" />
       {loadingMore ? <Spinner /> : null}
     </>
   );
@@ -203,6 +204,33 @@ function ArticleRow({
   const isTranslated = translatedTitle != null;
   const displayTitle = showOriginal || !isTranslated ? article.title : translatedTitle;
   const subscriptionId = article.subscriptionContext.subscriptionIds[0];
+  const titleStyle = { fontSize: "14px", fontWeight: isRead ? 400 : 600 };
+  const titleEl = article.canonicalUrl ? (
+    <a
+      href={article.canonicalUrl}
+      target="_blank"
+      rel="noreferrer"
+      onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}
+      style={{ ...titleStyle, color: "inherit", textDecoration: "none" }}
+    >
+      {displayTitle}
+    </a>
+  ) : (
+    <span style={titleStyle}>{displayTitle}</span>
+  );
+  const desktopTitleEl = article.canonicalUrl ? (
+    <a
+      href={article.canonicalUrl}
+      target="_blank"
+      rel="noreferrer"
+      onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}
+      style={{ ...titleStyle, color: "inherit", position: "relative", textDecoration: "none", whiteSpace: "nowrap", zIndex: 1 }}
+    >
+      {displayTitle}
+    </a>
+  ) : (
+    <span style={{ ...titleStyle, whiteSpace: "nowrap" }}>{displayTitle}</span>
+  );
 
   const faviconEl = article.feed.faviconUrl ? (
     <img src={article.feed.faviconUrl} alt="" width={14} height={14} style={{ borderRadius: "3px", flexShrink: 0 }} />
@@ -246,18 +274,23 @@ function ArticleRow({
     );
 
   const translationLabel = isTranslated ? (
-    <span
+    <button
+      type="button"
+      aria-pressed={showOriginal}
+      aria-label={showOriginal ? t("翻訳") : t("原文")}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
         setShowOriginal((v) => !v);
       }}
       style={{
+        background: "transparent",
         border: `1px solid ${palette.border}`,
         borderRadius: "3px",
         color: palette.muted,
         cursor: "pointer",
         flexShrink: 0,
+        font: "inherit",
         fontSize: "10px",
         lineHeight: "16px",
         padding: "0 4px",
@@ -267,12 +300,13 @@ function ArticleRow({
       }}
     >
       {showOriginal ? t("翻訳") : t("原文")}
-    </span>
+    </button>
   ) : null;
+  const articleDate = article.publishedAt ?? article.fetchedAt;
   const dateEl = (
-    <span style={{ color: palette.muted, flexShrink: 0, fontSize: "12px", whiteSpace: "nowrap" }}>
-      {formatTimeCompact(article.publishedAt ?? article.fetchedAt)}
-    </span>
+    <time dateTime={articleDate ?? undefined} style={{ color: palette.muted, flexShrink: 0, fontSize: "12px", whiteSpace: "nowrap" }}>
+      {formatTimeCompact(articleDate)}
+    </time>
   );
 
   const actions = onUpdateState ? (
@@ -335,9 +369,7 @@ function ArticleRow({
               {feedNameEl}
               {translationLabel}
             </div>
-            <span style={{ flexShrink: 0, fontSize: "14px", fontWeight: isRead ? 400 : 600, whiteSpace: "nowrap" }}>
-              {displayTitle}
-            </span>
+            {desktopTitleEl}
             {article.previewText ? (
               <span
                 style={{
@@ -368,7 +400,7 @@ function ArticleRow({
             {actions}
           </div>
           <div style={{ fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: 1.4, marginTop: 0 }}>
-            {displayTitle}
+            {titleEl}
           </div>
           {isDesktop && article.previewText ? (
             <div
@@ -388,17 +420,6 @@ function ArticleRow({
           ) : null}
         </>
       )}
-      {/* Web は記事詳細画面を持たず、記事タップで実際の元記事ページを開く (SPEC/SCREENS.md) */}
-      {article.canonicalUrl ? (
-        <a
-          href={article.canonicalUrl}
-          target="_blank"
-          rel="noreferrer"
-          aria-label={article.title}
-          onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}
-          style={{ inset: 0, position: "absolute", zIndex: 0 }}
-        />
-      ) : null}
     </li>
   );
 }

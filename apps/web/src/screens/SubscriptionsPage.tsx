@@ -139,7 +139,7 @@ export function SubscriptionsPage() {
         ) : (
           groups.map((group) =>
             group.items.length === 0 ? null : (
-              <section key={String(group.key)} style={{ marginTop: "16px" }}>
+              <section key={String(group.key)} aria-labelledby={`subscription-group-${String(group.key)}`} style={{ marginTop: "16px" }}>
                 <div
                   style={{
                     alignItems: "center",
@@ -151,19 +151,22 @@ export function SubscriptionsPage() {
                 >
                   <IconButton
                     icon={collapsedTags.has(group.key) ? "chevronRight" : "chevronDown"}
-                    label={collapsedTags.has(group.key) ? t("展開") : t("折りたたむ")}
+                    label={`${group.label}: ${collapsedTags.has(group.key) ? t("展開") : t("折りたたむ")}`}
                     size={14}
+                    ariaExpanded={!collapsedTags.has(group.key)}
+                    ariaControls={`subscription-group-items-${String(group.key)}`}
                     onClick={() => toggleCollapse(group.key)}
                   />
                   {group.tag ? (
                     <Link
                       to={`/articles?tagId=${group.tag.id}`}
+                      id={`subscription-group-${String(group.key)}`}
                       style={{ color: "inherit", fontWeight: 600, textDecoration: "none" }}
                     >
                       {group.label}
                     </Link>
                   ) : (
-                    <span style={{ fontWeight: 600 }}>{group.label}</span>
+                    <span id={`subscription-group-${String(group.key)}`} style={{ fontWeight: 600 }}>{group.label}</span>
                   )}
                   <span style={{ color: palette.muted, fontSize: "13px" }}>{group.items.length}件</span>
                   <div style={{ flex: 1 }} />
@@ -181,7 +184,7 @@ export function SubscriptionsPage() {
                   ) : null}
                 </div>
                 {!collapsedTags.has(group.key) ? (
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                  <ul id={`subscription-group-items-${String(group.key)}`} style={{ listStyle: "none", margin: 0, padding: 0 }}>
                     {group.items.map((subscription) => (
                       <SubscriptionRow
                         key={subscription.id}
@@ -220,6 +223,18 @@ function SubscriptionRow({
   onTagsChange: (tagIds: number[]) => void;
 }) {
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!tagMenuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setTagMenuOpen(false);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [tagMenuOpen]);
 
   const toggleTag = (tagId: number) => {
     const next = subscription.tagIds.includes(tagId)
@@ -281,9 +296,17 @@ function SubscriptionRow({
       </div>
       {allTags.length > 0 ? (
         <div style={{ position: "relative" }}>
-          <IconButton icon="tag" label="タグを編集" size={14} onClick={() => setTagMenuOpen((v) => !v)} />
+          <IconButton
+            icon="tag"
+            label="タグを編集"
+            size={14}
+            ariaExpanded={tagMenuOpen}
+            ariaHaspopup="dialog"
+            ariaControls={`subscription-tag-menu-${subscription.id}`}
+            onClick={() => setTagMenuOpen((v) => !v)}
+          />
           {tagMenuOpen ? (
-            <div style={{ ...menuStyle, fontSize: "13px", gap: "2px", padding: "8px", width: "200px" }}>
+            <div id={`subscription-tag-menu-${subscription.id}`} role="dialog" aria-label="タグを編集" style={{ ...menuStyle, fontSize: "13px", gap: "2px", padding: "8px", width: "200px" }}>
               {allTags.map((tag) => (
                 <label
                   key={tag.id}

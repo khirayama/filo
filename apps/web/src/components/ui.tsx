@@ -1,8 +1,43 @@
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { useEffect, useRef, type AriaAttributes, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Icon, type IconName } from "./icons";
 import { useAppData } from "./AppDataContext";
 
 export { Icon, type IconName } from "./icons";
+
+export function useDialogFocus(open: boolean, containerId: string, onClose: () => void) {
+  const previousFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const container = document.getElementById(containerId);
+    const focusable = container?.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
+    focusable?.[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocus.current?.focus();
+      previousFocus.current = null;
+    };
+  }, [containerId, onClose, open]);
+}
 
 // All colors resolve to CSS variables declared in global.css so that the
 // light/dark theme (settings.theme) applies to every inline style.
@@ -65,6 +100,8 @@ export function Button({
   kind = "secondary",
   type = "button",
   small,
+  ariaBusy,
+  ariaDescribedBy,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -72,6 +109,8 @@ export function Button({
   kind?: "primary" | "secondary" | "danger";
   type?: "button" | "submit";
   small?: boolean;
+  ariaBusy?: boolean;
+  ariaDescribedBy?: string;
 }) {
   const base: CSSProperties = {
     border: `1px solid ${kind === "danger" ? palette.danger : palette.text}`,
@@ -84,7 +123,14 @@ export function Button({
     fontSize: small ? "13px" : "14px",
   };
   return (
-    <button type={type} onClick={onClick} disabled={disabled} style={base}>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      aria-busy={ariaBusy}
+      aria-describedby={ariaDescribedBy}
+      style={base}
+    >
       {children}
     </button>
   );
@@ -125,6 +171,7 @@ export function FilterChip({ label, active, onClick }: { label: string; active: 
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       style={{
         background: active ? palette.text : "transparent",
         border: `1px solid ${palette.border}`,
@@ -140,11 +187,12 @@ export function FilterChip({ label, active, onClick }: { label: string; active: 
   );
 }
 
-export function MenuItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+export function MenuItem({ label, onClick, danger, role }: { label: string; onClick: () => void; danger?: boolean; role?: "menuitem" }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      role={role}
       style={{
         background: "transparent",
         border: "none",
@@ -170,7 +218,7 @@ export function MenuItem({ label, onClick, danger }: { label: string; onClick: (
 export function Spinner({ label = "読み込み中…" }: { label?: string }) {
   const { t } = useAppData();
   return (
-    <p role="status" style={{ color: palette.muted }}>
+    <p role="status" aria-live="polite" style={{ color: palette.muted }}>
       {label === "読み込み中…" ? t(label) : label}
     </p>
   );
@@ -181,6 +229,7 @@ export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () =
   return (
     <div
       role="alert"
+      aria-live="assertive"
       style={{
         border: `1px solid ${palette.danger}`,
         borderRadius: "6px",
@@ -252,6 +301,9 @@ export function IconButton({
   size = 18,
   filled,
   color,
+  ariaExpanded,
+  ariaHaspopup,
+  ariaControls,
 }: {
   icon: IconName;
   label: string;
@@ -261,6 +313,9 @@ export function IconButton({
   size?: number;
   filled?: boolean;
   color?: string;
+  ariaExpanded?: boolean;
+  ariaHaspopup?: AriaAttributes["aria-haspopup"];
+  ariaControls?: string;
 }) {
   return (
     <button
@@ -268,6 +323,9 @@ export function IconButton({
       title={label}
       aria-label={label}
       aria-pressed={active}
+      aria-expanded={ariaExpanded}
+      aria-haspopup={ariaHaspopup}
+      aria-controls={ariaControls}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();

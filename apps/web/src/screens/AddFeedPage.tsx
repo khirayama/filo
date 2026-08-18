@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { Subscription } from "../api/types";
@@ -20,7 +20,8 @@ export function AddFeedPage() {
   const [created, setCreated] = useState<Subscription | null>(null);
   const [retrying, setRetrying] = useState(false);
 
-  const submit = async () => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (submitting || !url.trim()) return;
     setSubmitting(true);
     setError(null);
@@ -86,11 +87,13 @@ export function AddFeedPage() {
           <IconButton icon="back" label={t("戻る")} onClick={() => navigate(-1)} />
           <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("フィードを追加")}</h1>
         </header>
-        <section style={{ ...sectionStyle, border: "none", padding: "16px 0" }}>
-          <label style={{ display: "block" }}>
+        <form onSubmit={(event) => void submit(event)} style={{ ...sectionStyle, border: "none", padding: "16px 0" }}>
+          <label htmlFor="feed-url" style={{ display: "block" }}>
             RSS/Atom URL または サイトURL
             <input
+              id="feed-url"
               type="url"
+              required
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com/feed.xml"
@@ -107,13 +110,14 @@ export function AddFeedPage() {
           </label>
           {tags.length > 0 ? (
             <div style={{ marginTop: "16px" }}>
-              <p style={{ margin: "0 0 8px" }}>{t("タグ")}</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              <p id="feed-tags-label" style={{ margin: "0 0 8px" }}>{t("タグ")}</p>
+              <div role="group" aria-labelledby="feed-tags-label" style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                 {tags.map((tag) => (
                   <button
                     key={tag.id}
                     type="button"
                     onClick={() => toggleTag(tag.id)}
+                    aria-pressed={selectedTagIds.has(tag.id)}
                     style={{
                       background: selectedTagIds.has(tag.id) ? palette.text : "transparent",
                       border: `1px solid ${palette.border}`,
@@ -129,9 +133,10 @@ export function AddFeedPage() {
               </div>
             </div>
           ) : null}
-          <label style={{ display: "block", marginTop: "16px" }}>
+          <label htmlFor="new-feed-tags" style={{ display: "block", marginTop: "16px" }}>
             新規タグ（カンマ区切り）
             <input
+              id="new-feed-tags"
               type="text"
               value={newTagNames}
               onChange={(e) => setNewTagNames(e.target.value)}
@@ -148,11 +153,11 @@ export function AddFeedPage() {
             />
           </label>
           <div style={{ marginTop: "16px" }}>
-            <Button kind="primary" onClick={() => void submit()} disabled={submitting || !url.trim()}>
+            <Button type="submit" kind="primary" disabled={submitting || !url.trim()} ariaBusy={submitting}>
               {submitting ? t("フィードを確認中…") : t("追加")}
             </Button>
           </div>
-        </section>
+        </form>
         {error ? <ErrorBox message={error} /> : null}
         {created ? (
           <section style={sectionStyle}>

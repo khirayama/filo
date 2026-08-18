@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import type { Subscription } from "../api/types";
 import { groupSubscriptionsByTag } from "../lib/grouping";
@@ -32,7 +32,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // the scrim or ✕ just navigates back. Whether it is open derives entirely
   // from the current history entry.
   const drawerRequested = !isDesktop && (location.state as { drawer?: boolean } | null)?.drawer === true;
-  const openDrawer = () => navigate(location.pathname + location.search, { state: { drawer: true } });
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const openDrawer = () => {
+    previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    navigate(location.pathname + location.search, { state: { drawer: true } });
+  };
   const closeDrawer = () => navigate(-1);
 
   // Keep the drawer mounted while it slides out; `shown` drives the CSS
@@ -50,10 +54,43 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [drawerRequested]);
 
+  useEffect(() => {
+    if (!drawerMounted || !drawerShown) {
+      if (!drawerMounted) {
+        previousFocus.current?.focus();
+        previousFocus.current = null;
+      }
+      return;
+    }
+    const drawer = document.getElementById("filo-mobile-drawer");
+    const focusable = drawer?.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
+    focusable?.[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDrawer();
+        return;
+      }
+      if (event.key !== "Tab" || !focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [drawerMounted, drawerShown]);
+
   if (isDesktop) {
     return (
       <div style={{ color: palette.text, display: "flex", fontFamily: "system-ui, sans-serif", minHeight: "100vh" }}>
         <aside
+          aria-label={t("サイドバー")}
           style={{
             borderRight: `1px solid ${palette.mutedBorder}`,
             boxSizing: "border-box",
@@ -90,14 +127,29 @@ export function AppShell({ children }: { children: ReactNode }) {
           zIndex: 20,
         }}
       >
-        <IconButton icon="menu" label={t("メニュー")} size={20} onClick={openDrawer} />
+        <IconButton
+          icon="menu"
+          label={t("メニュー")}
+          size={20}
+          ariaExpanded={drawerRequested}
+          ariaHaspopup="dialog"
+          ariaControls="filo-mobile-drawer"
+          onClick={openDrawer}
+        />
         <Link to="/articles" style={{ color: "inherit", fontWeight: 700, textDecoration: "none" }}>
           Filo
         </Link>
       </header>
       {drawerMounted ? (
-        <div role="dialog" aria-modal="true" style={{ inset: 0, position: "fixed", zIndex: 30 }}>
+        <div
+          id="filo-mobile-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("メニュー")}
+          style={{ inset: 0, position: "fixed", zIndex: 30 }}
+        >
           <div
+            aria-hidden="true"
             onClick={closeDrawer}
             style={{
               background: palette.scrim,
@@ -108,6 +160,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             }}
           />
           <aside
+            aria-label={t("サイドバー")}
             style={{
               background: palette.surface,
               bottom: 0,
@@ -151,7 +204,7 @@ function SidebarNav() {
   const groups = groupSubscriptionsByTag(tags, subscriptions);
 
   return (
-    <nav style={{ display: "grid", gap: "2px", fontSize: "14px", minWidth: 0, overflow: "hidden" }}>
+    <nav aria-label={t("メインナビゲーション")} style={{ display: "grid", gap: "2px", fontSize: "14px", minWidth: 0, overflow: "hidden" }}>
       <Link
         to="/articles"
         style={{ color: "inherit", fontSize: "18px", fontWeight: 700, padding: "4px 8px 12px", textDecoration: "none" }}
@@ -221,12 +274,19 @@ function SidebarNav() {
         group.items.length === 0 && group.key === "untagged" ? null : (
           <div key={String(group.key)}>
             <div style={{ alignItems: "center", display: "flex" }}>
-              <IconButton
-                icon={expandedTags.has(group.key) ? "chevronDown" : "chevronRight"}
-                label={expandedTags.has(group.key) ? t("折りたたむ") : t("展開")}
-                size={14}
-                onClick={() => toggleExpand(group.key)}
-              />
+              {(() => {
+                const groupId = `filo-sidebar-group-${String(group.key)}`;
+                return (
+                  <IconButton
+                    icon={expandedTags.has(group.key) ? "chevronDown" : "chevronRight"}
+                    label={`${group.label}: ${expandedTags.has(group.key) ? t("折りたたむ") : t("展開")}`}
+                    size={14}
+                    ariaExpanded={expandedTags.has(group.key)}
+                    ariaControls={groupId}
+                    onClick={() => toggleExpand(group.key)}
+                  />
+                );
+              })()}
               {group.tag !== undefined ? (
                 <SidebarRowLink
                   to={`/articles?tagId=${group.tag.id}`}
@@ -242,11 +302,13 @@ function SidebarNav() {
                 </span>
               )}
             </div>
-            {expandedTags.has(group.key)
-              ? group.items.map((subscription) => (
+            {expandedTags.has(group.key) ? (
+              <div id={`filo-sidebar-group-${String(group.key)}`}>
+                {group.items.map((subscription) => (
                   <SubscriptionLink key={subscription.id} subscription={subscription} />
-                ))
-              : null}
+                ))}
+              </div>
+            ) : null}
           </div>
         )
       )}
@@ -301,6 +363,7 @@ function SidebarLink({ to, icon, label }: { to: string; icon: Parameters<typeof 
   return (
     <Link
       to={to}
+      aria-current={active ? "page" : undefined}
       style={{
         ...sidebarRowStyle,
         background: active ? palette.mutedBorder : "transparent",
@@ -318,6 +381,7 @@ function SidebarRowLink({ to, label, count }: { to: string; label: string; count
   return (
     <Link
       to={to}
+      aria-current={active ? "page" : undefined}
       style={{
         ...sidebarRowStyle,
         background: active ? palette.mutedBorder : "transparent",
@@ -340,6 +404,7 @@ function SubscriptionLink({ subscription }: { subscription: Subscription }) {
   return (
     <Link
       to={`/subscriptions/${subscription.id}`}
+      aria-current={active ? "page" : undefined}
       title={unhealthy ? `${title}（更新異常）` : stale ? `${title}（しばらく更新なし）` : title}
       style={{
         ...sidebarRowStyle,

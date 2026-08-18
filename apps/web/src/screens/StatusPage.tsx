@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { FeedJob, StatusOverview, StatusSubscription } from "../api/types";
 import { AppShell } from "../components/AppShell";
@@ -151,13 +151,13 @@ export function StatusPage() {
           <>
             <section style={sectionStyle}>
               <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                <p style={{ flex: 1, fontWeight: 600, margin: 0, minWidth: "120px" }}>{t("操作")}</p>
+              <p role="heading" aria-level={2} style={{ flex: 1, fontWeight: 600, margin: 0, minWidth: "120px" }}>{t("操作")}</p>
                 <Button kind="primary" disabled={refreshing} onClick={() => void refreshAll()}>
                   {refreshing && busy?.target === "all" ? t("取得中…") : t("すべて取得")}
                 </Button>
               </div>
               {notice ? (
-                <p style={{ color: palette.muted, fontSize: "13px", margin: "12px 0 0" }}>{notice}</p>
+                <p role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "13px", margin: "12px 0 0" }}>{notice}</p>
               ) : null}
               <p style={{ color: palette.muted, fontSize: "12px", margin: "12px 0 0" }}>
                 {t("購読")} {status.feeds.total}・{t("記事")} {status.articles.total}
@@ -167,7 +167,7 @@ export function StatusPage() {
             </section>
 
             <section style={sectionStyle}>
-              <p style={{ fontWeight: 600, margin: "0 0 4px" }}>{t("購読一覧")}（{status.subscriptionStatuses.length}）</p>
+              <p role="heading" aria-level={2} style={{ fontWeight: 600, margin: "0 0 4px" }}>{t("購読一覧")}（{status.subscriptionStatuses.length}）</p>
               {status.subscriptionStatuses.length === 0 ? (
                 <EmptyState>{t("購読がありません。")}</EmptyState>
               ) : (
@@ -197,7 +197,7 @@ export function StatusPage() {
                         <option value="paused">{t("停止")}</option>
                       </select>
                     </label>
-                    <span style={{ color: palette.muted, fontSize: "12px", paddingBottom: "8px" }}>
+                    <span role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "12px", paddingBottom: "8px" }}>
                       {visibleSubscriptions.length}/{status.subscriptionStatuses.length}
                     </span>
                   </div>
@@ -205,7 +205,7 @@ export function StatusPage() {
                     <EmptyState>{t("条件に一致する購読がありません。")}</EmptyState>
                   ) : (
                     <div style={{ overflowX: "auto" }}>
-                      <table style={{ borderCollapse: "collapse", minWidth: "900px", width: "100%" }}>
+                      <table aria-label={t("購読一覧")} style={{ borderCollapse: "collapse", minWidth: "900px", width: "100%" }}>
                         <thead>
                           <tr style={{ borderBottom: `2px solid ${palette.border}`, textAlign: "left" }}>
                             <SortableHeader label={t("状態")} sortKey="status" sort={sort} onSort={changeSort} />
@@ -227,16 +227,12 @@ export function StatusPage() {
                                 </td>
                                 <td style={{ maxWidth: "260px", padding: "10px 8px" }}>
                                   <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                                    <a
-                                      href={`/subscriptions/${sub.subscriptionId}`}
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        navigate(`/subscriptions/${sub.subscriptionId}`);
-                                      }}
+                                    <Link
+                                      to={`/subscriptions/${sub.subscriptionId}`}
                                       style={{ color: "inherit", overflow: "hidden", textDecoration: "underline", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                                     >
                                       {sub.feedTitle}
-                                    </a>
+                                    </Link>
                                     {sub.feedStatus === "paused" ? <Badge tone="muted">{t("停止")}</Badge> : null}
                                   </div>
                                   {rowError ? (
