@@ -15,10 +15,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +31,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,16 +50,17 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import com.filo.app.WirePalette
 
 enum class BadgeTone { Muted, Warn, Danger, Ok }
 
 @Composable
 fun StatusBadge(label: String, tone: BadgeTone = BadgeTone.Muted) {
     val color = when (tone) {
-        BadgeTone.Muted -> MaterialTheme.colorScheme.onSurfaceVariant
-        BadgeTone.Warn -> Color(0xFF9A6700)
-        BadgeTone.Danger -> MaterialTheme.colorScheme.error
-        BadgeTone.Ok -> Color(0xFF2F6A3D)
+        BadgeTone.Muted -> WirePalette.Muted
+        BadgeTone.Warn -> WirePalette.Warn
+        BadgeTone.Danger -> WirePalette.Danger
+        BadgeTone.Ok -> WirePalette.Ok
     }
     Surface(
         shape = CircleShape,
@@ -174,7 +176,7 @@ fun ArticleRow(
     onToggleReadingList: (() -> Unit)? = null,
     onToggleBookmark: (() -> Unit)? = null,
     translations: TitleTranslationStore? = null,
-    horizontalPadding: Dp = 0.dp,
+    horizontalPadding: Dp = 16.dp,
 ) {
     var showOriginal by remember { mutableStateOf(false) }
     // 翻訳は端末内で走るので、届いた分から順に差し替わる。行のトグルで原文に戻せる。
@@ -185,73 +187,27 @@ fun ArticleRow(
     Surface(
         onClick = onOpen,
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (article.userState.isRead) 0.55f else 1f),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 2.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp),
+            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            Text(
-                displayTitle,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (article.userState.isRead) FontWeight.Normal else FontWeight.SemiBold,
-                color = if (article.userState.isRead) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!article.previewText.isNullOrBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    article.previewText,
-                    style = MaterialTheme.typography.bodySmall,
+                    article.feedTitle,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                FaviconImage(url = article.feedFaviconUrl, siteUrl = article.canonicalUrl)
-                if (onToggleRead != null) {
-                    Surface(onClick = onToggleRead, shape = MaterialTheme.shapes.extraSmall, color = Color.Transparent) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = if (article.userState.isRead) "未読にする" else "既読にする",
-                            tint = if (article.userState.isRead) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            },
-                            modifier = Modifier.size(18.dp).padding(horizontal = 1.dp),
-                        )
-                    }
-                }
-                if (onToggleReadingList != null) {
-                    Surface(onClick = onToggleReadingList, shape = MaterialTheme.shapes.extraSmall, color = Color.Transparent) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.List,
-                            contentDescription = if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加",
-                            tint = if (article.userState.inReadingList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp).padding(horizontal = 1.dp),
-                        )
-                    }
-                } else if (article.userState.inReadingList) {
-                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "リーディングリスト済み", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                }
-                if (onToggleBookmark != null) {
-                    Surface(onClick = onToggleBookmark, shape = MaterialTheme.shapes.extraSmall, color = Color.Transparent) {
-                        Icon(
-                            if (article.userState.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = if (article.userState.isBookmarked) "ブックマークを解除" else "ブックマーク",
-                            tint = if (article.userState.isBookmarked) Color(0xFFE8A100) else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp).padding(horizontal = 1.dp),
-                        )
-                    }
-                } else if (article.userState.isBookmarked) {
-                    Icon(Icons.Default.Bookmark, contentDescription = "ブックマーク済み", tint = Color(0xFFE8A100), modifier = Modifier.size(16.dp))
-                }
                 if (isTranslated) {
                     Surface(
                         onClick = { showOriginal = !showOriginal },
@@ -268,19 +224,61 @@ fun ArticleRow(
                     }
                 }
                 Text(
-                    article.feedTitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Text(
-                    relativeTime(article.publishedAt ?: article.fetchedAt),
-                    style = MaterialTheme.typography.labelSmall,
+                    compactRelativeTime(article.publishedAt ?: article.fetchedAt),
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (onToggleRead != null) {
+                    Surface(
+                        onClick = onToggleRead,
+                        color = Color.Transparent,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.CheckCircle,
+                            contentDescription = if (article.userState.isRead) "未読にする" else "既読にする",
+                            tint = if (article.userState.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(7.dp),
+                        )
+                    }
+                }
+                if (onToggleReadingList != null) {
+                    Surface(
+                        onClick = onToggleReadingList,
+                        color = Color.Transparent,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.PlaylistAdd,
+                            contentDescription = if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加",
+                            tint = if (article.userState.inReadingList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(7.dp),
+                        )
+                    }
+                }
+                if (onToggleBookmark != null) {
+                    Surface(
+                        onClick = onToggleBookmark,
+                        color = Color.Transparent,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            if (article.userState.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (article.userState.isBookmarked) "ブックマークを解除" else "ブックマーク",
+                            tint = if (article.userState.isBookmarked) WirePalette.Star else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(7.dp),
+                        )
+                    }
+                }
             }
+            Text(
+                displayTitle,
+                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
+                fontWeight = if (article.userState.isRead) FontWeight.Normal else FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -296,6 +294,24 @@ fun relativeTime(iso: String?): String {
             minutes < 60 * 24 -> "${minutes / 60}時間前"
             minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}日前"
             else -> DateTimeFormatter.ofPattern("yyyy/M/d", Locale.getDefault())
+                .format(instant.atZone(java.time.ZoneId.systemDefault()))
+        }
+    } catch (e: Exception) {
+        ""
+    }
+}
+
+fun compactRelativeTime(iso: String?): String {
+    if (iso.isNullOrBlank()) return ""
+    return try {
+        val instant = Instant.from(DateTimeFormatter.ISO_DATE_TIME.parse(iso))
+        val minutes = (System.currentTimeMillis() - instant.toEpochMilli()) / 60_000
+        when {
+            minutes < 1 -> "now"
+            minutes < 60 -> "${minutes}m"
+            minutes < 60 * 24 -> "${minutes / 60}h"
+            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}d"
+            else -> DateTimeFormatter.ofPattern("M/d", Locale.getDefault())
                 .format(instant.atZone(java.time.ZoneId.systemDefault()))
         }
     } catch (e: Exception) {

@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Typography
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
@@ -102,11 +104,30 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private object WirePalette {
-    val Background = Color.White
-    val Text = Color(0xFF111111)
+internal object WirePalette {
+    // Keep the native palette in lockstep with apps/web/src/global.css.
+    val Background = Color(0xFFFFFFFF)
+    val Surface = Color(0xFFFFFFFF)
+    val Text = Color(0xFF222222)
     val Border = Color(0xFFD7D7D7)
     val MutedBorder = Color(0xFFE0E0E0)
+    val Muted = Color(0xFF777777)
+    val Accent = Color(0xFF1A56DB)
+    val OnAccent = Color(0xFFFFFFFF)
+    val Danger = Color(0xFFB3261E)
+    val DangerBackground = Color(0xFFFFEBE9)
+    val Star = Color(0xFFE8A100)
+    val Ok = Color(0xFF2F6A3D)
+    val Warn = Color(0xFF9A6700)
+    val DarkBackground = Color(0xFF16181C)
+    val DarkSurface = Color(0xFF1E2126)
+    val DarkText = Color(0xFFE4E4E4)
+    val DarkBorder = Color(0xFF464A52)
+    val DarkMutedBorder = Color(0xFF33373E)
+    val DarkMuted = Color(0xFF9AA0A8)
+    val DarkAccent = Color(0xFF6A9BFF)
+    val DarkOnAccent = Color(0xFF10233F)
+    val DarkDanger = Color(0xFFEF7B74)
 }
 
 @Composable
@@ -200,27 +221,57 @@ private fun FiloTheme(content: @Composable () -> Unit) {
         colorScheme =
             if (darkTheme) {
                 darkColorScheme(
-                    primary = Color.White,
-                    secondary = Color.White,
-                    background = Color(0xFF111111),
-                    surface = Color(0xFF1A1A1A),
-                    onPrimary = Color(0xFF111111),
-                    onSecondary = Color(0xFF111111),
-                    onBackground = Color.White,
-                    onSurface = Color.White,
+                    primary = WirePalette.DarkAccent,
+                    onPrimary = WirePalette.DarkOnAccent,
+                    secondary = WirePalette.DarkText,
+                    onSecondary = WirePalette.DarkBackground,
+                    background = WirePalette.DarkBackground,
+                    onBackground = WirePalette.DarkText,
+                    surface = WirePalette.DarkSurface,
+                    onSurface = WirePalette.DarkText,
+                    surfaceVariant = WirePalette.DarkSurface,
+                    onSurfaceVariant = WirePalette.DarkMuted,
+                    outline = WirePalette.DarkBorder,
+                    outlineVariant = WirePalette.DarkMutedBorder,
+                    error = WirePalette.DarkDanger,
+                    onError = WirePalette.DarkBackground,
+                    errorContainer = Color(0xFF3A1F1E),
+                    onErrorContainer = WirePalette.DarkDanger,
+                    secondaryContainer = Color(0xFF33373E),
+                    onSecondaryContainer = WirePalette.DarkText,
                 )
             } else {
                 lightColorScheme(
-                    primary = WirePalette.Text,
+                    primary = WirePalette.Accent,
+                    onPrimary = WirePalette.OnAccent,
                     secondary = WirePalette.Text,
-                    background = WirePalette.Background,
-                    surface = WirePalette.Background,
-                    onPrimary = WirePalette.Background,
                     onSecondary = WirePalette.Background,
+                    background = WirePalette.Background,
+                    surface = WirePalette.Surface,
                     onBackground = WirePalette.Text,
                     onSurface = WirePalette.Text,
+                    surfaceVariant = Color(0xFFF6F6F6),
+                    onSurfaceVariant = WirePalette.Muted,
+                    outline = WirePalette.Border,
+                    outlineVariant = WirePalette.MutedBorder,
+                    error = WirePalette.Danger,
+                    onError = WirePalette.Background,
+                    errorContainer = WirePalette.DangerBackground,
+                    onErrorContainer = WirePalette.Danger,
+                    secondaryContainer = Color(0xFFF0F0F0),
+                    onSecondaryContainer = WirePalette.Text,
                 )
             },
+        typography = Typography(
+            bodyLarge = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+            bodyMedium = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+            bodySmall = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
+            labelLarge = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+            labelMedium = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+            labelSmall = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
+            titleLarge = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, lineHeight = 24.sp),
+            titleMedium = androidx.compose.ui.text.TextStyle(fontSize = 18.sp, lineHeight = 22.sp),
+        ),
         content = content,
     )
 }
@@ -277,19 +328,15 @@ private fun AuthScreen(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFFF5E9D7), Color(0xFFE7D6BE)),
-                    ),
-                )
+                .background(MaterialTheme.colorScheme.background)
                 .padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth(),
-            shadowElevation = 12.dp,
-            tonalElevation = 4.dp,
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp,
         ) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Text("Filo", style = MaterialTheme.typography.labelLarge)

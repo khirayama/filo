@@ -527,7 +527,7 @@ fun ArticlesScreen(
                             onToggleRead = { vm.patchState(article, isRead = !article.userState.isRead) },
                             onToggleReadingList = { vm.patchState(article, inReadingList = !article.userState.inReadingList) },
                             onToggleBookmark = { vm.patchState(article, isBookmarked = !article.userState.isBookmarked) },
-                            horizontalPadding = 12.dp,
+                            horizontalPadding = 16.dp,
                         )
                         HorizontalDivider()
                         // Feedly-style infinite scroll: fetch the next page near the end.
