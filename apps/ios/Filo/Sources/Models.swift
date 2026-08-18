@@ -254,4 +254,19 @@ enum DateFormatting {
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
     }
+
+    static func compact(_ value: String?) -> String {
+        guard let date = parse(value) else { return "" }
+        let minutes = Int(Date().timeIntervalSince(date) / 60)
+        if minutes < 1 { return "now" }
+        if minutes < 60 { return "\(minutes)m" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h" }
+        let days = hours / 24
+        if days < 7 { return "\(days)d" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ja_JP_POSIX")
+        formatter.dateFormat = "M/d"
+        return formatter.string(from: date)
+    }
 }

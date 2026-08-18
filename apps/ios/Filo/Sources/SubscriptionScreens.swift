@@ -97,6 +97,8 @@ struct SubscriptionsScreen: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(FiloPalette.background)
         .navigationTitle("購読一覧")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -169,7 +171,7 @@ struct SubscriptionsScreen: View {
                         .font(.body.weight(.medium))
                     Text("最終公開 \(DateFormatting.relative(subscription.feed.latestPublishedAt).isEmpty ? "—" : DateFormatting.relative(subscription.feed.latestPublishedAt))")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FiloPalette.muted)
                     healthBadge(subscription)
                 }
             }

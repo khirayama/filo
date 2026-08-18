@@ -30,7 +30,7 @@ struct FaviconView: View {
 
     private var placeholderBox: some View {
         RoundedRectangle(cornerRadius: 3)
-            .fill(Color.secondary.opacity(0.2))
+            .fill(FiloPalette.mutedBorder)
             .frame(width: 16, height: 16)
     }
 }
@@ -47,8 +47,8 @@ struct FilterChip: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(isOn ? Color.primary : Color.clear)
-                .foregroundStyle(isOn ? Color(uiColor: .systemBackground) : .primary)
-                .overlay(Capsule().stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+                .foregroundStyle(isOn ? FiloPalette.background : FiloPalette.text)
+                .overlay(Capsule().stroke(FiloPalette.border, lineWidth: 1))
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -57,7 +57,11 @@ struct FilterChip: View {
 
 struct ArticleRowView: View {
     let article: ArticleListItem
-    var horizontalPadding: CGFloat = 0
+    var horizontalPadding: CGFloat = 16
+    var onOpen: (() -> Void)? = nil
+    var onToggleRead: (() -> Void)? = nil
+    var onToggleReadingList: (() -> Void)? = nil
+    var onToggleBookmark: (() -> Void)? = nil
     @ObservedObject private var translations = TitleTranslationStore.shared
     @State private var showOriginal = false
 
@@ -68,26 +72,11 @@ struct ArticleRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(displayTitle)
-                .font(.subheadline.weight(article.userState.isRead ? .regular : .semibold))
-                .foregroundStyle(article.userState.isRead ? .secondary : .primary)
-                .lineLimit(2)
-            if let preview = article.previewText, !preview.isEmpty {
-                Text(preview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text(article.feed.title)
                     .lineLimit(1)
-            }
-            HStack(spacing: 4) {
-                FaviconView(url: article.feed.faviconUrl, fallbackSiteUrl: article.canonicalUrl)
-                if article.userState.inReadingList {
-                    Image(systemName: "text.badge.checkmark")
-                        .foregroundStyle(.blue)
-                }
-                if article.userState.isBookmarked {
-                    Image(systemName: "bookmark.fill")
-                        .foregroundStyle(.yellow)
-                }
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if isTranslated {
                     Button {
                         showOriginal.toggle()
@@ -103,15 +92,61 @@ struct ArticleRowView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Text(article.feed.title)
-                    .lineLimit(1)
-                Text(DateFormatting.relative(article.publishedAt ?? article.fetchedAt))
+                Text(DateFormatting.compact(article.publishedAt ?? article.fetchedAt))
                     .layoutPriority(1)
+                actionButton(
+                    systemName: "checkmark.circle",
+                    active: article.userState.isRead,
+                    action: onToggleRead,
+                    label: article.userState.isRead ? "未読にする" : "既読にする",
+                )
+                actionButton(
+                    systemName: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus",
+                    active: article.userState.inReadingList,
+                    action: onToggleReadingList,
+                    label: article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
+                )
+                actionButton(
+                    systemName: article.userState.isBookmarked ? "bookmark.fill" : "bookmark",
+                    active: article.userState.isBookmarked,
+                    activeColor: FiloPalette.star,
+                    action: onToggleBookmark,
+                    label: article.userState.isBookmarked ? "ブックマークを解除" : "ブックマーク",
+                )
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            .font(.system(size: 12))
+            .foregroundStyle(FiloPalette.muted)
+            Text(displayTitle)
+                .font(.system(size: 14, weight: article.userState.isRead ? .regular : .semibold))
+                .foregroundStyle(FiloPalette.text)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { onOpen?() }
         }
         .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, 1)
+        .padding(.vertical, 8)
+        .opacity(article.userState.isRead ? 0.55 : 1)
+    }
+
+    @ViewBuilder
+    private func actionButton(
+        systemName: String,
+        active: Bool,
+        activeColor: Color = FiloPalette.accent,
+        action: (() -> Void)?,
+        label: String,
+    ) -> some View {
+        if let action {
+            Button(action: action) {
+                Image(systemName: systemName)
+                    .font(.system(size: 18))
+                    .foregroundStyle(active ? activeColor : FiloPalette.muted)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+        }
     }
 }

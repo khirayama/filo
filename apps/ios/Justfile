@@ -39,7 +39,7 @@ run:
 simulator-list:
   xcrun simctl list devices available
 
-simulator target='':
+simulator target='DEACF1DB-C035-439D-BB01-D07B25C7B8A7':
   #!/usr/bin/env zsh
   set -euo pipefail
 

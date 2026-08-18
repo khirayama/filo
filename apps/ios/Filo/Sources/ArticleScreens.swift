@@ -372,6 +372,8 @@ struct ArticlesScreen: View {
                 articleSection
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(FiloPalette.background)
             .scrollPosition(id: $listScrollPosition)
             .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .onChange(of: selectedArticleIndex) { _, index in
@@ -425,7 +427,7 @@ struct ArticlesScreen: View {
             if let notice = model.refreshNotice {
                 Text(notice)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FiloPalette.muted)
             }
             if model.isLoading, model.articles.isEmpty {
                 ProgressView("記事一覧を読み込んでいます…")
@@ -433,21 +435,33 @@ struct ArticlesScreen: View {
                 ErrorBanner(message: error) { Task { await model.load() } }
             } else if model.articles.isEmpty {
                 emptyState
-            } else {
-                ForEach(model.articles) { article in
-                    ArticleRowView(article: article, horizontalPadding: 16)
-                    .id(article.id)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        FiloAnalytics.track("select_item", parameters: ["article_id": article.id])
-                        if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
-                            if model.settings?.openInBrowserByDefault == true {
-                                openURL(url)
-                            } else {
-                                path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
+                } else {
+                    ForEach(model.articles) { article in
+                    ArticleRowView(
+                        article: article,
+                        horizontalPadding: 16,
+                        onOpen: {
+                            FiloAnalytics.track("select_item", parameters: ["article_id": article.id])
+                            if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
+                                if model.settings?.openInBrowserByDefault == true {
+                                    openURL(url)
+                                } else {
+                                    path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
+                                }
                             }
-                        }
-                    }
+                        },
+                        onToggleRead: {
+                            Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
+                        },
+                        onToggleReadingList: {
+                            Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
+                        },
+                        onToggleBookmark: {
+                            Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
+                        },
+                    )
+                    .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+                    .id(article.id)
                     .swipeActions(edge: .trailing) {
                         Button {
                             Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
@@ -457,7 +471,7 @@ struct ArticlesScreen: View {
                                 systemImage: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus"
                             )
                         }
-                        .tint(.blue)
+                        .tint(FiloPalette.accent)
                         Button {
                             Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
                         } label: {
@@ -466,7 +480,7 @@ struct ArticlesScreen: View {
                                 systemImage: article.userState.isBookmarked ? "bookmark.slash" : "bookmark"
                             )
                         }
-                        .tint(.yellow)
+                        .tint(FiloPalette.star)
                     }
                     .swipeActions(edge: .leading) {
                         Button {
@@ -594,7 +608,7 @@ struct ArticlesScreen: View {
             SourcesDrawer(model: model, onSelect: { closeDrawer() })
                 .frame(width: 280)
                 .frame(maxHeight: .infinity)
-                .background(Color(uiColor: .systemBackground))
+                .background(FiloPalette.surface)
                 .transition(.move(edge: .leading))
         }
         .zIndex(1)

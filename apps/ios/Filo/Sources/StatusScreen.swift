@@ -23,6 +23,8 @@ struct StatusScreen: View {
                 Section { ErrorBanner(message: errorMessage) { Task { await load() } } }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(FiloPalette.background)
         .navigationTitle("処理ステータス")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -51,12 +53,12 @@ struct StatusScreen: View {
             if let notice {
                 Text(notice)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FiloPalette.muted)
             }
 
             Text(summaryLine(s))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FiloPalette.muted)
         }
     }
 
@@ -65,7 +67,7 @@ struct StatusScreen: View {
         Section("購読一覧（状態順・\(s.subscriptionStatuses.count)件）") {
             if s.subscriptionStatuses.isEmpty {
                 Text("購読がありません。")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FiloPalette.muted)
             } else {
                 ForEach(sortedStatusSubscriptions(s.subscriptionStatuses)) { sub in
                     subscriptionRow(sub)
@@ -93,12 +95,12 @@ struct StatusScreen: View {
                 jobBadge("取得", job: sub.fetchJob, fallbackDanger: sub.lastResult == "error")
                 Text(sub.lastFetchedAt.map { DateFormatting.relative($0) } ?? "—")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FiloPalette.muted)
             }
             if isError, let err = sub.fetchJob?.lastError ?? sub.lastError {
                 Text(err)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(FiloPalette.danger)
                     .lineLimit(1)
             }
             HStack(spacing: 12) {

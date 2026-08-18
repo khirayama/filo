@@ -34,6 +34,8 @@ struct SettingsScreen: View {
                 Section { ErrorBanner(message: errorMessage) }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(FiloPalette.background)
         .navigationTitle("設定")
         .task { await load() }
         .onDisappear { pollTask?.cancel() }
@@ -130,12 +132,12 @@ struct SettingsScreen: View {
                         StatusBadge(label: "インポート完了", tone: .ok)
                         Text("追加 \(importJob.created ?? 0) / スキップ \(importJob.skipped ?? 0) / 失敗 \(importJob.failed ?? 0)")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FiloPalette.muted)
                         if let failures = importJob.failures, !failures.isEmpty {
                             ForEach(failures.prefix(5), id: \.feedUrl) { failure in
                                 Text(failure.feedUrl)
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(FiloPalette.muted)
                                     .lineLimit(1)
                             }
                         }
@@ -151,7 +153,7 @@ struct SettingsScreen: View {
         Section("既読履歴について") {
             Text("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FiloPalette.muted)
         }
     }
 
@@ -167,7 +169,7 @@ struct SettingsScreen: View {
         Section("危険な操作") {
             Text("アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FiloPalette.muted)
             Button("アカウント削除", role: .destructive) { showDeleteConfirm = true }
                 .confirmationDialog("アカウントを削除しますか？この操作は取り消せません。", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
                     Button("削除する", role: .destructive) {
@@ -295,7 +297,7 @@ struct AccountDeletionStatusScreen: View {
                         Text("アカウントの削除が完了しました。ご利用ありがとうございました。")
                         Text("再ログインしてもデータは復元されません。")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FiloPalette.muted)
                     case "failed":
                         StatusBadge(label: "削除処理に失敗しました", tone: .danger)
                         Text("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。")
@@ -308,7 +310,7 @@ struct AccountDeletionStatusScreen: View {
                         }
                         Text("この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FiloPalette.muted)
                     }
                 } else {
                     ProgressView("状態を確認しています…")

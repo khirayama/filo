@@ -221,6 +221,8 @@ struct SubscriptionDetailScreen: View {
                 contentList
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(FiloPalette.background)
         .navigationTitle(model.subscription?.displayTitle ?? "購読詳細")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -263,7 +265,7 @@ struct SubscriptionDetailScreen: View {
             if let notice = model.refreshNotice {
                 Text(notice)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FiloPalette.muted)
             }
             if let error = model.errorMessage {
                 ErrorBanner(message: error) { Task { await model.load() } }
@@ -286,18 +288,28 @@ struct SubscriptionDetailScreen: View {
                     }
                 } else {
                     ForEach(model.articles) { article in
-                        Button {
-                            if model.openInBrowserByDefault,
-                               let urlString = article.canonicalUrl,
-                               let url = URL(string: urlString) {
-                                openURL(url)
-                            } else {
-                                onOpenArticle(article)
-                            }
-                        } label: {
-                            ArticleRowView(article: article)
-                        }
-                        .buttonStyle(.plain)
+                        ArticleRowView(
+                            article: article,
+                            onOpen: {
+                                if model.openInBrowserByDefault,
+                                   let urlString = article.canonicalUrl,
+                                   let url = URL(string: urlString) {
+                                    openURL(url)
+                                } else {
+                                    onOpenArticle(article)
+                                }
+                            },
+                            onToggleRead: {
+                                Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
+                            },
+                            onToggleReadingList: {
+                                Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
+                            },
+                            onToggleBookmark: {
+                                Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
+                            },
+                        )
+                        .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
                         .swipeActions(edge: .trailing) {
                             Button {
                                 Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
@@ -307,7 +319,7 @@ struct SubscriptionDetailScreen: View {
                                     systemImage: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus"
                                 )
                             }
-                            .tint(.blue)
+                            .tint(FiloPalette.accent)
                             Button {
                                 Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
                             } label: {
@@ -316,7 +328,7 @@ struct SubscriptionDetailScreen: View {
                                     systemImage: article.userState.isBookmarked ? "bookmark.slash" : "bookmark"
                                 )
                             }
-                            .tint(.yellow)
+                            .tint(FiloPalette.star)
                         }
                         .swipeActions(edge: .leading) {
                             Button {

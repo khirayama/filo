@@ -2,6 +2,38 @@ import ClerkKit
 import ClerkKitUI
 import SwiftUI
 
+extension Color {
+    init(hex: UInt32) {
+        self.init(
+            red: Double((hex >> 16) & 0xff) / 255,
+            green: Double((hex >> 8) & 0xff) / 255,
+            blue: Double(hex & 0xff) / 255
+        )
+    }
+
+    init(light: Color, dark: Color) {
+        self.init(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
+        })
+    }
+}
+
+enum FiloPalette {
+    static let background = Color(light: Color(hex: 0xFFFFFF), dark: Color(hex: 0x16181C))
+    static let surface = Color(light: Color(hex: 0xFFFFFF), dark: Color(hex: 0x1E2126))
+    static let text = Color(light: Color(hex: 0x222222), dark: Color(hex: 0xE4E4E4))
+    static let border = Color(light: Color(hex: 0xD7D7D7), dark: Color(hex: 0x464A52))
+    static let mutedBorder = Color(light: Color(hex: 0xE0E0E0), dark: Color(hex: 0x33373E))
+    static let muted = Color(light: Color(hex: 0x777777), dark: Color(hex: 0x9AA0A8))
+    static let danger = Color(light: Color(hex: 0xB3261E), dark: Color(hex: 0xEF7B74))
+    static let dangerBackground = Color(light: Color(hex: 0xFFEBE9), dark: Color(hex: 0x3A1F1E))
+    static let accent = Color(light: Color(hex: 0x1A56DB), dark: Color(hex: 0x6A9BFF))
+    static let onAccent = Color(light: Color(hex: 0xFFFFFF), dark: Color(hex: 0x10233F))
+    static let star = Color(light: Color(hex: 0xE8A100), dark: Color(hex: 0xFFC94D))
+    static let ok = Color(light: Color(hex: 0x2F6A3D), dark: Color(hex: 0x6BCB8A))
+    static let warn = Color(light: Color(hex: 0x9A6700), dark: Color(hex: 0xE3B341))
+}
+
 enum AppRoute: Hashable {
     case subscriptions
     case settings
@@ -67,6 +99,9 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(themeManager.colorScheme)
+        .tint(FiloPalette.accent)
+        .foregroundStyle(FiloPalette.text)
+        .background(FiloPalette.background)
         .onAppear { FiloAnalytics.screen("auth") }
     }
 }
@@ -182,10 +217,10 @@ struct StatusBadge: View {
 
     private var color: Color {
         switch tone {
-        case .muted: return .secondary
-        case .warn: return .orange
-        case .danger: return .red
-        case .ok: return .green
+        case .muted: return FiloPalette.muted
+        case .warn: return FiloPalette.warn
+        case .danger: return FiloPalette.danger
+        case .ok: return FiloPalette.ok
         }
     }
 
@@ -207,7 +242,7 @@ struct ErrorBanner: View {
         HStack {
             Text(message)
                 .font(.callout)
-                .foregroundStyle(.red)
+                .foregroundStyle(FiloPalette.danger)
             Spacer()
             if let onRetry {
                 Button("再試行", action: onRetry)
@@ -215,7 +250,7 @@ struct ErrorBanner: View {
             }
         }
         .padding(12)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.red.opacity(0.5), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(FiloPalette.danger.opacity(0.5), lineWidth: 1))
     }
 }
 
@@ -228,7 +263,7 @@ struct EmptyStateView<Content: View>: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(FiloPalette.muted)
     }
 }
 

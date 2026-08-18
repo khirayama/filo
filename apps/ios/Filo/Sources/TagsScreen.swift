@@ -75,7 +75,7 @@ struct TagsScreen: View {
                                     Text(tag.name)
                                     Text("\(tag.subscriptionCount)件の購読")
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(FiloPalette.muted)
                                 }
                                 Spacer()
                                 Button("編集") {
@@ -98,6 +98,8 @@ struct TagsScreen: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(FiloPalette.background)
         .navigationTitle("タグ管理")
         .toolbar { EditButton() }
         .task { await load() }

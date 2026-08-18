@@ -533,7 +533,7 @@ private struct ReadingListView: View {
         VStack(alignment: .leading, spacing: 6) {
             if items.isEmpty {
                 Text("リーディングリストに記事がありません。")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FiloPalette.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 16)
             } else {
@@ -547,7 +547,7 @@ private struct ReadingListView: View {
                                     HStack(spacing: 8) {
                                         Image(systemName: item.articleId == currentArticleId ? "circle.fill" : "circle")
                                             .font(.system(size: 7))
-                                            .foregroundStyle(item.articleId == currentArticleId ? Color.accentColor : Color.secondary)
+                                            .foregroundStyle(item.articleId == currentArticleId ? FiloPalette.accent : FiloPalette.muted)
                                         Text(item.article.title)
                                             .font(.body)
                                             .lineLimit(2)
@@ -563,7 +563,7 @@ private struct ReadingListView: View {
                                         .labelStyle(.iconOnly)
                                 }
                                 .buttonStyle(.borderless)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FiloPalette.muted)
                                 .disabled(item.articleId <= 0)
                             }
                             .padding(.vertical, 8)

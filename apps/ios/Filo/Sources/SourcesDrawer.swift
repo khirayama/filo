@@ -30,10 +30,10 @@ struct SourcesDrawer: View {
                 NavigationLink(value: AppRoute.addFeed) {
                     Label("フィードを追加", systemImage: "plus")
                         .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(FiloPalette.onAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
+                        .background(FiloPalette.accent, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 12)
@@ -45,7 +45,7 @@ struct SourcesDrawer: View {
                         .font(.callout)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(FiloPalette.border, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 12)
@@ -64,7 +64,7 @@ struct SourcesDrawer: View {
 
                 Text("フィード")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FiloPalette.muted)
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
                     .padding(.bottom, 4)
