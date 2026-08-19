@@ -232,12 +232,6 @@ function ArticleRow({
     <span style={{ ...titleStyle, whiteSpace: "nowrap" }}>{displayTitle}</span>
   );
 
-  const faviconEl = article.feed.faviconUrl ? (
-    <img src={article.feed.faviconUrl} alt="" width={14} height={14} style={{ borderRadius: "3px", flexShrink: 0 }} />
-  ) : (
-    <span style={{ display: "block", flexShrink: 0, height: 14, width: 14 }} />
-  );
-
   const feedNameEl =
     subscriptionId != null ? (
       <Link
@@ -363,7 +357,6 @@ function ArticleRow({
       {isDesktop ? (
         <>
           <div style={{ alignItems: "center", display: "flex", flex: 1, gap: "8px", minWidth: 0, overflow: "hidden" }}>
-            {faviconEl}
             {/* フィード名とバッジを固定幅の列に収め、タイトルの開始位置を全行で揃える */}
             <div style={{ alignItems: "center", display: "flex", flexShrink: 0, gap: "6px", width: "120px" }}>
               {feedNameEl}
@@ -392,7 +385,6 @@ function ArticleRow({
       ) : (
         <>
           <div style={{ alignItems: "center", display: "flex", gap: "8px" }}>
-            {isDesktop ? faviconEl : null}
             {feedNameEl}
             {translationLabel}
             <span style={{ flex: 1 }} />
