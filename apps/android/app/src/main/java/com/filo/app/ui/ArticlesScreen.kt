@@ -354,7 +354,17 @@ fun ArticlesScreen(
             topBar = {
                 Column {
                     TopAppBar(
-                        title = { Text(viewTitle) },
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(viewTitle)
+                                if (vm.isRefreshingFeeds) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.padding(start = 8.dp).width(16.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                }
+                            }
+                        },
                         navigationIcon = {
                             IconButton(onClick = {
                                 scope.launch { drawerState.open() }

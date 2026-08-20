@@ -265,9 +265,20 @@ struct ArticlesScreen: View {
                 drawerOverlay
             }
         }
-        .navigationTitle(model.viewTitle)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    Text(model.viewTitle)
+                        .font(.headline)
+                    if model.isRefreshingFeeds {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("フィードを更新しています")
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     withAnimation(.easeOut(duration: 0.2)) { showDrawer = true }
@@ -421,9 +432,6 @@ struct ArticlesScreen: View {
     @ViewBuilder
     private var articleSection: some View {
         Section {
-            if model.isRefreshingFeeds {
-                ProgressView("フィードを更新しています…")
-            }
             if let notice = model.refreshNotice {
                 Text(notice)
                     .font(.caption)

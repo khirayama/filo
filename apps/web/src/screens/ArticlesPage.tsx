@@ -212,8 +212,9 @@ function ArticlesListPage() {
             background: palette.bg,
           }}
         >
-          <h1 style={{ flex: 1, fontSize: "20px", margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {title}
+          <h1 style={{ alignItems: "center", display: "flex", flex: 1, fontSize: "20px", gap: "8px", margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
+            {refreshing ? <Spinner label={t("フィードを更新しています…")} /> : null}
           </h1>
           {readingListOnly ? (
             <>
@@ -256,7 +257,6 @@ function ArticlesListPage() {
 
         {sideError ? <ErrorBox message={sideError} /> : null}
         {markAllError ? <ErrorBox message={markAllError} /> : null}
-        {refreshing ? <Spinner label={t("フィードを更新しています…")} /> : null}
         {refreshNotice ? (
           <p role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "13px", margin: "8px 0 0" }}>{refreshNotice}</p>
         ) : null}
