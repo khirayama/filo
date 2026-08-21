@@ -32,6 +32,9 @@ native-release:
 web:
   cd apps/web && npm run dev
 
+web-deploy:
+  cd apps/web && npm run deploy:production
+
 run-all:
   just android
   just ios
@@ -39,6 +42,9 @@ run-all:
 
 api:
   cd apps/api && npm run dev
+
+api-deploy:
+  cd apps/api && npm run deploy:production
 
 reextract:
   cd apps/api && npx wrangler d1 execute filo-db --local --command "DELETE FROM article_contents"
