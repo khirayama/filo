@@ -10,6 +10,8 @@ import { ArticleListControls } from "../components/ArticleListControls";
 import { Badge, Button, EmptyState, ErrorBox, FilterChip, IconButton, MenuItem, Spinner, menuStyle, palette } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
+import { refreshFeedsAndWait } from "../lib/refresh";
+import { trackEvent } from "../lib/analytics";
 
 export function SubscriptionDetailPage() {
   const api = useApi();
@@ -24,6 +26,8 @@ export function SubscriptionDetailPage() {
   const [gone, setGone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const { read, sort, readOrder, setRead, setSort, setReadOrder } = useArticleFilterParams();
   // sort 未指定時は server が current user の articleSortOrder を適用する
   const effectiveSort = sort ?? settings?.articleSortOrder ?? "published_at_desc";
@@ -126,6 +130,29 @@ export function SubscriptionDetailPage() {
     }
   };
 
+  const refreshFeed = async () => {
+    if (!subscription || refreshing) return;
+    setRefreshing(true);
+    setRefreshNotice(null);
+    try {
+      const outcome = await refreshFeedsAndWait(api, { feedId: subscription.feed.id });
+      trackEvent("refresh_feed", {
+        feed_id: String(subscription.feed.id),
+        source: "subscription_detail",
+        timed_out: outcome.timedOut,
+      });
+      if (outcome.timedOut) {
+        setRefreshNotice("取得に時間がかかっています。あとで再度更新してください。");
+      }
+      await list.reload();
+      void refreshAppData();
+    } catch (e) {
+      setRefreshNotice(errorMessage(e));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   if (gone) {
     return (
       <AppShell>
@@ -177,6 +204,12 @@ export function SubscriptionDetailPage() {
               >
                 {subscription.customTitle ?? subscription.feed.title}
               </h1>
+              <IconButton
+                icon="refresh"
+                label="このフィードを更新"
+                disabled={refreshing}
+                onClick={() => void refreshFeed()}
+              />
               <IconButton
                 icon="checkCircle"
                 label="すべて既読にする"
@@ -270,6 +303,12 @@ export function SubscriptionDetailPage() {
               ))}
             </div>
 
+            {refreshing ? <Spinner label="フィードを更新しています…" /> : null}
+            {refreshNotice ? (
+              <p role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "13px", margin: "8px 0 0" }}>
+                {refreshNotice}
+              </p>
+            ) : null}
             {error ? <ErrorBox message={error} onRetry={() => void load()} /> : null}
             <ArticleRows
               articles={list.articles}

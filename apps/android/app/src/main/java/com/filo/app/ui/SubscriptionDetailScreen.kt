@@ -34,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,6 +75,8 @@ fun SubscriptionDetailScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isGone by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isRefreshingFeed by remember { mutableStateOf(false) }
+    var refreshNotice by remember { mutableStateOf<String?>(null) }
 
     var sort by remember { mutableStateOf("published_at_desc") }
     var readFilter by remember { mutableStateOf<Boolean?>(null) }
@@ -183,6 +186,28 @@ fun SubscriptionDetailScreen(
         isLoading = false
     }
 
+    suspend fun refreshFeedAndReload() {
+        val feedId = subscription?.feed?.id ?: return
+        if (isRefreshingFeed) return
+        isRefreshingFeed = true
+        refreshNotice = null
+        try {
+            val result = ApiClient.refreshFeed(feedId)
+            com.filo.app.Analytics.track(
+                "refresh_feed",
+                mapOf("feed_id" to feedId, "source" to "subscription_detail"),
+            )
+            val done = awaitRefreshCompletion(result.queuedAt, feedId)
+            if (!done) {
+                refreshNotice = "取得に時間がかかっています。あとで再度更新してください。"
+            }
+        } catch (e: Exception) {
+            refreshNotice = ErrorMessages.forError(e)
+        }
+        reloadArticles()
+        isRefreshingFeed = false
+    }
+
     LaunchedEffect(Unit) { reload() }
     // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
     LaunchedEffect(articles, translations.isEnabled, translations.languages) { translations.register(articles) }
@@ -241,10 +266,16 @@ fun SubscriptionDetailScreen(
             }
             return@Scaffold
         }
+        PullToRefreshBox(
+            isRefreshing = isRefreshingFeed,
+            onRefresh = { scope.launch { refreshFeedAndReload() } },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -319,6 +350,15 @@ fun SubscriptionDetailScreen(
             errorMessage?.let { message ->
                 item { ErrorBanner(message) { scope.launch { reload() } } }
             }
+            refreshNotice?.let { notice ->
+                item {
+                    Text(
+                        notice,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (isLoading) {
                 item {
                     Column(
@@ -375,6 +415,7 @@ fun SubscriptionDetailScreen(
                     }
                 }
             }
+        }
         }
     }
 
