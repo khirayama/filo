@@ -11,7 +11,6 @@ const STATE_KEY = "filo:readerState";
 const SETTINGS_KEY = "filo:readerSettings";
 const DEFAULT_SETTINGS = { targetLanguage: "ja", rate: 1, voiceName: null as string | null };
 let playToken = 0;
-let activePlay: Promise<void> | null = null;
 
 async function loadState(): Promise<ReaderSession | null> {
   const stored = await chrome.storage.local.get(STATE_KEY);
@@ -20,11 +19,25 @@ async function loadState(): Promise<ReaderSession | null> {
 
 async function loadSettings(): Promise<typeof DEFAULT_SETTINGS> {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] as Partial<typeof DEFAULT_SETTINGS> | undefined) };
+  const value = stored[SETTINGS_KEY] as Partial<typeof DEFAULT_SETTINGS> | undefined;
+  return {
+    targetLanguage: typeof value?.targetLanguage === "string" && value.targetLanguage
+      ? value.targetLanguage
+      : DEFAULT_SETTINGS.targetLanguage,
+    rate: typeof value?.rate === "number" && Number.isFinite(value.rate)
+      ? Math.min(3, Math.max(0.75, value.rate))
+      : DEFAULT_SETTINGS.rate,
+    voiceName: typeof value?.voiceName === "string" || value?.voiceName === null
+      ? value.voiceName
+      : DEFAULT_SETTINGS.voiceName,
+  };
 }
 
 async function saveSettings(settings: Partial<typeof DEFAULT_SETTINGS>): Promise<typeof DEFAULT_SETTINGS> {
-  const next = { ...(await loadSettings()), ...settings };
+  const next = await loadSettings();
+  if (settings.targetLanguage !== undefined) next.targetLanguage = settings.targetLanguage;
+  if (settings.rate !== undefined) next.rate = Math.min(3, Math.max(0.75, settings.rate));
+  if (settings.voiceName !== undefined) next.voiceName = settings.voiceName;
   await chrome.storage.local.set({ [SETTINGS_KEY]: next });
   return next;
 }
@@ -97,12 +110,10 @@ async function playCurrentImpl(): Promise<void> {
 }
 
 function playCurrent(): Promise<void> {
-  if (activePlay) return activePlay;
-  const run = playCurrentImpl();
-  activePlay = run.finally(() => {
-    activePlay = null;
-  });
-  return activePlay;
+  // Every start invalidates the previous extraction/translation through
+  // playToken. Coalescing promises here can otherwise make a newly selected
+  // page wait for, and then accidentally keep, the previous page's playback.
+  return playCurrentImpl();
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
