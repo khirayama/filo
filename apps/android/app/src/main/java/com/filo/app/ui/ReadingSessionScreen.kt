@@ -537,18 +537,20 @@ fun ReadingSessionScreen(
         },
         bottomBar = { ReadingSettingsPanel(player) { showReadingList = true } },
     ) { padding ->
+        val currentItem = player.currentItem
+        val currentUrl = currentItem?.article?.canonicalUrl
         when {
             player.isLoading -> Column(
                 Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) { CircularProgressIndicator() }
-            player.currentItem?.article?.canonicalUrl != null -> Column(
+            currentItem != null && currentUrl != null -> Column(
                 Modifier.fillMaxSize().padding(padding),
             ) {
                 ReadingWebView(
-                    url = player.currentItem!!.article.canonicalUrl!!,
-                    articleId = player.currentItem!!.articleId,
+                    url = currentUrl,
+                    articleId = currentItem.articleId,
                     onExtracted = player::receiveExtracted,
                     onFailure = player::extractionFailed,
                     modifier = Modifier.fillMaxWidth().weight(1f),

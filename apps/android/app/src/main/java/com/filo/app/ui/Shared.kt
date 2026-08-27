@@ -141,7 +141,7 @@ fun FaviconPlaceholder(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun FaviconImage(url: String?, siteUrl: String? = null, modifier: Modifier = Modifier) {
+fun FaviconImage(url: String?, modifier: Modifier = Modifier, siteUrl: String? = null) {
     val effectiveUrl = url ?: siteUrl?.let { site ->
         try {
             val host = java.net.URI(site).host ?: return@let null

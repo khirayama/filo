@@ -126,6 +126,15 @@ android {
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
     }
+
+    // The app switches its resource locale from the server-side setting.
+    // Keep every supported locale in the base APK so a newly selected
+    // language is available even when it was not the device locale at install.
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
 }
 
 dependencies {
