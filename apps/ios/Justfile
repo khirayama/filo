@@ -4,9 +4,30 @@ build:
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodegen generate
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -skipPackagePluginValidation -project Filo.xcodeproj -scheme Filo -configuration Debug -derivedDataPath build -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY="-" build
 
-test:
+test target='iPhone 17':
+  #!/usr/bin/env zsh
+  set -euo pipefail
+
+  target="{{target}}"
+  device_udid=$(
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun simctl list devices available --json \
+      | jq -er --arg target "$target" '
+        [
+          .devices
+          | to_entries[]
+          | .key as $runtime
+          | .value[]
+          | select(.udid == $target or .name == $target)
+          | { runtime: $runtime, udid }
+        ]
+        | sort_by(.runtime, .udid)
+        | last
+        | .udid
+      '
+  )
+
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodegen generate
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -skipPackagePluginValidation -project Filo.xcodeproj -scheme Filo -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGN_IDENTITY="-"
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -skipPackagePluginValidation -project Filo.xcodeproj -scheme Filo -destination "platform=iOS Simulator,id=$device_udid" CODE_SIGN_IDENTITY="-"
 
 build-release:
   #!/usr/bin/env zsh
