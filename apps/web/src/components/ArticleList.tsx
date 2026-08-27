@@ -22,6 +22,8 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   const [error, setError] = useState<string | null>(null);
   const filtersKey = JSON.stringify(filters);
   const generation = useRef(0);
+  const viewIdentity = useRef({ api, filtersKey });
+  viewIdentity.current = { api, filtersKey };
 
   const load = useCallback(async () => {
     const gen = ++generation.current;
@@ -83,6 +85,10 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
             trackEvent(patch.isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", { items: [item] });
           }
         }
+        // Same-filter reloads may race with this write and read the old server
+        // state, so still apply the mutation response after those reloads.
+        // Only discard it when the API/user or visible filters have changed.
+        if (viewIdentity.current.api !== api || viewIdentity.current.filtersKey !== filtersKey) return;
         const currentFilters = JSON.parse(filtersKey) as ArticleListFilters;
         setArticles((prev) =>
           prev.flatMap((a) => {
@@ -95,7 +101,9 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
           }),
         );
       } catch (e) {
-        setError(errorMessage(e));
+        if (viewIdentity.current.api === api && viewIdentity.current.filtersKey === filtersKey) {
+          setError(errorMessage(e));
+        }
       }
     },
     [api, articles, filtersKey],

@@ -29,8 +29,6 @@ export function SubscriptionDetailPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const { read, sort, readOrder, setRead, setSort, setReadOrder } = useArticleFilterParams();
-  // sort 未指定時は server が current user の articleSortOrder を適用する
-  const effectiveSort = sort ?? settings?.articleSortOrder ?? "published_at_desc";
   const filters = useMemo(
     () => ({
       subscriptionId,
