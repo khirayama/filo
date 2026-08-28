@@ -469,7 +469,7 @@ private fun AuthScreen(
                             isLoading = uiState.isSubmitting,
                             onClick = onVerifySignUp,
                         )
-                        TextButton(onClick = onResendVerificationCode) {
+                        TextButton(onClick = onResendVerificationCode, enabled = !uiState.isSubmitting) {
                             Text("Resend code")
                         }
                     }

@@ -564,6 +564,10 @@ class MainViewModel : ViewModel() {
     }
 
     private fun submit(block: suspend () -> Unit) {
+        // UI controls are disabled while a request is running, but keeping the
+        // guard here also protects against duplicate events during recomposition
+        // or activity/lifecycle transitions.
+        if (_uiState.value.isSubmitting) return
         _uiState.value = _uiState.value.copy(isSubmitting = true, errorMessage = null)
         viewModelScope.launch { block() }
     }
