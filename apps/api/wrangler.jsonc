@@ -27,7 +27,7 @@
       }
     ]
   },
-  // Cron only retries failed account-deletion jobs; feed refresh is manual (user-triggered).
+  // Hourly cron enqueues due feed refreshes and retries failed account-deletion jobs.
   "triggers": { "crons": ["0 * * * *"] },
   "vars": {
     "APP_ENV": "development",

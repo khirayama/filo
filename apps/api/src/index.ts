@@ -124,11 +124,29 @@ export default {
     }
   },
 
-  // Feed refresh is user-triggered only; cron handles recovery jobs, never content fetching.
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       (async () => {
-        // retry recoverable account deletion jobs (max 5 attempts)
+        // Refresh active feeds whose per-feed cooldown has elapsed. The
+        // cooldown is calculated by runFetchFeed from each feed's cadence.
+        const now = nowIso();
+        const { results: dueFeeds } = await env.DB.prepare(
+          `SELECT f.id
+           FROM feeds f
+           LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
+           WHERE f.status = 'active'
+             AND (fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?)
+           ORDER BY fs.next_fetch_after IS NOT NULL, fs.next_fetch_after
+           LIMIT 200`,
+        )
+          .bind(now)
+          .all<{ id: number }>();
+
+        for (const feed of dueFeeds) {
+          await env.JOBS.send({ jobType: "fetch_feed", feedId: feed.id, reason: "refresh", attempt: 1 });
+        }
+
+        // Retry recoverable account deletion jobs (max 5 attempts).
         const { results: failedDeletions } = await env.DB.prepare(
           "SELECT id FROM account_deletion_jobs WHERE status = 'failed' AND attempt_count < 5 LIMIT 10",
         ).all<{ id: number }>();
