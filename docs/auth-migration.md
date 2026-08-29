@@ -42,10 +42,15 @@ against the target database.
 
 ```ts
 session: {
-  expiresIn: 60 * 60 * 24 * 30,
+  expiresIn: 60 * 60 * 24 * 90,
   updateAge: 60 * 60 * 24,
 }
 ```
+
+Sessions expire after 90 days and are extended on authenticated use when the
+last refresh is at least 24 hours old. This sliding expiration policy is
+shared by the Web cookie session and the bearer-token sessions used by the
+Chrome Extension, iOS, and Android clients.
 
 Reset tokens are managed by Better Auth. `BETTER_AUTH_SECRET`
 is a production-only Worker secret and is never committed or embedded in a
