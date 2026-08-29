@@ -78,7 +78,18 @@ export async function runOpmlImport(env: Env, opmlJobId: number): Promise<void> 
         .bind(feedUrl)
         .first<{ id: number }>();
       if (!feed) {
-        const discovered = await discoverFeed(outline.feedUrl);
+        let discovered: Awaited<ReturnType<typeof discoverFeed>> | null = null;
+        let discoveryError: unknown = null;
+        for (const inputUrl of [outline.feedUrl, outline.siteUrl]) {
+          if (!inputUrl) continue;
+          try {
+            discovered = await discoverFeed(inputUrl);
+            break;
+          } catch (error) {
+            discoveryError = error;
+          }
+        }
+        if (!discovered) throw discoveryError instanceof Error ? discoveryError : new Error("feed discovery failed");
         feed = await env.DB.prepare("SELECT id FROM feeds WHERE feed_url = ?")
           .bind(discovered.feedUrl)
           .first<{ id: number }>();

@@ -2,6 +2,7 @@ import { XMLParser } from "fast-xml-parser";
 
 export interface OpmlOutline {
   feedUrl: string;
+  siteUrl: string | null;
   title: string | null;
   tagNames: string[];
 }
@@ -30,10 +31,11 @@ export function parseOpml(xml: string, maxOutlines = 2000): { outlines: OpmlOutl
       if (total >= maxOutlines) return;
       const outline = raw as Record<string, unknown>;
       const xmlUrl = outline["@_xmlUrl"] as string | undefined;
+      const siteUrl = outline["@_htmlUrl"] as string | undefined;
       const titleAttr = (outline["@_title"] as string | undefined) ?? (outline["@_text"] as string | undefined);
       if (xmlUrl) {
         total++;
-        outlines.push({ feedUrl: xmlUrl, title: titleAttr ?? null, tagNames: [...folders] });
+        outlines.push({ feedUrl: xmlUrl, siteUrl: siteUrl ?? null, title: titleAttr ?? null, tagNames: [...folders] });
       }
       const children = outline["outline"];
       if (children) {

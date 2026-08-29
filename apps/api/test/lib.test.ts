@@ -264,14 +264,15 @@ describe("opml", () => {
   it("parses folders as tags and round-trips through export", () => {
     const xml = `<?xml version="1.0"?><opml version="2.0"><head/><body>
       <outline text="Tech">
-        <outline type="rss" text="Blog A" xmlUrl="https://a.example/feed"/>
+        <outline type="rss" text="Blog A" xmlUrl="https://a.example/feed" htmlUrl="https://a.example"/>
       </outline>
       <outline type="rss" text="Blog B" xmlUrl="https://b.example/feed"/>
     </body></opml>`;
     const { outlines, total } = parseOpml(xml);
     expect(total).toBe(2);
-    expect(outlines[0]).toEqual({ feedUrl: "https://a.example/feed", title: "Blog A", tagNames: ["Tech"] });
+    expect(outlines[0]).toEqual({ feedUrl: "https://a.example/feed", siteUrl: "https://a.example", title: "Blog A", tagNames: ["Tech"] });
     expect(outlines[1]?.tagNames).toEqual([]);
+    expect(outlines[1]?.siteUrl).toBeNull();
 
     const exported = buildOpml([
       { title: "Blog A", feedUrl: "https://a.example/feed", siteUrl: "https://a.example", tagNames: ["Tech"] },
