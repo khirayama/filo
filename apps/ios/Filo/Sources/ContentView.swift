@@ -1,5 +1,3 @@
-import ClerkKit
-import ClerkKitUI
 import SwiftUI
 
 extension Color {
@@ -87,15 +85,17 @@ final class LanguageManager: ObservableObject {
 }
 
 struct ContentView: View {
-    @Environment(Clerk.self) private var clerk
+    @EnvironmentObject private var auth: BetterAuth
     @ObservedObject private var themeManager = ThemeManager.shared
 
     var body: some View {
         Group {
-            if clerk.user != nil {
+            if auth.resetToken != nil {
+                BetterAuthResetPasswordView()
+            } else if auth.token != nil {
                 AppNavigationView()
             } else {
-                AuthView(mode: .signInOrUp, isDismissable: false)
+                BetterAuthView()
             }
         }
         .preferredColorScheme(themeManager.colorScheme)
@@ -270,9 +270,9 @@ struct EmptyStateView<Content: View>: View {
 struct MissingConfigurationView: View {
     var body: some View {
         VStack(spacing: 16) {
-            Text("Clerk is not configured")
+            Text("認証が設定されていません")
                 .font(.title.bold())
-            Text("Set your publishable key in LocalSecrets.plist.")
+            Text("APIの設定を確認してください。")
                 .font(.body)
                 .multilineTextAlignment(.center)
         }

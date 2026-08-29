@@ -40,11 +40,6 @@ build-release:
   fi
 
   api_base_url=$(plutil -extract API_BASE_URL raw -o - "$secrets_file")
-  clerk_publishable_key=$(plutil -extract CLERK_PUBLISHABLE_KEY raw -o - "$secrets_file")
-  if [[ "$clerk_publishable_key" != pk_live_* ]]; then
-    echo "Release builds require a production Clerk pk_live_ publishable key in $secrets_file." >&2
-    exit 1
-  fi
   if [[ "$api_base_url" != "https://api.filoreader.app" ]]; then
     echo "Release builds require API_BASE_URL=https://api.filoreader.app in $secrets_file." >&2
     exit 1

@@ -1,4 +1,3 @@
-import ClerkKit
 import Foundation
 
 struct APIError: Error, LocalizedError {
@@ -32,7 +31,7 @@ final class APIClient: Sendable {
     static let shared = APIClient()
 
     private func token() async -> String? {
-        try? await Clerk.shared.auth.getToken()
+        await BetterAuth.shared.token
     }
 
     private func request(_ method: String, _ path: String, body: Data? = nil, contentType: String = "application/json", authorized: Bool = true) async throws -> Data {

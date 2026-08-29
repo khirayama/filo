@@ -1,9 +1,7 @@
-import ClerkKit
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsScreen: View {
-    @Environment(Clerk.self) private var clerk
     @State private var settings: UserSettings?
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -160,7 +158,7 @@ struct SettingsScreen: View {
     private var sessionSection: some View {
         Section("セッション") {
             Button("サインアウト") {
-                Task { try? await clerk.auth.signOut() }
+                BetterAuth.shared.signOut()
             }
         }
     }
@@ -281,7 +279,6 @@ struct SettingsScreen: View {
 // MARK: - Account deletion progress
 
 struct AccountDeletionStatusScreen: View {
-    @Environment(Clerk.self) private var clerk
     let deletionToken: String?
 
     @State private var status: DeletionStatus?
@@ -330,7 +327,7 @@ struct AccountDeletionStatusScreen: View {
                 if let result = try? await APIClient.shared.deletionStatus(token: deletionToken) {
                     status = result
                     if result.status == "completed" {
-                        try? await clerk.auth.signOut()
+                        BetterAuth.shared.signOut()
                         break
                     }
                     if result.status == "none" { break }
