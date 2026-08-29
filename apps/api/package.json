@@ -12,12 +12,15 @@
     "db:migrate:remote": "node scripts/ensure-remote-d1-config.mjs && wrangler d1 migrations apply filo-db --remote --env production"
   },
   "dependencies": {
-    "@clerk/backend": "^2.6.2",
+    "@better-auth/drizzle-adapter": "^1.7.2",
     "@mozilla/readability": "^0.6.0",
+    "better-auth": "^1.7.2",
+    "drizzle-orm": "^0.45.2",
     "fast-xml-parser": "^5.2.5",
     "franc-min": "^6.2.0",
     "hono": "^4.9.1",
-    "linkedom": "^0.18.12"
+    "linkedom": "^0.18.12",
+    "resend": "^6.25.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250620.0",

@@ -6,8 +6,9 @@ import { runFetchFeed } from "./jobs/fetchFeed";
 import { runExtractContent } from "./jobs/extractContent";
 import { runOpmlImport } from "./jobs/opmlImport";
 import { requireAdmin, requireUser, requireUserOrSystem, type AppContext, type OpsContext } from "./lib/auth";
-import { ApiError } from "./lib/errors";
+import { ApiError, errors } from "./lib/errors";
 import { nowIso } from "./lib/util";
+import { createBetterAuth } from "./betterAuth";
 import { accountRoutes } from "./routes/account";
 import { adminRoutes } from "./routes/admin";
 import { articleRoutes } from "./routes/articles";
@@ -42,9 +43,25 @@ app.use(
     origin: (origin, c) => resolveCorsOrigin(origin, c.env.CORS_ALLOWED_ORIGINS ?? ""),
     allowHeaders: ALLOWED_HEADERS,
     allowMethods: ALLOWED_METHODS,
-    exposeHeaders: ["X-Request-Id"],
+    credentials: true,
+    exposeHeaders: ["X-Request-Id", "set-auth-token"],
   }),
 );
+
+// Production web sessions use SameSite=None so the supported Pages origin
+// can call the API. CORS alone does not stop a browser from sending a
+// credentialed cross-site mutation, so cookie-authenticated writes must also
+// come from an explicitly trusted origin. Bearer clients do not rely on this
+// browser CSRF boundary.
+app.use("/api/v1/*", async (c, next) => {
+  const safeMethod = c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS";
+  const usesCookieSession = Boolean(c.req.header("Cookie")) && !c.req.header("Authorization");
+  if (usesCookieSession && !safeMethod) {
+    const origin = resolveCorsOrigin(c.req.header("Origin"), c.env.CORS_ALLOWED_ORIGINS ?? "");
+    if (!origin) throw errors.forbidden();
+  }
+  await next();
+});
 
 app.use("*", async (c, next) => {
   const requestId = c.req.header("X-Request-Id") ?? crypto.randomUUID();
@@ -66,7 +83,12 @@ app.notFound((c) => c.json({ error: { code: "resource_not_found", message: "Reso
 
 app.get("/api/v1/health", (c) => c.json({ data: { status: "ok", environment: c.env.APP_ENV, time: nowIso() } }));
 
-// account deletion-status accepts a deletionToken without a Clerk session
+app.on(["GET", "POST"], "/api/auth/*", async (c) => {
+  const auth = createBetterAuth(c.env);
+  return auth.handler(c.req.raw);
+});
+
+// account deletion-status accepts a deletionToken without an active session
 app.route("/api/v1/account", accountRoutes);
 
 // Core routes — require user auth

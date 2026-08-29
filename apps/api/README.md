@@ -6,7 +6,7 @@ Cloudflare Workers + D1 + Queues implementation of `SPEC/API.md`. Translation is
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars   # development Clerk の sk_test_ を設定
+cp .dev.vars.example .dev.vars   # Better Auth / Resend を設定
 npm run db:migrate:local
 npm run dev                      # http://localhost:8787
 ```
@@ -26,15 +26,14 @@ npm run db:migrate:remote
 npm run deploy:production
 ```
 
-`npm run dev` は常に `development` 環境で起動し、`.dev.vars` の development Clerk
-（`sk_test_`）を使う。本番は `production` 環境へ Clerk 本番インスタンスの
-`sk_live_` と JWKS の PEM 公開鍵を登録してから deploy する。
+`npm run dev` は常に `development` 環境で起動し、`.dev.vars` のBetter Auth / Resend
+設定を使う。本番はproduction用Secretを登録してからdeployする。メールアドレスの
+確認は行わず、Resendはパスワードリセットメールにのみ使用する。
 
-本番SecretはGitへ書かない。JWT検証用の公開鍵は `wrangler.jsonc` の
-`CLERK_JWT_PUBLIC_KEY`（公開情報）で管理し、`CURSOR_SIGNING_KEY` など
-`CLERK_SECRET_KEY` / `CRON_SECRET` を含むダッシュボードで管理する本番固有の変数は
-`npm run deploy:production` の
-`--keep-vars` で保持する。
+本番SecretはGitへ書かない。ローカルの `.dev.vars` もGit管理対象外である。
+Better Auth の `BETTER_AUTH_SECRET`、メール配送の `RESEND_API_KEY`、および
+`CURSOR_SIGNING_KEY` / `CRON_SECRET` などの本番固有の値はダッシュボードで管理する。
+`npm run deploy:production` は既存の本番設定を保持する。
 
 ## Verify
 
@@ -48,6 +47,23 @@ curl -i -X OPTIONS 'http://localhost:8787/api/v1/status' \
 ```
 
 Restart `wrangler dev` after changing CORS behavior so the local worker reloads with the new policy.
+
+## Better Auth cutover
+
+This release uses a destructive clean cutover. Existing Clerk identities and
+their application rows are intentionally not migrated or preserved. Migration
+`0009_destructive_auth_cutover.sql` clears the old identities and user-owned
+rows, removes the temporary bridge, and leaves shared feeds/articles in place.
+Apply the schema and start the API:
+
+```bash
+npm run db:migrate:remote
+npm run deploy:production
+```
+
+All users must register again with Better Auth. Do not run legacy Clerk
+backfill scripts or expect old sessions, credentials, subscriptions, tags, or
+settings to remain available.
 
 ## Translation
 

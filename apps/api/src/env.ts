@@ -2,12 +2,14 @@ export interface Env {
   DB: D1Database;
   JOBS: Queue<JobMessage>;
   APP_ENV: "development" | "production";
-  CLERK_SECRET_KEY: string;
-  CLERK_JWT_KEY?: string;
-  CLERK_JWT_PUBLIC_KEY?: string;
+  BETTER_AUTH_SECRET?: string;
+  RESEND_API_KEY?: string;
+  MAIL_FROM?: string;
+  APP_PUBLIC_URL?: string;
+  BETTER_AUTH_TRUSTED_ORIGINS?: string;
   CURSOR_SECRET: string;
   CURSOR_SIGNING_KEY?: string;
-  ADMIN_CLERK_USER_IDS: string;
+  ADMIN_BETTER_AUTH_USER_IDS?: string;
   CRON_SECRET: string;
   CORS_ALLOWED_ORIGINS: string;
 }

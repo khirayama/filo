@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { verifyClerkUserId, type AppContext } from "../lib/auth";
+import { verifyAuthUserId, type AppContext } from "../lib/auth";
 import { errors } from "../lib/errors";
 import { nowIso, randomToken, toIso } from "../lib/util";
 
@@ -13,18 +13,18 @@ interface DeletionJobRow {
 }
 
 // DELETE /api/v1/account requires an authenticated user; deletion-status also
-// accepts a deletionToken so progress can be tracked after Clerk logout.
+// accepts a deletionToken so progress can be tracked after logout.
 export const accountRoutes = new Hono<AppContext>()
   .delete("/", async (c) => {
-    const clerkUserId = await verifyClerkUserId(c.env, c.req.header("Authorization"));
+    const authUserId = await verifyAuthUserId(c.env, c.req.raw.headers);
 
     const now = nowIso();
 
     // Idempotent: an active job for this user is reused.
     const active = await c.env.DB.prepare(
-      "SELECT id, status, deletion_token, last_error, attempt_count, created_at FROM account_deletion_jobs WHERE clerk_user_id = ? AND status IN ('pending', 'running') ORDER BY id DESC LIMIT 1"
+      "SELECT id, status, deletion_token, last_error, attempt_count, created_at FROM account_deletion_jobs WHERE auth_user_id = ? AND status IN ('pending', 'running') ORDER BY id DESC LIMIT 1"
     )
-      .bind(clerkUserId)
+      .bind(authUserId)
       .first<DeletionJobRow>();
     if (active) {
       return c.json(
@@ -33,22 +33,22 @@ export const accountRoutes = new Hono<AppContext>()
       );
     }
 
-    const user = await c.env.DB.prepare("SELECT id FROM users WHERE clerk_user_id = ?")
-      .bind(clerkUserId)
+    const user = await c.env.DB.prepare("SELECT id FROM users WHERE auth_user_id = ?")
+      .bind(authUserId)
       .first<{ id: number }>();
 
-    // Record tombstone + cleanup job before touching Clerk.
+    // Record tombstone + cleanup job before removing the auth identity.
     await c.env.DB.prepare(
-      "INSERT INTO deleted_user_tombstones (clerk_user_id, deleted_at, cleanup_status, updated_at) VALUES (?, ?, 'pending', ?) ON CONFLICT (clerk_user_id) DO UPDATE SET cleanup_status = 'pending', updated_at = excluded.updated_at"
+      "INSERT INTO deleted_user_tombstones (auth_user_id, deleted_at, cleanup_status, updated_at) VALUES (?, ?, 'pending', ?) ON CONFLICT (auth_user_id) DO UPDATE SET cleanup_status = 'pending', updated_at = excluded.updated_at"
     )
-      .bind(clerkUserId, now, now)
+      .bind(authUserId, now, now)
       .run();
 
     const token = randomToken("del");
     const job = await c.env.DB.prepare(
-      "INSERT INTO account_deletion_jobs (user_id, clerk_user_id, deletion_token, status, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?) RETURNING id, created_at"
+      "INSERT INTO account_deletion_jobs (user_id, auth_user_id, deletion_token, status, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?) RETURNING id, created_at"
     )
-      .bind(user?.id ?? null, clerkUserId, token, now, now)
+      .bind(user?.id ?? null, authUserId, token, now, now)
       .first<{ id: number; created_at: string }>();
     if (!job) throw errors.internal();
 
@@ -67,11 +67,11 @@ export const accountRoutes = new Hono<AppContext>()
         .first<DeletionJobRow>();
       if (!job) throw errors.notFound();
     } else {
-      const clerkUserId = await verifyClerkUserId(c.env, c.req.header("Authorization"));
+      const authUserId = await verifyAuthUserId(c.env, c.req.raw.headers);
       job = await c.env.DB.prepare(
-        "SELECT id, status, deletion_token, last_error, attempt_count, created_at FROM account_deletion_jobs WHERE clerk_user_id = ? ORDER BY id DESC LIMIT 1"
+        "SELECT id, status, deletion_token, last_error, attempt_count, created_at FROM account_deletion_jobs WHERE auth_user_id = ? ORDER BY id DESC LIMIT 1"
       )
-        .bind(clerkUserId)
+        .bind(authUserId)
         .first<DeletionJobRow>();
       if (!job) return c.json({ data: { status: "none" } });
     }
