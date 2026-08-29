@@ -51,7 +51,7 @@ async function request<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, { method, headers, body: requestBody });
+    response = await fetch(`${API_BASE_URL}${path}`, { method, headers, body: requestBody, credentials: "include" });
   } catch {
     throw new ApiRequestError(0, "network_error", "Network error");
   }

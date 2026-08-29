@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { SignOutButton } from "@clerk/clerk-react";
+import { authClient } from "../auth-client";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { OpmlImportJob, Settings } from "../api/types";
@@ -29,6 +29,7 @@ export function SettingsPage() {
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pollRef = useRef<number | null>(null);
+  const signOut = () => authClient.signOut();
 
   useEffect(() => {
     return () => {
@@ -253,9 +254,7 @@ export function SettingsPage() {
 
             <section style={sectionStyle}>
               <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600 }}>{t("セッション")}</p>
-              <SignOutButton>
-                <Button>{t("サインアウト")}</Button>
-              </SignOutButton>
+              <Button onClick={() => { void signOut().then(() => navigate("/sign-in")); }}>{t("サインアウト")}</Button>
             </section>
 
             <section style={{ ...sectionStyle, borderColor: palette.danger }}>

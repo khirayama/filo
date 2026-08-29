@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useClerk } from "@clerk/clerk-react";
+import { authClient } from "../auth-client";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { DeletionStatus } from "../api/types";
@@ -9,7 +9,7 @@ import { useAppData } from "../components/AppDataContext";
 export function AccountDeletionPage() {
   const api = useApi();
   const navigate = useNavigate();
-  const { signOut } = useClerk();
+  const signOut = () => authClient.signOut();
   const { t } = useAppData();
   const [status, setStatus] = useState<DeletionStatus | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -23,11 +23,11 @@ export function AccountDeletionPage() {
         setStatus(result);
         if (result.status === "completed") {
           if (pollRef.current) window.clearInterval(pollRef.current);
-          // Clerk deletion done: force logout and show the completion state
+          // Deletion done: force logout and show the completion state
           await signOut().catch(() => undefined);
         }
       } catch {
-        // keep polling; the Clerk session may already be gone
+        // keep polling; the session may already be gone
       }
     };
 

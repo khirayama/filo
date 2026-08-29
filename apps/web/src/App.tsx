@@ -1,5 +1,4 @@
 import { useEffect, type ReactNode } from "react";
-import { SignIn, SignUp, useAuth } from "@clerk/clerk-react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppDataProvider } from "./components/AppDataContext";
 import { TitleTranslationProvider } from "./components/TitleTranslationContext";
@@ -15,11 +14,13 @@ import { SubscriptionDetailPage } from "./screens/SubscriptionDetailPage";
 import { SubscriptionsPage } from "./screens/SubscriptionsPage";
 import { TagsPage } from "./screens/TagsPage";
 import { trackPageView } from "./lib/analytics";
+import { authClient } from "./auth-client";
+import { AuthPage, ForgotPasswordPage, ResetPasswordPage } from "./screens/AuthPage";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { isLoaded, userId } = useAuth();
-  if (!isLoaded) return null;
-  if (!userId) return <Navigate replace to="/sign-in" />;
+  const { data: session, isPending } = authClient.useSession();
+  if (isPending) return null;
+  if (!session) return <Navigate replace to="/sign-in" />;
   return children;
 }
 
@@ -35,21 +36,24 @@ function AuthLayout({ children }: { children: ReactNode }) {
 }
 
 function RootRedirect() {
-  const { isLoaded, userId } = useAuth();
-  if (!isLoaded) return null;
-  return <Navigate replace to={userId ? "/articles" : "/sign-in"} />;
+  const { data: session, isPending } = authClient.useSession();
+  if (isPending) return null;
+  return <Navigate replace to={session ? "/articles" : "/sign-in"} />;
 }
 
 function SignOutPage() {
-  const { isLoaded, signOut } = useAuth();
+  const { data: session, isPending } = authClient.useSession();
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (isPending) return;
     void (async () => {
-      await signOut();
-      window.location.replace("/sign-in");
+      try {
+        if (session) await authClient.signOut();
+      } finally {
+        window.location.replace("/sign-in");
+      }
     })();
-  }, [isLoaded, signOut]);
+  }, [isPending, session]);
 
   return <AuthLayout><p style={{ textAlign: "center" }}>サインアウト中…</p></AuthLayout>;
 }
@@ -76,7 +80,7 @@ export function App() {
           path="/sign-in/*"
           element={
             <AuthLayout>
-              <SignIn forceRedirectUrl="/articles" path="/sign-in" routing="path" signUpUrl="/sign-up" />
+              <AuthPage mode="sign-in" />
             </AuthLayout>
           }
         />
@@ -84,7 +88,23 @@ export function App() {
           path="/sign-up/*"
           element={
             <AuthLayout>
-              <SignUp forceRedirectUrl="/articles" path="/sign-up" routing="path" signInUrl="/sign-in" />
+              <AuthPage mode="sign-up" />
+            </AuthLayout>
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <AuthLayout>
+              <ForgotPasswordPage />
+            </AuthLayout>
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            <AuthLayout>
+              <ResetPasswordPage />
             </AuthLayout>
           }
         />

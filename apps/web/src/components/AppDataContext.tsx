@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useAuth } from "@clerk/clerk-react";
+import { authClient } from "../auth-client";
 import { useApi } from "../api/useApi";
 import type { Settings, Subscription, Tag } from "../api/types";
 import { errorMessage, normalizeLanguage, translate, type SupportedLanguage } from "../lib/messages";
@@ -24,7 +24,8 @@ const AppDataContext = createContext<AppData | null>(null);
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const api = useApi();
-  const { isLoaded, userId } = useAuth();
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const userId = session?.user.id;
   const [tags, setTags] = useState<Tag[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [settings, setSettingsState] = useState<Settings | null>(null);
@@ -68,8 +69,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setError(null);
       setLoading(Boolean(userId));
     }
-    if (isLoaded && userId) void refresh();
-  }, [isLoaded, userId, refresh]);
+    if (!sessionPending && userId) void refresh();
+  }, [sessionPending, userId, refresh]);
 
   const setSettings = useCallback((next: Settings) => {
     setSettingsState(next);
@@ -77,7 +78,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Auth can change between render and the clearing effect. Never expose state
-  // unless it belongs to the user currently reported by Clerk.
+  // unless it belongs to the currently authenticated user.
   const hasCurrentUserData = Boolean(userId) && activeUserId.current === userId;
   const visibleTags = hasCurrentUserData ? tags : [];
   const visibleSubscriptions = hasCurrentUserData ? subscriptions : [];
