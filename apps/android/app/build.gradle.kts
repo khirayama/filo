@@ -19,9 +19,7 @@ val localProperties =
 fun configuredProperty(name: String, defaultValue: String = ""): String =
     providers.gradleProperty(name).orElse(localProperties.getProperty(name, defaultValue)).get()
 
-val developmentClerkPublishableKey = configuredProperty("clerkPublishableKey")
 val developmentApiBaseUrl = configuredProperty("apiBaseUrl", "http://10.0.2.2:8787")
-val productionClerkPublishableKey = configuredProperty("productionClerkPublishableKey")
 val productionApiBaseUrl = configuredProperty("productionApiBaseUrl")
 val releaseKeystorePath = configuredProperty("releaseKeystorePath")
 val releaseKeystorePassword = configuredProperty("releaseKeystorePassword")
@@ -32,9 +30,6 @@ fun asBuildConfigString(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 fun validateProductionConfiguration() {
-    require(productionClerkPublishableKey.startsWith("pk_live_")) {
-        "Release builds require productionClerkPublishableKey=pk_live_... in local.properties or -PproductionClerkPublishableKey=..."
-    }
     require(productionApiBaseUrl == "https://api.filoreader.app") {
         "Release builds require productionApiBaseUrl=https://api.filoreader.app"
     }
@@ -87,12 +82,10 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "CLERK_PUBLISHABLE_KEY", asBuildConfigString(developmentClerkPublishableKey))
             buildConfigField("String", "API_BASE_URL", asBuildConfigString(developmentApiBaseUrl))
         }
 
         release {
-            buildConfigField("String", "CLERK_PUBLISHABLE_KEY", asBuildConfigString(productionClerkPublishableKey))
             buildConfigField("String", "API_BASE_URL", asBuildConfigString(productionApiBaseUrl))
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
@@ -151,7 +144,6 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.clerk.android.api)
     implementation(libs.google.material)
     implementation(libs.mlkit.translate)
     implementation(libs.coil.compose)

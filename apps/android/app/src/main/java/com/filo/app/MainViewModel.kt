@@ -2,615 +2,120 @@ package com.filo.app
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.clerk.api.Clerk
-import com.clerk.api.network.model.factor.Factor
-import com.clerk.api.network.serialization.errorMessage
-import com.clerk.api.network.serialization.onFailure
-import com.clerk.api.network.serialization.onSuccess
-import com.clerk.api.signin.SignIn
-import com.clerk.api.signin.attemptFirstFactor
-import com.clerk.api.signin.attemptSecondFactor
-import com.clerk.api.signin.prepareFirstFactor
-import com.clerk.api.signin.prepareSecondFactor
-import com.clerk.api.signin.resetPassword
-import com.clerk.api.signup.SignUp
-import com.clerk.api.signup.attemptVerification
-import com.clerk.api.signup.prepareVerification
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
 
-enum class AuthMode {
-    SignIn,
-    SignInSecondFactor,
-    SignUp,
-    VerifySignUp,
-    ResetPasswordRequest,
-    ResetPasswordVerify,
-    ResetPasswordNewPassword,
-}
+enum class AuthMode { SignIn, SignUp, ResetPasswordRequest, ResetPasswordVerify, ResetPasswordNewPassword }
+data class AuthUiState(val isConfigured: Boolean = true, val isInitialized: Boolean = true, val initializationError: Boolean = false, val isSignedIn: Boolean = TokenStore.get() != null, val isSubmitting: Boolean = false, val mode: AuthMode = if (AuthLinkStore.resetToken != null) AuthMode.ResetPasswordNewPassword else AuthMode.SignIn, val email: String = "", val password: String = "", val confirmPassword: String = "", val code: String = "", val statusMessage: String? = null, val errorMessage: String? = null)
 
-enum class SecondFactorMethod {
-    Totp,
-    BackupCode,
-    EmailCode,
-    PhoneCode,
-}
-
-data class AuthUiState(
-    val isConfigured: Boolean = BuildConfig.CLERK_PUBLISHABLE_KEY.isNotBlank(),
-    val isInitialized: Boolean = false,
-    val initializationError: Boolean = false,
-    val isSignedIn: Boolean = false,
-    val isSubmitting: Boolean = false,
-    val mode: AuthMode = AuthMode.SignIn,
-    val email: String = "",
-    val password: String = "",
-    val confirmPassword: String = "",
-    val code: String = "",
-    val secondFactorCode: String = "",
-    val availableSecondFactors: List<SecondFactorMethod> = emptyList(),
-    val selectedSecondFactor: SecondFactorMethod? = null,
-    val statusMessage: String? = null,
-    val errorMessage: String? = null,
-)
+private object TokenStore { fun get() = SecureTokenStore.get(); fun set(value: String) = SecureTokenStore.set(value); fun clear() = SecureTokenStore.clear() }
 
 class MainViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState = _uiState.asStateFlow()
-    private var pendingSignIn: SignIn? = null
-    private var pendingSignUp: SignUp? = null
-    private var pendingResetSignIn: SignIn? = null
+    private var resetToken: String? = AuthLinkStore.resetToken
 
     init {
-        if (_uiState.value.isConfigured) {
-            combine(Clerk.isInitialized, Clerk.userFlow, Clerk.initializationError) { initialized, user, error ->
-                Triple(initialized, user, error)
-            }.onEach { (initialized, user, error) ->
-                _uiState.value =
-                    _uiState.value.copy(
-                        isInitialized = initialized,
-                        initializationError = error != null && !initialized,
-                        isSignedIn = user != null,
-                        mode = if (user != null) _uiState.value.mode else normalizeSignedOutMode(_uiState.value.mode),
-                    )
-            }.launchIn(viewModelScope)
+        viewModelScope.launch {
+            AuthLinkStore.resetEvents.collect { verifyResetCode() }
         }
     }
 
-    fun retryInitialization() {
-        if (!_uiState.value.isConfigured || _uiState.value.isInitialized) return
+    fun retryInitialization() = update { copy(isInitialized = true, initializationError = false) }
+    fun setEmail(value: String) = update { copy(email = value, errorMessage = null) }
+    fun setPassword(value: String) = update { copy(password = value, errorMessage = null) }
+    fun setConfirmPassword(value: String) = update { copy(confirmPassword = value, errorMessage = null) }
+    fun setCode(value: String) = update { copy(code = value) }
+    fun setMode(value: AuthMode) = update { copy(mode = value, errorMessage = null) }
+    fun backToSignIn() = update { copy(mode = AuthMode.SignIn, password = "", confirmPassword = "", code = "") }
+    fun signIn() = authenticate(false)
+    fun signUp() = authenticate(true)
 
-        _uiState.value = _uiState.value.copy(initializationError = false)
-        if (!Clerk.reinitialize()) {
-            _uiState.value = _uiState.value.copy(initializationError = true)
-        }
-    }
-
-    fun setEmail(value: String) = updateForm { copy(email = value, errorMessage = null, statusMessage = null) }
-
-    fun setPassword(value: String) =
-        updateForm { copy(password = value, errorMessage = null, statusMessage = null) }
-
-    fun setConfirmPassword(value: String) =
-        updateForm { copy(confirmPassword = value, errorMessage = null, statusMessage = null) }
-
-    fun setCode(value: String) = updateForm { copy(code = value, errorMessage = null, statusMessage = null) }
-
-    fun setSecondFactorCode(value: String) =
-        updateForm { copy(secondFactorCode = value, errorMessage = null, statusMessage = null) }
-
-    fun setMode(mode: AuthMode) = updateForm { copy(mode = mode, errorMessage = null, statusMessage = null) }
-
-    fun backToSignIn() {
-        pendingSignIn = null
-        _uiState.value =
-            _uiState.value.copy(
-                mode = AuthMode.SignIn,
-                password = "",
-                confirmPassword = "",
-                code = "",
-                secondFactorCode = "",
-                availableSecondFactors = emptyList(),
-                selectedSecondFactor = null,
-                statusMessage = null,
-                errorMessage = null,
-            )
-    }
-
-    fun signIn() {
+    private fun authenticate(signUp: Boolean) {
         val state = _uiState.value
-        if (state.email.isBlank() || state.password.isBlank()) {
-            showError("Email and password are required.")
+        if (state.email.isBlank() || state.password.length < 8) {
+            update { copy(errorMessage = "メールアドレスと8文字以上のパスワードが必要です") }
             return
         }
-
         submit {
-            SignIn.create(
-                SignIn.CreateParams.Strategy.Identifier(
-                    identifier = state.email.trim(),
-                ),
-            ).onSuccess { signIn ->
-                signIn.attemptFirstFactor(
-                    SignIn.AttemptFirstFactorParams.Password(
-                        password = state.password,
-                    ),
-                ).onSuccess { updatedSignIn ->
-                    when (updatedSignIn.status) {
-                        SignIn.Status.COMPLETE -> activateSession(updatedSignIn, clearPendingSignIn = true)
-                        SignIn.Status.NEEDS_SECOND_FACTOR -> {
-                            pendingSignIn = updatedSignIn
-                            val supportedFactors =
-                                updatedSignIn.supportedSecondFactors.orEmpty().mapNotNull(::toSecondFactorMethod)
-                            val selectedFactor = supportedFactors.firstOrNull()
-                            if (selectedFactor == null) {
-                                finishFailure("No supported multi-factor authentication methods are available.")
-                                return@onSuccess
-                            }
-
-                            handleSecondFactorSelection(
-                                signIn = updatedSignIn,
-                                method = selectedFactor,
-                                isRetry = false,
-                            )
-                        }
-                        else -> {
-                            finishFailure("Unexpected sign-in state: ${updatedSignIn.status}")
-                        }
-                    }
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to verify the password.")
-                }
-            }.onFailure {
-                finishFailure(it.errorMessage ?: "Unable to start sign in.")
-            }
-        }
-    }
-
-    fun selectSecondFactor(method: SecondFactorMethod) {
-        val signIn = pendingSignIn
-        if (signIn == null) {
-            showError("Restart sign in to continue.")
-            return
-        }
-
-        submit {
-            handleSecondFactorSelection(signIn = signIn, method = method, isRetry = false)
-        }
-    }
-
-    fun resendSecondFactorCode() {
-        val signIn = pendingSignIn
-        val method = _uiState.value.selectedSecondFactor
-        if (signIn == null || method == null) {
-            showError("Restart sign in to continue.")
-            return
-        }
-
-        submit {
-            handleSecondFactorSelection(signIn = signIn, method = method, isRetry = true)
-        }
-    }
-
-    fun submitSecondFactor() {
-        val signIn = pendingSignIn
-        val state = _uiState.value
-        val method = state.selectedSecondFactor
-        val code = state.secondFactorCode.trim()
-        if (signIn == null || method == null) {
-            showError("Restart sign in to continue.")
-            return
-        }
-        if (code.isBlank()) {
-            showError("Enter your verification code.")
-            return
-        }
-
-        submit {
-            signIn.attemptSecondFactor(method.toAttemptParams(code))
-                .onSuccess { updatedSignIn ->
-                    pendingSignIn = updatedSignIn
-                    when (updatedSignIn.status) {
-                        SignIn.Status.COMPLETE -> activateSession(updatedSignIn, clearPendingSignIn = true)
-                        SignIn.Status.NEEDS_SECOND_FACTOR ->
-                            _uiState.value =
-                                _uiState.value.copy(
-                                    isSubmitting = false,
-                                    secondFactorCode = "",
-                                    errorMessage = null,
-                                    statusMessage = null,
-                                )
-                        else -> finishFailure("Unexpected sign-in state: ${updatedSignIn.status}")
-                    }
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to verify the second factor.")
-                }
-        }
-    }
-
-    fun signUp() {
-        val state = _uiState.value
-        if (state.email.isBlank() || state.password.isBlank() || state.confirmPassword.isBlank()) {
-            showError("Email, password, and confirmation are required.")
-            return
-        }
-        if (state.password != state.confirmPassword) {
-            showError("Passwords do not match.")
-            return
-        }
-
-        submit {
-            SignUp.create(
-                SignUp.CreateParams.Standard(
-                    emailAddress = state.email.trim(),
-                    password = state.password,
-                ),
-            ).onSuccess { signUp ->
-                pendingSignUp = signUp
-                signUp.prepareVerification(
-                    SignUp.PrepareVerificationParams.Strategy.EmailCode(),
-                ).onSuccess {
-                    _uiState.value =
-                        _uiState.value.copy(
-                            isSubmitting = false,
-                            mode = AuthMode.VerifySignUp,
-                            code = "",
-                            errorMessage = null,
-                            statusMessage = "A verification code was sent to your email.",
-                        )
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to send verification code.")
-                }
-            }.onFailure {
-                finishFailure(it.errorMessage ?: "Unable to create your account.")
-            }
-        }
-    }
-
-    fun resendVerificationCode() {
-        val signUp = pendingSignUp
-        val email = _uiState.value.email.trim()
-        if (signUp == null || email.isBlank()) {
-            showError("Start sign up again to resend the code.")
-            return
-        }
-
-        submit {
-            signUp.prepareVerification(
-                SignUp.PrepareVerificationParams.Strategy.EmailCode(),
-            )
-                .onSuccess {
-                    _uiState.value =
-                        _uiState.value.copy(
-                            isSubmitting = false,
-                            errorMessage = null,
-                            statusMessage = "A new verification code was sent.",
-                        )
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to resend the verification code.")
-                }
-        }
-    }
-
-    fun verifySignUp() {
-        val signUp = pendingSignUp
-        val code = _uiState.value.code.trim()
-        if (signUp == null || code.isBlank()) {
-            showError("Enter the verification code.")
-            return
-        }
-
-        submit {
-            signUp.attemptVerification(
-                SignUp.AttemptVerificationParams.EmailCode(code = code),
-            ).onSuccess { completedSignUp ->
-                pendingSignUp = completedSignUp
-                completedSignUp.createdSessionId?.let { sessionId ->
-                    Clerk.setActive(sessionId = sessionId, organizationId = null)
-                        .onSuccess {
-                            pendingSignUp = null
-                            _uiState.value =
-                                _uiState.value.copy(
-                                    isSubmitting = false,
-                                    errorMessage = null,
-                                    statusMessage = null,
-                                    code = "",
-                                    password = "",
-                                    confirmPassword = "",
-                                )
-                        }.onFailure {
-                            finishFailure(it.errorMessage ?: "Unable to activate the session.")
-                        }
-                } ?: finishFailure("Verification completed without a session.")
-            }.onFailure {
-                finishFailure(it.errorMessage ?: "Unable to verify the code.")
-            }
+            val endpoint = if (signUp) "sign-up" else "sign-in"
+            val body = JSONObject().apply {
+                put("email", state.email.trim())
+                put("password", state.password)
+                put("name", "Filo user")
+            }.toString()
+            val connection = post("/api/auth/$endpoint/email", body)
+            val token = connection.getHeaderField("set-auth-token")
+            if (connection.responseCode !in 200..299) error("認証に失敗しました")
+            if (token.isNullOrBlank()) error("認証トークンを取得できませんでした")
+            TokenStore.set(token)
+            update { copy(isSignedIn = true, isSubmitting = false, statusMessage = null) }
         }
     }
 
     fun sendResetCode() {
         val email = _uiState.value.email.trim()
-        if (email.isBlank()) {
-            showError("Enter your email address.")
-            return
-        }
-
+        if (email.isBlank()) { update { copy(errorMessage = "メールアドレスを入力してください") }; return }
         submit {
-            SignIn.create(
-                SignIn.CreateParams.Strategy.ResetPasswordEmailCode(identifier = email),
-            ).onSuccess { signIn ->
-                pendingResetSignIn = signIn
-                signIn.prepareFirstFactor(
-                    SignIn.PrepareFirstFactorParams.ResetPasswordEmailCode(),
-                ).onSuccess { updatedSignIn ->
-                    pendingResetSignIn = updatedSignIn
-                    handleResetStatus(updatedSignIn.status, "A reset code was sent to your email.")
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to send reset code.")
-                }
-            }.onFailure {
-                finishFailure(it.errorMessage ?: "Unable to start password reset.")
-            }
+            val body = JSONObject().apply { put("email", email); put("redirectTo", "filo://auth/reset") }.toString()
+            val connection = post("/api/auth/request-password-reset", body)
+            if (connection.responseCode !in 200..299) error("リセットメールを送信できませんでした")
+            update { copy(isSubmitting = false, statusMessage = "パスワードリセットメールを送信しました") }
         }
     }
 
     fun verifyResetCode() {
-        val signIn = pendingResetSignIn
-        val code = _uiState.value.code.trim()
-        if (signIn == null || code.isBlank()) {
-            showError("Enter the reset code.")
-            return
-        }
-
-        submit {
-            signIn.attemptFirstFactor(
-                SignIn.AttemptFirstFactorParams.ResetPasswordEmailCode(code = code),
-            ).onSuccess { updatedSignIn ->
-                pendingResetSignIn = updatedSignIn
-                handleResetStatus(updatedSignIn.status, "Code accepted. Choose a new password.")
-            }.onFailure {
-                finishFailure(it.errorMessage ?: "Unable to verify the reset code.")
-            }
+        resetToken = AuthLinkStore.resetToken
+        if (resetToken.isNullOrBlank()) {
+            update { copy(mode = AuthMode.ResetPasswordVerify, errorMessage = "リセットリンクを開いてください") }
+        } else {
+            update { copy(mode = AuthMode.ResetPasswordNewPassword, statusMessage = "新しいパスワードを入力してください") }
         }
     }
 
     fun resetPassword() {
-        val signIn = pendingResetSignIn
         val state = _uiState.value
-        if (signIn == null) {
-            showError("Restart the password reset flow.")
+        val token = resetToken
+        if (token.isNullOrBlank() || state.password.length < 8 || state.password != state.confirmPassword) {
+            update { copy(errorMessage = "リセットリンクと8文字以上のパスワードを確認してください") }
             return
         }
-        if (state.password.isBlank() || state.confirmPassword.isBlank()) {
-            showError("Enter and confirm the new password.")
-            return
-        }
-        if (state.password != state.confirmPassword) {
-            showError("Passwords do not match.")
-            return
-        }
-
         submit {
-            signIn.resetPassword(state.password)
-                .onSuccess { updatedSignIn ->
-                    pendingResetSignIn = updatedSignIn
-                    updatedSignIn.createdSessionId?.let { sessionId ->
-                        Clerk.setActive(sessionId = sessionId, organizationId = null)
-                            .onSuccess {
-                                pendingResetSignIn = null
-                                handleResetStatus(updatedSignIn.status, null)
-                            }.onFailure {
-                                finishFailure(it.errorMessage ?: "Unable to activate the session.")
-                            }
-                    } ?: handleResetStatus(updatedSignIn.status, null)
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to update the password.")
-                }
+            val body = JSONObject().apply { put("token", token); put("newPassword", state.password) }.toString()
+            val connection = post("/api/auth/reset-password", body)
+            if (connection.responseCode !in 200..299) error("パスワードを変更できませんでした")
+            resetToken = null
+            AuthLinkStore.resetToken = null
+            update { copy(mode = AuthMode.SignIn, isSubmitting = false, password = "", confirmPassword = "", statusMessage = "パスワードを変更しました") }
         }
     }
 
-    fun signOut() {
-        submit {
-            Clerk.signOut()
-                .onSuccess {
-                    pendingSignIn = null
-                    pendingSignUp = null
-                    pendingResetSignIn = null
-                    _uiState.value =
-                        _uiState.value.copy(
-                            isSubmitting = false,
-                            isSignedIn = false,
-                            mode = AuthMode.SignIn,
-                            password = "",
-                            confirmPassword = "",
-                            code = "",
-                            secondFactorCode = "",
-                            availableSecondFactors = emptyList(),
-                            selectedSecondFactor = null,
-                            statusMessage = "You have been signed out.",
-                            errorMessage = null,
-                        )
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to sign out.")
-                }
+    fun signOut() { TokenStore.clear(); update { AuthUiState() } }
+
+    private fun post(path: String, body: String): HttpURLConnection = request(path, "POST", body)
+    private fun request(path: String, method: String, body: String? = null): HttpURLConnection {
+        val connection = URL(BuildConfig.API_BASE_URL.trimEnd('/') + path).openConnection() as HttpURLConnection
+        connection.requestMethod = method
+        connection.setRequestProperty("Content-Type", "application/json")
+        connection.setRequestProperty("Accept", "application/json")
+        if (body != null) {
+            connection.doOutput = true
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
         }
-    }
-
-    private suspend fun handleSecondFactorSelection(signIn: SignIn, method: SecondFactorMethod, isRetry: Boolean) {
-        when (method) {
-            SecondFactorMethod.EmailCode -> {
-                val factor = signIn.supportedSecondFactors.orEmpty().firstOrNull { toSecondFactorMethod(it) == method }
-                val emailAddressId = factor?.emailAddressId
-                if (emailAddressId.isNullOrBlank()) {
-                    finishFailure("No email second factor is available for this account.")
-                    return
-                }
-                signIn.prepareSecondFactor(emailAddressId = emailAddressId).onSuccess { updatedSignIn ->
-                    pendingSignIn = updatedSignIn
-                    showSecondFactorStep(
-                        method = method,
-                        signIn = updatedSignIn,
-                        message = if (isRetry) "A new email code was sent." else "A verification code was sent to your email.",
-                    )
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to send an email verification code.")
-                }
-            }
-
-            SecondFactorMethod.PhoneCode -> {
-                val factor = signIn.supportedSecondFactors.orEmpty().firstOrNull { toSecondFactorMethod(it) == method }
-                val phoneNumberId = factor?.phoneNumberId
-                if (phoneNumberId.isNullOrBlank()) {
-                    finishFailure("No phone second factor is available for this account.")
-                    return
-                }
-                signIn.prepareSecondFactor(phoneNumberId = phoneNumberId).onSuccess { updatedSignIn ->
-                    pendingSignIn = updatedSignIn
-                    showSecondFactorStep(
-                        method = method,
-                        signIn = updatedSignIn,
-                        message = if (isRetry) "A new phone code was sent." else "A verification code was sent to your phone.",
-                    )
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to send a phone verification code.")
-                }
-            }
-
-            SecondFactorMethod.Totp,
-            SecondFactorMethod.BackupCode,
-            -> {
-                showSecondFactorStep(method = method, signIn = signIn, message = null)
-            }
-        }
-    }
-
-    private fun showSecondFactorStep(method: SecondFactorMethod, signIn: SignIn, message: String?) {
-        _uiState.value =
-            _uiState.value.copy(
-                isSubmitting = false,
-                mode = AuthMode.SignInSecondFactor,
-                availableSecondFactors = signIn.supportedSecondFactors.orEmpty().mapNotNull(::toSecondFactorMethod),
-                selectedSecondFactor = method,
-                secondFactorCode = "",
-                errorMessage = null,
-                statusMessage = message,
-            )
-    }
-
-    private suspend fun activateSession(signIn: SignIn, clearPendingSignIn: Boolean) {
-        signIn.createdSessionId?.let { sessionId ->
-            Clerk.setActive(sessionId = sessionId, organizationId = null)
-                .onSuccess {
-                    if (clearPendingSignIn) {
-                        pendingSignIn = null
-                    }
-                    _uiState.value =
-                        _uiState.value.copy(
-                            isSubmitting = false,
-                            password = "",
-                            confirmPassword = "",
-                            code = "",
-                            secondFactorCode = "",
-                            availableSecondFactors = emptyList(),
-                            selectedSecondFactor = null,
-                            errorMessage = null,
-                            statusMessage = null,
-                        )
-                }.onFailure {
-                    finishFailure(it.errorMessage ?: "Unable to activate the session.")
-                }
-        } ?: finishFailure("Sign-in completed without a session.")
-    }
-
-    private fun handleResetStatus(status: SignIn.Status, message: String?) {
-        _uiState.value =
-            when (status) {
-                SignIn.Status.COMPLETE ->
-                    _uiState.value.copy(
-                        isSubmitting = false,
-                        password = "",
-                        confirmPassword = "",
-                        code = "",
-                        errorMessage = null,
-                        statusMessage = null,
-                    )
-                SignIn.Status.NEEDS_FIRST_FACTOR ->
-                    _uiState.value.copy(
-                        isSubmitting = false,
-                        mode = AuthMode.ResetPasswordVerify,
-                        errorMessage = null,
-                        statusMessage = message,
-                    )
-                SignIn.Status.NEEDS_NEW_PASSWORD ->
-                    _uiState.value.copy(
-                        isSubmitting = false,
-                        mode = AuthMode.ResetPasswordNewPassword,
-                        code = "",
-                        password = "",
-                        confirmPassword = "",
-                        errorMessage = null,
-                        statusMessage = message,
-                    )
-                else ->
-                    _uiState.value.copy(
-                        isSubmitting = false,
-                        errorMessage = "Unexpected password reset state: $status",
-                        statusMessage = null,
-                    )
-            }
+        return connection
     }
 
     private fun submit(block: suspend () -> Unit) {
-        // UI controls are disabled while a request is running, but keeping the
-        // guard here also protects against duplicate events during recomposition
-        // or activity/lifecycle transitions.
-        if (_uiState.value.isSubmitting) return
-        _uiState.value = _uiState.value.copy(isSubmitting = true, errorMessage = null)
-        viewModelScope.launch { block() }
-    }
-
-    private fun finishFailure(message: String) {
-        _uiState.value = _uiState.value.copy(isSubmitting = false, errorMessage = message, statusMessage = null)
-    }
-
-    private fun showError(message: String) {
-        _uiState.value = _uiState.value.copy(errorMessage = message, statusMessage = null)
-    }
-
-    private fun updateForm(transform: AuthUiState.() -> AuthUiState) {
-        _uiState.value = _uiState.value.transform()
-    }
-
-    private fun normalizeSignedOutMode(mode: AuthMode): AuthMode =
-        when (mode) {
-            AuthMode.VerifySignUp,
-            AuthMode.ResetPasswordRequest,
-            AuthMode.ResetPasswordVerify,
-            AuthMode.ResetPasswordNewPassword,
-            -> mode
-            AuthMode.SignIn,
-            AuthMode.SignInSecondFactor,
-            AuthMode.SignUp,
-            -> AuthMode.SignIn
+        update { copy(isSubmitting = true, errorMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try { block() } catch (error: Exception) { update { copy(isSubmitting = false, errorMessage = error.message ?: "認証に失敗しました") } }
         }
+    }
 
-    private fun toSecondFactorMethod(factor: Factor): SecondFactorMethod? =
-        when (factor.strategy) {
-            "totp" -> SecondFactorMethod.Totp
-            "backup_code" -> SecondFactorMethod.BackupCode
-            "email_code" -> SecondFactorMethod.EmailCode
-            "phone_code" -> SecondFactorMethod.PhoneCode
-            else -> null
-        }
-
-    private fun SecondFactorMethod.toAttemptParams(code: String): SignIn.AttemptSecondFactorParams =
-        when (this) {
-            SecondFactorMethod.Totp -> SignIn.AttemptSecondFactorParams.TOTP(code = code)
-            SecondFactorMethod.BackupCode -> SignIn.AttemptSecondFactorParams.BackupCode(code = code)
-            SecondFactorMethod.EmailCode -> SignIn.AttemptSecondFactorParams.EmailCode(code = code)
-            SecondFactorMethod.PhoneCode -> SignIn.AttemptSecondFactorParams.PhoneCode(code = code)
-        }
+    private fun update(block: AuthUiState.() -> AuthUiState) { _uiState.value = _uiState.value.block() }
 }

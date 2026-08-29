@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AuthLinkStore.accept(intent?.data)
         sharedUrl = extractSharedUrl(intent)
         LanguagePreference.apply(this)
         ThemePreference.load(this)
@@ -92,6 +93,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        AuthLinkStore.accept(intent.data)
         sharedUrl = extractSharedUrl(intent)
     }
 
@@ -140,8 +142,8 @@ private fun AuthRoot(
 
     if (!uiState.isConfigured) {
         CenteredMessage(
-            title = "Clerk is not configured",
-            body = "Set clerkPublishableKey in apps/android/local.properties.",
+            title = "認証が設定されていません",
+            body = "APIの設定を確認してください。",
         )
         return
     }
@@ -175,19 +177,13 @@ private fun AuthRoot(
         onPasswordChanged = mainViewModel::setPassword,
         onConfirmPasswordChanged = mainViewModel::setConfirmPassword,
         onCodeChanged = mainViewModel::setCode,
-        onSecondFactorCodeChanged = mainViewModel::setSecondFactorCode,
         onModeChanged = mainViewModel::setMode,
         onSignIn = mainViewModel::signIn,
-        onSelectSecondFactor = mainViewModel::selectSecondFactor,
-        onSubmitSecondFactor = mainViewModel::submitSecondFactor,
         onSignUp = mainViewModel::signUp,
-        onVerifySignUp = mainViewModel::verifySignUp,
         onSendResetCode = mainViewModel::sendResetCode,
         onVerifyResetCode = mainViewModel::verifyResetCode,
         onResetPassword = mainViewModel::resetPassword,
         onBackToSignIn = mainViewModel::backToSignIn,
-        onResendVerificationCode = mainViewModel::resendVerificationCode,
-        onResendSecondFactorCode = mainViewModel::resendSecondFactorCode,
     )
 }
 
@@ -286,19 +282,13 @@ private fun AuthScreenPreview() {
             onPasswordChanged = {},
             onConfirmPasswordChanged = {},
             onCodeChanged = {},
-            onSecondFactorCodeChanged = {},
             onModeChanged = {},
             onSignIn = {},
-            onSelectSecondFactor = {},
-            onSubmitSecondFactor = {},
             onSignUp = {},
-            onVerifySignUp = {},
             onSendResetCode = {},
             onVerifyResetCode = {},
             onResetPassword = {},
             onBackToSignIn = {},
-            onResendVerificationCode = {},
-            onResendSecondFactorCode = {},
         )
     }
 }
@@ -310,19 +300,13 @@ private fun AuthScreen(
     onPasswordChanged: (String) -> Unit,
     onConfirmPasswordChanged: (String) -> Unit,
     onCodeChanged: (String) -> Unit,
-    onSecondFactorCodeChanged: (String) -> Unit,
     onModeChanged: (AuthMode) -> Unit,
     onSignIn: () -> Unit,
-    onSelectSecondFactor: (SecondFactorMethod) -> Unit,
-    onSubmitSecondFactor: () -> Unit,
     onSignUp: () -> Unit,
-    onVerifySignUp: () -> Unit,
     onSendResetCode: () -> Unit,
     onVerifyResetCode: () -> Unit,
     onResetPassword: () -> Unit,
     onBackToSignIn: () -> Unit,
-    onResendVerificationCode: () -> Unit,
-    onResendSecondFactorCode: () -> Unit,
 ) {
     Column(
         modifier =
@@ -344,9 +328,7 @@ private fun AuthScreen(
                     text =
                         when (uiState.mode) {
                             AuthMode.SignIn -> "Sign in"
-                            AuthMode.SignInSecondFactor -> "Verify your identity"
                             AuthMode.SignUp -> "Create account"
-                            AuthMode.VerifySignUp -> "Verify your email"
                             AuthMode.ResetPasswordRequest -> "Reset password"
                             AuthMode.ResetPasswordVerify -> "Enter reset code"
                             AuthMode.ResetPasswordNewPassword -> "Choose a new password"
@@ -358,16 +340,7 @@ private fun AuthScreen(
                     text =
                         when (uiState.mode) {
                             AuthMode.SignIn -> "Sign in with your email address and password."
-                            AuthMode.SignInSecondFactor ->
-                                when (uiState.selectedSecondFactor) {
-                                    SecondFactorMethod.Totp -> "Enter the code from your authenticator app."
-                                    SecondFactorMethod.BackupCode -> "Enter one of your backup codes."
-                                    SecondFactorMethod.EmailCode -> "Enter the code sent to your email."
-                                    SecondFactorMethod.PhoneCode -> "Enter the code sent to your phone."
-                                    null -> "Complete multi-factor authentication to continue."
-                                }
-                            AuthMode.SignUp -> "Create an account, then confirm the email code from Clerk."
-                            AuthMode.VerifySignUp -> "Enter the email verification code sent by Clerk."
+                            AuthMode.SignUp -> "Create an account with your email address and password."
                             AuthMode.ResetPasswordRequest -> "We will send a reset code to your email address."
                             AuthMode.ResetPasswordVerify -> "Enter the reset code from your email."
                             AuthMode.ResetPasswordNewPassword -> "Set a new password to finish the reset flow."
@@ -404,52 +377,6 @@ private fun AuthScreen(
                         }
                     }
 
-                    AuthMode.SignInSecondFactor -> {
-                        if (uiState.availableSecondFactors.size > 1) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                uiState.availableSecondFactors.forEach { method ->
-                                    val isSelected = method == uiState.selectedSecondFactor
-                                    if (isSelected) {
-                                        Button(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            onClick = {},
-                                            enabled = !uiState.isSubmitting,
-                                        ) {
-                                            Text(secondFactorLabel(method))
-                                        }
-                                    } else {
-                                        OutlinedButton(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            onClick = { onSelectSecondFactor(method) },
-                                            enabled = !uiState.isSubmitting,
-                                        ) {
-                                            Text(secondFactorLabel(method))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        CodeField(uiState.secondFactorCode, onSecondFactorCodeChanged)
-                        SubmitButton(
-                            text = "Verify",
-                            isLoading = uiState.isSubmitting,
-                            onClick = onSubmitSecondFactor,
-                        )
-                        if (uiState.selectedSecondFactor == SecondFactorMethod.EmailCode ||
-                            uiState.selectedSecondFactor == SecondFactorMethod.PhoneCode
-                        ) {
-                            TextButton(
-                                onClick = onResendSecondFactorCode,
-                                enabled = !uiState.isSubmitting,
-                            ) {
-                                Text("Resend code")
-                            }
-                        }
-                        OutlinedButton(onClick = onBackToSignIn, enabled = !uiState.isSubmitting) {
-                            Text("Back to sign in")
-                        }
-                    }
-
                     AuthMode.SignUp -> {
                         EmailField(uiState.email, onEmailChanged)
                         PasswordField("Password", uiState.password, onPasswordChanged)
@@ -459,19 +386,6 @@ private fun AuthScreen(
                             isLoading = uiState.isSubmitting,
                             onClick = onSignUp,
                         )
-                    }
-
-                    AuthMode.VerifySignUp -> {
-                        EmailField(uiState.email, onEmailChanged, enabled = false)
-                        CodeField(uiState.code, onCodeChanged)
-                        SubmitButton(
-                            text = "Verify email",
-                            isLoading = uiState.isSubmitting,
-                            onClick = onVerifySignUp,
-                        )
-                        TextButton(onClick = onResendVerificationCode, enabled = !uiState.isSubmitting) {
-                            Text("Resend code")
-                        }
                     }
 
                     AuthMode.ResetPasswordRequest -> {
@@ -520,14 +434,6 @@ private fun AuthScreen(
         }
     }
 }
-
-private fun secondFactorLabel(method: SecondFactorMethod): String =
-    when (method) {
-        SecondFactorMethod.Totp -> "Authenticator app"
-        SecondFactorMethod.BackupCode -> "Backup code"
-        SecondFactorMethod.EmailCode -> "Email code"
-        SecondFactorMethod.PhoneCode -> "Phone code"
-    }
 
 @Composable
 private fun RssNavigation(

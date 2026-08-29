@@ -357,7 +357,7 @@ fun AccountDeletionScreen(
             if (result != null) {
                 status = result.status
                 if (result.status == "completed") {
-                    // Clerk deletion done: force local sign-out
+                    // Better Auth deletion done: force local sign-out
                     onSignOut()
                     break
                 }

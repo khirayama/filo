@@ -1,22 +1,13 @@
 package com.filo.app
 
 import android.app.Application
-import com.clerk.api.Clerk
-import com.clerk.api.ClerkConfigurationOptions
 
 class FiloApplication : Application() {
+    companion object { lateinit var context: FiloApplication }
     override fun onCreate() {
         super.onCreate()
+        context = this
         Analytics.initialize(this)
 
-        if (BuildConfig.CLERK_PUBLISHABLE_KEY.isBlank()) {
-            return
-        }
-
-        Clerk.initialize(
-            this,
-            publishableKey = BuildConfig.CLERK_PUBLISHABLE_KEY,
-            options = ClerkConfigurationOptions(enableDebugMode = BuildConfig.DEBUG),
-        )
     }
 }

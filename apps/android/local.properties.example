@@ -1,9 +1,7 @@
 sdk.dir=/Users/yourname/Library/Android/sdk
-clerkPublishableKey=pk_test_your_publishable_key
 # Host API as seen from the emulator (10.0.2.2 is the host's loopback).
 # On a physical device use the host's LAN IP, e.g. http://192.168.1.10:8787
 apiBaseUrl=http://10.0.2.2:8787
 
 # Release builds use these production values. Never commit the real publishable key.
-productionClerkPublishableKey=pk_live_your_production_publishable_key
 productionApiBaseUrl=https://api.filoreader.app

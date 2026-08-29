@@ -1,8 +1,5 @@
 package com.filo.app.api
 
-import com.clerk.api.Clerk
-import com.clerk.api.session.fetchToken
-import com.clerk.api.network.serialization.onSuccess
 import com.filo.app.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
@@ -24,10 +21,7 @@ object ApiClient {
     private val baseUrl = BuildConfig.API_BASE_URL.trimEnd('/')
 
     private suspend fun token(): String? {
-        val session = Clerk.session ?: return null
-        var jwt: String? = null
-        session.fetchToken().onSuccess { jwt = it.jwt }
-        return jwt
+        return com.filo.app.SecureTokenStore.get()
     }
 
     private suspend fun request(
