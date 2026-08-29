@@ -112,6 +112,31 @@ describe("feed discovery", () => {
     expect(discovered.feedUrl).toBe("https://example.com/blog/feed/");
   });
 
+  it("recovers a feed link from an HTML error page", async () => {
+    const feedXml = `<?xml version="1.0"?><rss version="2.0"><channel>
+      <title>Recovered feed</title><link>https://example.com</link>
+      <item><title>Entry</title></item>
+    </channel></rss>`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url === "https://example.com/feed.xml"
+            ? new Response(feedXml, { headers: { "Content-Type": "application/rss+xml" } })
+            : new Response(
+                '<html><head><link rel="alternate" type="application/rss+xml" href="/feed.xml"></head></html>',
+                { status: 404, headers: { "Content-Type": "text/html" } },
+              ),
+        ),
+      ),
+    );
+
+    const discovered = await discoverFeed("https://example.com/old/feed/");
+
+    expect(discovered.feedUrl).toBe("https://example.com/feed.xml");
+    expect(discovered.parsed.title).toBe("Recovered feed");
+  });
+
   it("keeps the fetched URL when the self link points at a non-feed page", async () => {
     // agenda-note.com pattern: the Atom feed's rel="self" names the HTML homepage
     const feedXml = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">

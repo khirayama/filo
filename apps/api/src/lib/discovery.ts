@@ -80,15 +80,15 @@ export async function discoverFeed(inputUrl: string): Promise<DiscoveredFeed> {
     if (error instanceof ApiError) throw error;
     throw new ApiError(400, "feed_unreachable", "Could not reach URL");
   }
-  if (!response.ok) {
-    throw new ApiError(400, "feed_unreachable", `URL responded with status ${response.status}`);
-  }
-
   const html = await readTextCapped(response);
   const candidates = discoverFeedUrlsInHtml(html, inputUrl);
   for (const candidate of candidates) {
     const found = await tryFetchFeed(candidate);
     if (found) return found;
+  }
+
+  if (!response.ok) {
+    throw new ApiError(400, "feed_unreachable", `URL responded with status ${response.status}`);
   }
 
   const base = new URL(inputUrl);
