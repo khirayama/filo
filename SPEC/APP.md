@@ -12,7 +12,7 @@
 
 ## Architecture Overview
 
-- Auth は Clerk、API は Cloudflare Workers、Database は Cloudflare D1 を利用する。
+- Auth は Better Auth（メールアドレス・パスワード）、メール配送は Resend、API は Cloudflare Workers、Database は Cloudflare D1 を利用する。
 - Feed refresh はユーザーの明示操作で開始し、Queue の完了を status API で確認する。
 - 翻訳はクライアント端末内で実行し、API は翻訳を生成・保存しない。
 - iOS、Android、Web は購読管理と RSS 記事一覧を提供する。Web のリーディング機能は Browser Extension と連携する。

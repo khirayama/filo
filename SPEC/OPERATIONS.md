@@ -1,6 +1,6 @@
 # filo Production Operations
 
-filo は Cloudflare Workers、Cloudflare D1、Cloudflare Queues、Workers Cron、Clerk を前提に運用する。翻訳はクライアントが端末内で行うため、運用対象に含まれない。
+filo は Cloudflare Workers、Cloudflare D1、Cloudflare Queues、Workers Cron、Better Auth、Resend を前提に運用する。翻訳はクライアントが端末内で行うため、運用対象に含まれない。
 
 本書は実装済みの運用挙動を正とし、未実装の運用要件は `Not yet implemented` として明示する。仕様として掲げてはいるが動いていないものを、動いているかのように書かない。
 
@@ -20,12 +20,10 @@ filo は Cloudflare Workers、Cloudflare D1、Cloudflare Queues、Workers Cron�
 
 ## Environments
 
-- `local` / `development`: ローカル開発。D1 local database（`wrangler dev --env development`）と Clerk development instance を使う
-- `production`: 実ユーザー環境。Cloudflare Pages / Worker と Clerk production instance を使う
+- `local` / `development`: ローカル開発。D1 local database（`wrangler dev --env development`）とローカル Better Auth を使う
+- `production`: 実ユーザー環境。Cloudflare Pages / Worker と production Better Auth を使う
 
-開発用と本番用の Clerk は同じユーザー基盤として扱わない。publishable key、backend
-secret、JWT公開鍵、データベースを環境ごとに分ける。本番ビルドへ `pk_test_` や
-localhost のURLを渡すと、Web / Extension のVite設定がエラーで停止する。
+開発用と本番用の Better Auth secret、Resend設定、データベースを環境ごとに分ける。本番ビルドへ localhost のURLを渡すと、Web / Extension のVite設定がエラーで停止する。
 
 現時点で staging 環境は存在しない。production data を local にコピーしない。
 
@@ -40,14 +38,16 @@ Bindings（`wrangler.jsonc`）:
 
 Vars（`wrangler.jsonc`）:
 
-- `ADMIN_CLERK_USER_IDS`: `/api/v1/admin/*` を呼べる Clerk user id のカンマ区切り。admin 判定はこれ一本で行う
+- `ADMIN_BETTER_AUTH_USER_IDS`: `/api/v1/admin/*` を呼べる Better Auth user id のカンマ区切り。admin 判定はこれ一本で行う
 - `APP_ENV`: `development` または `production`。health endpoint の環境確認にも使う
 - `CORS_ALLOWED_ORIGINS`: 環境ごとのWebとChrome Extensionのoriginをカンマ区切りで指定する。localの2 originは常に許可する
 
 Secrets（`wrangler secret put`）:
 
-- `CLERK_SECRET_KEY`: 環境ごとのClerk backend API key（token 検証と account deletion）
-- `CLERK_JWT_KEY`: 同じ環境のClerk JWKSから取得したPEM公開鍵（Worker内のJWT検証用）
+- `BETTER_AUTH_SECRET`: Better Auth の署名・暗号化用 secret
+- `RESEND_API_KEY`: パスワードリセットメール配送用の Resend API key
+- `MAIL_FROM`: パスワードリセットメールの送信元
+- `BETTER_AUTH_TRUSTED_ORIGINS`: Web と `filo://auth` の許可 origin
 - `CURSOR_SECRET`: pagination cursor の HMAC 鍵
 - `CRON_SECRET`: 内部 cron → API 呼び出しの Bearer token
 
@@ -57,9 +57,8 @@ Browser Extension（build-time env）:
 
 - `VITE_API_BASE_URL`: API origin
 - `VITE_WEB_APP_URL`: Webアプリ origin
-- `VITE_CLERK_PUBLISHABLE_KEY`: Webと同じClerk instanceのpublishable key
-- `VITE_CLERK_SYNC_HOST`: WebログインをExtensionへ同期するorigin
-- Clerk instance の `allowed_origins` に `chrome-extension://<Extension ID>` を登録する
+- Extension は Better Auth bearer token を `chrome.storage.local` に保存する
+- iOS は Keychain、Android は Android Keystore で bearer token を保存する
 
 ## Operational Defaults
 
@@ -99,17 +98,15 @@ npm run db:migrate:remote           # placeholder のままなら script が止�
 npm run deploy:production
 ```
 
-JWT検証用の公開鍵は `apps/api/wrangler.jsonc` の production 用
-`CLERK_JWT_PUBLIC_KEY` に設定する。`CURSOR_SIGNING_KEY` などCloudflare
+`BETTER_AUTH_SECRET`、`RESEND_API_KEY`、`CURSOR_SIGNING_KEY` などCloudflare
 ダッシュボードで管理するproduction固有の変数は、`npm run deploy:production`
 が `--keep-vars` を使って保持するため、production設定に登録した値を別途Gitへ保存しない。
 
 Web本番は `apps/web/.env.production.example` を参照し、Pagesのproduction build
-environmentへ `VITE_CLERK_PUBLISHABLE_KEY=pk_live_...` と
-`VITE_API_BASE_URL=https://api.filoreader.app` を登録する。development用ファイルの値を
+environmentへ `VITE_API_BASE_URL=https://api.filoreader.app` を登録する。development用ファイルの値を
 Pagesへアップロードしない。Pages deployは `--branch` を付けずproductionへ行う。
 
-ローカルWebは `apps/web/.env.development.local` の `pk_test_...` と localhost APIを使い、
+ローカルWebは `apps/web/.env.development.local` の localhost APIを使い、
 `npm run dev` または `npm run build` で起動・確認する。本番ビルドは明示的に
 `npm run build:production`、本番デプロイは `npm run deploy:production` を使う。
 本番ビルドへ開発設定が混ざった場合はViteの検査で停止する。
@@ -165,8 +162,8 @@ publisher 尊重ルール:
 ### account deletion
 
 - 受付時に tombstone と `account_deletion_jobs` を先に記録し、常に `202 Accepted` と短期 `deletionToken` を返す
-- tombstone 作成後は Clerk deletion の成否にかかわらず、通常サインイン時の upsert 対象から除外する
-- Clerk account deletion 成功後に user-owned data を削除する。shared data は削除しない
+- tombstone 作成後は Better Auth identity deletion の成否にかかわらず、通常サインイン時の upsert 対象から除外する
+- Better Auth identity deletion 成功後に user-owned data を削除する。shared data は削除しない
 - 失敗時は `failed` として記録し、cron が `attempt_count < 5` の job を毎時再投入する
 
 ## Observability
@@ -174,16 +171,16 @@ publisher 尊重ルール:
 `observability.enabled` を有効にした Workers logs を使う。現状のログは構造化 JSON ではなく、`[fetch]` などのプレフィックス付きテキストである。
 
 - 全 API response に `X-Request-Id` を返す。client が送ってこなければ server が生成する
-- ログに本文、Clerk secret、Authorization header を出力しない
+- ログに本文、Better Auth secret、Resend API key、Authorization header を出力しない
 
 運用状況の第一の窓口は dashboard ではなく `GET /api/v1/status` である。購読行ごとの fetch job 状態を実データの集計として返す。
 
 ## Security
 
-- 全 user endpoint は Clerk session を必須とする
-- admin endpoint は `ADMIN_CLERK_USER_IDS` に含まれる Clerk user id のみ許可する
+- 全 user endpoint は Better Auth session または bearer token を必須とする
+- admin endpoint は `ADMIN_BETTER_AUTH_USER_IDS` に含まれる Better Auth user id のみ許可する
 - `/api/v1/status` は user auth または `CRON_SECRET` による system auth を受け付ける
-- `/api/v1/account/deletion-status` のみ、有効な `deletionToken` で Clerk session なしに参照できる
+- `/api/v1/account/deletion-status` のみ、有効な `deletionToken` で Better Auth session なしに参照できる
 - すべての path id は current user の所有・参照権限を検証する
 - retained article は `article_user_collections` に `reading_list` または `bookmark` membership がある場合のみ、未購読でも参照可能とする
 - feed discovery / feed fetch は SSRF 対策として private IP、localhost、link-local、`.internal` / `.local`、IPv6 loopback / link-local / unique-local を拒否する。redirect 後の URL にも同じ検査を行う
@@ -241,7 +238,7 @@ shared data の自動 retention 削除は `article_contents` を除いて導入�
 - `success/not_modified/error` ごとの `next_fetch_after` 更新を確認している
 - `paused` feed 上の failed subscription を user retry で復帰できることを確認している
 - Error Codes と主要画面文言の対応を確認している
-- ExtensionのIDをClerk `allowed_origins`へ登録し、Webログインがポップアップとbackgroundへ同期されることを確認している
+- Extension は Better Auth bearer token でログインし、popup と background のAPI呼び出しに利用する
 
 ## Not yet implemented
 
@@ -253,6 +250,6 @@ shared data の自動 retention 削除は `article_contents` を除いて導入�
 - 構造化ログ（`jobId` / `userId` / `route` / `durationMs` / `errorCode` などの共通フィールド）
 - メトリクスとアラート（5xx rate、queue backlog、paused feed の増加など）
 - D1 の定期 backup と復旧手順の検証
-- Clerk webhook（署名検証つきの user 同期）。現在の user 作成は API 呼び出し時の upsert のみ
+- Better Auth user の作成は API 呼び出し時の upsert のみ
 - `article_contents` の 7 日 retention 削除。cron は失敗ジョブ復旧のみという方針との整合を含めて実行手段が未決（`READING.md` Q4）
 - 本文抽出の publisher 尊重ルール（User-Agent、`noarchive` 判定、paywall 判定、feed 単位の抽出無効化）

@@ -28,7 +28,7 @@ user-owned（アカウント削除で消える）:
 
 | テーブル | 役割 |
 | --- | --- |
-| `users` | Clerk user と内部 id の対応 |
+| `users` | Better Auth user と内部 id の対応 |
 | `user_settings` | テーマ、表示言語、原文のまま読む言語、並び順 |
 | `subscriptions` | ユーザーの購読。カスタムタイトル、並び順、初回取得状態 |
 | `tags` / `subscription_tags` | 購読の分類 |
@@ -51,7 +51,7 @@ account deletion 専用:
 
 | テーブル | 役割 |
 | --- | --- |
-| `deleted_user_tombstones` | 削除受付済み `clerk_user_id` の再作成防止 |
+| `deleted_user_tombstones` | 削除受付済み `auth_user_id` の再作成防止 |
 | `account_deletion_jobs` | cleanup の再試行管理 |
 
 ## Data Rules

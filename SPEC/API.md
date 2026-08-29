@@ -4,7 +4,7 @@ Cloudflare Workers を利用する。翻訳は API の責務ではない（ク�
 
 Version: `v1`  
 Base URL: `/api/v1`  
-Auth: Clerk session required for all user endpoints. Admin endpoints require authenticated admin authorization in addition to Clerk auth.  
+Auth: Better Auth session or bearer token is required for all user endpoints. Admin endpoints require authenticated admin authorization in addition to Better Auth.
 Content-Type: `application/json`
 
 ## Table of Contents
@@ -32,9 +32,9 @@ Content-Type: `application/json`
 - client は `X-Request-Id` を任意で送信してよく、server は request ごとに `requestId` を確定し response header `X-Request-Id` で返す
 - response header は `Cache-Control: no-store` を基本とする
 - request body、query、path parameter は schema validation を行い、失敗時は `validation_error` を返す
-- user endpoint は Clerk session 必須、admin endpoint は Clerk session と admin 判定を必須とする
+- user endpoint は Better Auth session 必須、admin endpoint は Better Auth session と admin 判定を必須とする
 - path id は current user の所有または参照権限を必ず検証する
-- rate limit は IP、Clerk user、route を組み合わせて適用し、超過時は `rate_limited` を返す
+- rate limit は IP、認証 user、route を組み合わせて適用し、超過時は `rate_limited` を返す
 - 非同期 job を投入する `POST` は重複送信に耐える冪等実装とする
 
 ### Default limits
@@ -563,20 +563,20 @@ current user のリーディングリストから、実効既読状態のすべ�
 
 ### DELETE /api/v1/account
 
-- deletes current user's Clerk account and user-owned data
+- deletes current user's Better Auth identity and user-owned data
 - shared feed and article data are not deleted
 - server は削除要求の開始時に tombstone と account deletion cleanup job を先に記録する
 - server は削除受付時に、削除進行表示専用の短期 `deletionToken` を発行して response に含める
-- tombstone は削除開始時点から通常サインイン時の upsert 抑止に利用する。ただし Clerk account deletion 成功までは最終的な削除完了状態として扱わない
-- tombstone / cleanup job 記録成功後に Clerk account deletion を実行する
-- Clerk account deletion 成功後に user-owned data を削除する
-- 受付成功時の response は常に `202 Accepted` とし、以後の Clerk deletion / app data cleanup の成否は server-side deletion job に集約する
-- Clerk account deletion または app data cleanup に失敗した場合は deletion job を `failed` とし、再試行可能な server-side failure として扱う
+- tombstone は削除開始時点から通常サインイン時の upsert 抑止に利用し、最終的な削除完了まで保持する
+- tombstone / cleanup job 記録成功後に Better Auth の user、account、session を削除する
+- Better Auth identity の失効後に user-owned data を削除する
+- 受付成功時の response は常に `202 Accepted` とし、以後の identity deletion / app data cleanup の成否は server-side deletion job に集約する
+- Better Auth identity または app data cleanup に失敗した場合は deletion job を `failed` とし、再試行可能な server-side failure として扱う
 - app data cleanup が失敗した場合は同 job を再試行し、ユーザーは再ログインで復活しない
 - cleanup job の status は `pending | running | completed | failed` とし、削除受付後の tombstone と active deletion job が再作成防止の source of truth となる
-- deletion 受付済み `clerk_user_id` は tombstone または同等の server-side state として保持し、通常サインイン時の upsert で再生成しない
+- deletion 受付済み `auth_user_id` は tombstone または同等の server-side state として保持し、通常サインイン時の upsert で再生成しない
 - response は `202 Accepted` を返し、client は削除受付画面へ遷移する
-- Clerk deletion と app data cleanup が完了した時点で、client は強制 logout と削除完了画面遷移を行う
+- Better Auth identity deletion と app data cleanup が完了した時点で、client は強制 logout と削除完了画面遷移を行う
 
 ```json
 {
@@ -591,7 +591,7 @@ current user のリーディングリストから、実効既読状態のすべ�
 ### GET /api/v1/account/deletion-status
 
 - returns current deletion job status for the authenticated user or a caller presenting a valid `deletionToken`
-- authenticated user は current user の active deletion job を参照し、Clerk deletion 後は `deletionToken` により同一 deletion job を追跡する
+- authenticated user は current user の active deletion job を参照し、identity deletion 後は `deletionToken` により同一 deletion job を追跡する
 - response includes `status: none | pending | running | failed | completed`
 - `failed` の場合は user-facing な `retryable` boolean と簡潔な `errorCode` を返してよい
 - `completed` の場合は client が強制 logout と削除完了画面遷移を行う
@@ -659,7 +659,7 @@ Returns fetch logs for a feed.
 
 ### Common
 
-- `unauthorized`: Clerk session 不在または無効
+- `unauthorized`: Better Auth session 不在または無効
 - `forbidden`: 認証済みだが対象 resource または endpoint class に対する権限不足
 - `validation_error`: body / query / path / file validation 失敗
 - `resource_not_found`: 汎用 404。domain-specific code がない場合に利用
@@ -681,6 +681,6 @@ Returns fetch logs for a feed.
 - `feed_unreachable`: feed または site URL へ到達できない、または timeout
 - `initial_fetch_retry_not_allowed`: 初回取得 retry 条件を満たしていない subscription へ再試行した
 - `opml_import_not_found`: current user から対象 OPML import job が不可視
-- `account_deletion_failed`: Clerk deletion または app data cleanup が失敗し、削除 job が `failed` になった
+- `account_deletion_failed`: Better Auth identity または app data cleanup が失敗し、削除 job が `failed` になった
 
 `rate_limited` は client 側の文言だけ用意してある予約コードで、server から返す経路はまだ無い（`OPERATIONS.md` の `Not yet implemented` を参照）。
