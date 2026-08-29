@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAuth, useUser } from "@clerk/chrome-extension";
+import { refreshToken, signIn, signOut, signUp } from "./auth";
 import { createExtensionApi, type ReadingArticle } from "./api";
 import { webAppPath } from "./config";
 import { trackEvent } from "./analytics";
@@ -45,9 +45,14 @@ function openArticle(url: string | null): void {
 }
 
 export function App() {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
-  const { user } = useUser();
-  const api = useMemo(() => createExtensionApi(() => getToken()), [getToken]);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const api = useMemo(() => createExtensionApi(refreshToken), []);
   const [articles, setArticles] = useState<ReadingArticle[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [settings, setSettings] = useState<ReaderSettings>({ targetLanguage: "ja", rate: 1, voiceName: null });
@@ -58,6 +63,37 @@ export function App() {
   const [readerState, setReaderState] = useState<ReaderSession | null>(null);
   const [selectedArticleIndex, setSelectedArticleIndex] = useState(0);
   const viewedArticleIds = useRef("");
+  useEffect(() => {
+    void refreshToken().then(token => {
+      setIsSignedIn(Boolean(token));
+      setIsLoaded(true);
+    }).catch(() => {
+      setIsSignedIn(false);
+      setIsLoaded(true);
+    });
+  }, []);
+  const submitAuth = async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      if (authMode === "sign-in") {
+        await signIn(authEmail, authPassword);
+        setIsSignedIn(true);
+      } else {
+        await signUp(authEmail, authPassword);
+        setIsSignedIn(true);
+      }
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "認証に失敗しました。");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const handleSignOut = async () => {
+    await signOut();
+    setIsSignedIn(false);
+    setArticles([]);
+  };
 
   const getCurrentPage = useCallback(async (): Promise<CurrentPage | null> => {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -335,13 +371,15 @@ export function App() {
 
   if (!isLoaded) return <main className="empty-view">ログイン状態を確認しています…</main>;
 
+  if (!isSignedIn) return <main className="popup-shell"><header className="brand"><span>Filo</span><small>Better Auth</small></header><section className="current-page"><h1>{authMode === "sign-in" ? "ログイン" : "アカウント作成"}</h1><input aria-label="メールアドレス" type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="メールアドレス" /><input aria-label="パスワード" type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="8文字以上のパスワード" /><button className="primary-action" disabled={authBusy} onClick={() => void submitAuth()}>{authBusy ? "処理中…" : authMode === "sign-in" ? "ログイン" : "登録"}</button>{authError && <p className="error-message">{authError}</p>}<button className="link-button" onClick={() => setAuthMode(authMode === "sign-in" ? "sign-up" : "sign-in")}>{authMode === "sign-in" ? "アカウントを作成" : "ログインへ戻る"}</button></section></main>;
+
   return (
     <main className="popup-shell">
       <div className="popup-fixed">
         <header className="brand">
           <span>Filo</span>
-          <small title={user?.primaryEmailAddress?.emailAddress}>{user?.primaryEmailAddress?.emailAddress ?? "ログイン不要で読み上げ"}</small>
-          {isSignedIn ? <button className="link-button" onClick={() => openWeb("/articles?readingList=1")}>Webを開く</button> : <button className="link-button" onClick={() => openWeb("/sign-in")}>ログイン</button>}
+          <small> {isSignedIn ? "Better Authでログイン中" : "ログイン不要で読み上げ"}</small>
+          {isSignedIn ? <><button className="link-button" onClick={() => openWeb("/articles?readingList=1")}>Webを開く</button><button className="link-button" onClick={() => void handleSignOut()}>ログアウト</button></> : <button className="link-button" onClick={() => openWeb("/sign-in")}>ログイン</button>}
         </header>
 
         <section className="current-page" aria-label="現在のページ">
