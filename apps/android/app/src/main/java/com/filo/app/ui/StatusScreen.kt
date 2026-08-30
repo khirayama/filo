@@ -1,11 +1,13 @@
 package com.filo.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,7 +22,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,6 +56,9 @@ import kotlin.math.roundToInt
 
 private const val POLL_INTERVAL_MS = 5000L
 
+private enum class StatusFilter { All, Attention, Fetching, Paused }
+private enum class StatusSortKey { Status, FeedTitle, FetchStatus, LastFetchedAt }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
@@ -62,6 +70,11 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
     var busyFeedId by remember { mutableStateOf<Int?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var polling by remember { mutableStateOf(true) }
+    var filterText by remember { mutableStateOf("") }
+    var statusFilter by remember { mutableStateOf(StatusFilter.All) }
+    var sortKey by remember { mutableStateOf(StatusSortKey.Status) }
+    var sortAscending by remember { mutableStateOf(true) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
 
     suspend fun load(showSpinner: Boolean = false) {
         if (showSpinner) isLoading = true
@@ -163,7 +176,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                 HorizontalDivider()
 
                 // Subscription statuses
-                Text("購読一覧（状態順・${s.subscriptionStatuses.size}件）", fontWeight = FontWeight.SemiBold)
+                Text("購読一覧（${s.subscriptionStatuses.size}件）", fontWeight = FontWeight.SemiBold)
                 if (s.subscriptionStatuses.isEmpty()) {
                     Text(
                         "購読がありません。",
@@ -171,7 +184,79 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    sortedStatusSubscriptions(s.subscriptionStatuses).forEach { sub ->
+                    OutlinedTextField(
+                        value = filterText,
+                        onValueChange = { filterText = it },
+                        label = { Text("検索") },
+                        placeholder = { Text("購読名で検索") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilterChipButton("すべて", statusFilter == StatusFilter.All) { statusFilter = StatusFilter.All }
+                        FilterChipButton("問題あり", statusFilter == StatusFilter.Attention) { statusFilter = StatusFilter.Attention }
+                        FilterChipButton("取得中", statusFilter == StatusFilter.Fetching) { statusFilter = StatusFilter.Fetching }
+                        FilterChipButton("停止", statusFilter == StatusFilter.Paused) { statusFilter = StatusFilter.Paused }
+                    }
+                    Box {
+                        OutlinedButton(onClick = { sortMenuOpen = true }) {
+                            Text("並び替え: ${statusSortLabel(sortKey)} ${if (sortAscending) "↑" else "↓"}")
+                        }
+                        DropdownMenu(
+                            expanded = sortMenuOpen,
+                            onDismissRequest = { sortMenuOpen = false },
+                        ) {
+                            listOf(
+                                StatusSortKey.Status to "状態",
+                                StatusSortKey.FeedTitle to "購読",
+                                StatusSortKey.FetchStatus to "取得",
+                                StatusSortKey.LastFetchedAt to "最終取得",
+                            ).forEach { (key, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        if (sortKey == key) sortAscending = !sortAscending
+                                        else {
+                                            sortKey = key
+                                            sortAscending = true
+                                        }
+                                        sortMenuOpen = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    val visibleSubscriptions = s.subscriptionStatuses
+                        .filter { sub ->
+                            val query = filterText.trim().lowercase()
+                            if (query.isNotEmpty() && !sub.feedTitle.lowercase().contains(query)) return@filter false
+                            when (statusFilter) {
+                                StatusFilter.All -> true
+                                StatusFilter.Attention -> hasStatusAttention(sub)
+                                StatusFilter.Fetching -> sub.fetchJob?.status == "pending" || sub.fetchJob?.status == "running"
+                                StatusFilter.Paused -> sub.feedStatus == "paused"
+                            }
+                        }
+                        .sortedWith { lhs, rhs ->
+                            val result = compareStatusSubscriptions(lhs, rhs, sortKey)
+                            if (sortAscending) result else -result
+                        }
+                    if (visibleSubscriptions.isEmpty()) {
+                        Text(
+                            "条件に一致する購読がありません。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            "${visibleSubscriptions.size}/${s.subscriptionStatuses.size}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        visibleSubscriptions.forEach { sub ->
                         val isError = hasStatusAttention(sub)
                         val fetchBusy = sub.fetchJob?.isActive == true || (busyFeedId == sub.feedId && isRefreshing)
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
@@ -236,6 +321,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                             }
                         }
                         HorizontalDivider()
+                        }
                     }
                 }
             }
@@ -246,12 +332,6 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
 // Keep the same actionable-first order as the web and iOS status screens.
 // This is recalculated from every polled snapshot, so rows move when a fetch
 // changes state.
-private fun sortedStatusSubscriptions(subscriptions: List<StatusSubscription>) =
-    subscriptions.sortedWith(
-        compareBy<StatusSubscription> { statusRank(it) }
-            .thenBy { it.feedTitle.lowercase() },
-    )
-
 private fun statusRank(sub: StatusSubscription): Int {
     if (hasStatusAttention(sub)) return 0
     if (sub.fetchJob?.stalled == true) return 1
@@ -265,6 +345,42 @@ private fun hasStatusAttention(sub: StatusSubscription): Boolean =
     sub.consecutiveFailures > 0 ||
         sub.fetchJob?.status == "failed" ||
         sub.lastResult == "error"
+
+private fun statusSortLabel(key: StatusSortKey): String = when (key) {
+    StatusSortKey.Status -> "状態"
+    StatusSortKey.FeedTitle -> "購読"
+    StatusSortKey.FetchStatus -> "取得"
+    StatusSortKey.LastFetchedAt -> "最終取得"
+}
+
+private fun fetchStatusRank(sub: StatusSubscription): Int {
+    if (hasStatusAttention(sub)) return 0
+    if (sub.fetchJob?.stalled == true) return 1
+    if (sub.fetchJob?.status == "running") return 2
+    if (sub.fetchJob?.status == "pending") return 3
+    if (sub.feedStatus == "paused") return 4
+    return 5
+}
+
+private fun compareStatusSubscriptions(
+    lhs: StatusSubscription,
+    rhs: StatusSubscription,
+    key: StatusSortKey,
+): Int {
+    val result = when (key) {
+        StatusSortKey.Status -> statusRank(lhs).compareTo(statusRank(rhs))
+        StatusSortKey.FeedTitle -> lhs.feedTitle.lowercase().compareTo(rhs.feedTitle.lowercase())
+        StatusSortKey.FetchStatus -> fetchStatusRank(lhs).compareTo(fetchStatusRank(rhs))
+        StatusSortKey.LastFetchedAt -> {
+            when {
+                lhs.lastFetchedAt == null && rhs.lastFetchedAt != null -> 1
+                lhs.lastFetchedAt != null && rhs.lastFetchedAt == null -> -1
+                else -> lhs.lastFetchedAt.orEmpty().compareTo(rhs.lastFetchedAt.orEmpty())
+            }
+        }
+    }
+    return if (result != 0) result else lhs.feedTitle.lowercase().compareTo(rhs.feedTitle.lowercase())
+}
 
 // Per-row job badge: hidden when idle (never requested or completed), so the
 // list stays quiet unless something is queued, running, or broken.

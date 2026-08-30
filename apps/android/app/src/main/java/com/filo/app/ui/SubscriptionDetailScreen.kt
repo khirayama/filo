@@ -11,11 +11,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,6 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.filo.app.api.ApiClient
@@ -89,6 +96,7 @@ fun SubscriptionDetailScreen(
     var showMarkAllRead by remember { mutableStateOf(false) }
     var showFeedUrl by remember { mutableStateOf(false) }
     var articleOptionsMenuOpen by remember { mutableStateOf(false) }
+    var subscriptionActionsMenuOpen by remember { mutableStateOf(false) }
     val articleGeneration = remember(subscriptionId) { AtomicLong(0L) }
 
     fun filters() = ArticleListFilters(
@@ -219,13 +227,80 @@ fun SubscriptionDetailScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text(subscription?.displayTitle ?: "購読詳細") },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            subscription?.let { sub ->
+                                FaviconImage(url = sub.feed.faviconUrl)
+                                androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                subscription?.displayTitle ?: "購読詳細",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
                         }
                     },
                     actions = {
+                        if (!isGone) {
+                        IconButton(
+                            enabled = !isRefreshingFeed,
+                            onClick = { scope.launch { refreshFeedAndReload() } },
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "このフィードを更新")
+                        }
+                        IconButton(onClick = { showMarkAllRead = true }) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = "すべて既読にする")
+                        }
+                        Box {
+                            IconButton(onClick = { subscriptionActionsMenuOpen = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "購読の操作")
+                            }
+                            DropdownMenu(
+                                expanded = subscriptionActionsMenuOpen,
+                                onDismissRequest = { subscriptionActionsMenuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("名前を変更") },
+                                    onClick = {
+                                        subscriptionActionsMenuOpen = false
+                                        renameText = subscription?.customTitle.orEmpty()
+                                        showRename = true
+                                    },
+                                )
+                                if (subscription?.feed?.siteUrl != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("サイトを開く") },
+                                        onClick = {
+                                            subscriptionActionsMenuOpen = false
+                                            runCatching {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, subscription?.feed?.siteUrl!!.toUri()))
+                                            }
+                                        },
+                                    )
+                                }
+                                if (subscription?.feed?.feedUrl != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("フィードURLを表示") },
+                                        onClick = {
+                                            subscriptionActionsMenuOpen = false
+                                            showFeedUrl = true
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("購読解除", color = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        subscriptionActionsMenuOpen = false
+                                        showUnsubscribe = true
+                                    },
+                                )
+                            }
+                        }
                         Box {
                             IconButton(onClick = { articleOptionsMenuOpen = true }) {
                                 Icon(Icons.Default.Tune, contentDescription = "表示設定")
@@ -233,7 +308,7 @@ fun SubscriptionDetailScreen(
                             DropdownMenu(expanded = articleOptionsMenuOpen, onDismissRequest = { articleOptionsMenuOpen = false }) {
                                 if (translations.isSupported) {
                                     DropdownMenuItem(
-                                        text = { Text(if (translations.isEnabled) "翻訳（オン）" else "翻訳（オフ）") },
+                                        text = { Text(if (translations.isEnabled) "タイトルを翻訳（オン）" else "タイトルを翻訳（オフ）") },
                                         onClick = { translations.toggle(); articleOptionsMenuOpen = false },
                                     )
                                 }
@@ -249,6 +324,7 @@ fun SubscriptionDetailScreen(
                                 DropdownMenuItem(text = { Text("既読は下") }, onClick = { readOrder = "unread_first"; articleOptionsMenuOpen = false })
                                 DropdownMenuItem(text = { Text("既読は上") }, onClick = { readOrder = "read_first"; articleOptionsMenuOpen = false })
                             }
+                        }
                         }
                     },
                 )
@@ -277,7 +353,7 @@ fun SubscriptionDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             subscription?.let { sub ->
                 item {
@@ -323,27 +399,6 @@ fun SubscriptionDetailScreen(
                                 }
                             }
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            OutlinedButton(onClick = { showMarkAllRead = true }) { Text("すべて既読にする") }
-                            OutlinedButton(onClick = {
-                                renameText = sub.customTitle ?: ""
-                                showRename = true
-                            }) { Text("名前を変更") }
-                            sub.feed.siteUrl?.let { siteUrl ->
-                                OutlinedButton(onClick = {
-                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, siteUrl.toUri())) }
-                                }) { Text("サイトを開く") }
-                            }
-                            if (sub.feed.feedUrl != null) {
-                                OutlinedButton(onClick = { showFeedUrl = true }) { Text("フィードURLを表示") }
-                            }
-                            OutlinedButton(onClick = { showUnsubscribe = true }) {
-                                Text("購読解除", color = MaterialTheme.colorScheme.error)
-                            }
-                        }
                     }
                 }
             }
@@ -385,17 +440,13 @@ fun SubscriptionDetailScreen(
                     }
                 }
                 } else {
-                    items(articles, key = { it.id }) { article ->
+                    itemsIndexed(articles, key = { _, article -> article.id }) { index, article ->
                     ArticleRow(
                         article = article,
                         translations = translations,
                         onOpen = {
                             val url = article.canonicalUrl
-                            if (openInBrowserByDefault && url != null) {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
-                            } else {
-                                onOpenArticle(article)
-                            }
+                            if (url != null) context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
                         },
                         onToggleRead = { patchState(article, isRead = !article.userState.isRead) },
                         onToggleReadingList = {
@@ -404,14 +455,20 @@ fun SubscriptionDetailScreen(
                         onToggleBookmark = { patchState(article, isBookmarked = !article.userState.isBookmarked) },
                     )
                     HorizontalDivider()
+                    if (index >= (articles.size - 4).coerceAtLeast(0) && nextCursor != null) {
+                        LaunchedEffect(article.id) { loadMore() }
+                    }
                 }
-                if (nextCursor != null) {
+                if (isLoadingMore) {
                     item {
-                        TextButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !isLoadingMore,
-                            onClick = ::loadMore,
-                        ) { Text(if (isLoadingMore) "次の記事を読み込んでいます…" else "さらに読み込む") }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Text("次の記事を読み込んでいます…", modifier = Modifier.padding(start = 8.dp))
+                        }
                     }
                 }
             }

@@ -2,23 +2,33 @@ package com.filo.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PermanentDrawerSheet
+import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +64,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.rememberDrawerState
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
@@ -64,6 +82,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var sharedUrl by mutableStateOf<String?>(null)
@@ -270,6 +289,17 @@ private fun FiloTheme(content: @Composable () -> Unit) {
         ),
         content = content,
     )
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            (view.context as? ComponentActivity)?.window?.let { window ->
+                WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !darkTheme
+                    isAppearanceLightNavigationBars = !darkTheme
+                }
+            }
+        }
+    }
 }
 
 @Preview(showBackground = true)
@@ -327,11 +357,11 @@ private fun AuthScreen(
                 Text(
                     text =
                         when (uiState.mode) {
-                            AuthMode.SignIn -> "Sign in"
-                            AuthMode.SignUp -> "Create account"
-                            AuthMode.ResetPasswordRequest -> "Reset password"
-                            AuthMode.ResetPasswordVerify -> "Enter reset code"
-                            AuthMode.ResetPasswordNewPassword -> "Choose a new password"
+                            AuthMode.SignIn -> "サインイン"
+                            AuthMode.SignUp -> "アカウント作成"
+                            AuthMode.ResetPasswordRequest -> "パスワードをリセット"
+                            AuthMode.ResetPasswordVerify -> "リセットコードを入力"
+                            AuthMode.ResetPasswordNewPassword -> "新しいパスワードを設定"
                         },
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold,
@@ -339,64 +369,54 @@ private fun AuthScreen(
                 Text(
                     text =
                         when (uiState.mode) {
-                            AuthMode.SignIn -> "Sign in with your email address and password."
-                            AuthMode.SignUp -> "Create an account with your email address and password."
-                            AuthMode.ResetPasswordRequest -> "We will send a reset code to your email address."
-                            AuthMode.ResetPasswordVerify -> "Enter the reset code from your email."
-                            AuthMode.ResetPasswordNewPassword -> "Set a new password to finish the reset flow."
+                            AuthMode.SignIn -> "メールアドレスとパスワードでサインインします。"
+                            AuthMode.SignUp -> "メールアドレスとパスワードでアカウントを作成します。"
+                            AuthMode.ResetPasswordRequest -> "登録済みのメールアドレスにリセット用のリンクを送信します。"
+                            AuthMode.ResetPasswordVerify -> "メールに記載されたリセットコードを入力してください。"
+                            AuthMode.ResetPasswordNewPassword -> "新しいパスワードを入力してください。"
                         },
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
-                if (uiState.mode == AuthMode.SignIn || uiState.mode == AuthMode.SignUp) {
-                    androidx.compose.material3.TabRow(selectedTabIndex = if (uiState.mode == AuthMode.SignIn) 0 else 1) {
-                        androidx.compose.material3.Tab(
-                            selected = uiState.mode == AuthMode.SignIn,
-                            onClick = { onModeChanged(AuthMode.SignIn) },
-                            text = { Text("Sign in") },
-                        )
-                        androidx.compose.material3.Tab(
-                            selected = uiState.mode == AuthMode.SignUp,
-                            onClick = { onModeChanged(AuthMode.SignUp) },
-                            text = { Text("Sign up") },
-                        )
-                    }
-                }
-
                 when (uiState.mode) {
                     AuthMode.SignIn -> {
                         EmailField(uiState.email, onEmailChanged)
-                        PasswordField("Password", uiState.password, onPasswordChanged)
+                        PasswordField("パスワード", uiState.password, onPasswordChanged)
                         SubmitButton(
-                            text = "Sign in",
+                            text = "サインイン",
                             isLoading = uiState.isSubmitting,
                             onClick = onSignIn,
                         )
                         TextButton(onClick = { onModeChanged(AuthMode.ResetPasswordRequest) }) {
-                            Text("Forgot password?")
+                            Text("パスワードをお忘れですか？")
+                        }
+                        TextButton(onClick = { onModeChanged(AuthMode.SignUp) }) {
+                            Text("アカウントを作成")
                         }
                     }
 
                     AuthMode.SignUp -> {
                         EmailField(uiState.email, onEmailChanged)
-                        PasswordField("Password", uiState.password, onPasswordChanged)
-                        PasswordField("Confirm password", uiState.confirmPassword, onConfirmPasswordChanged)
+                        PasswordField("パスワード", uiState.password, onPasswordChanged)
                         SubmitButton(
-                            text = "Create account",
+                            text = "アカウント作成",
                             isLoading = uiState.isSubmitting,
                             onClick = onSignUp,
                         )
+                        TextButton(onClick = { onModeChanged(AuthMode.SignIn) }) {
+                            Text("サインインへ戻る")
+                        }
                     }
 
                     AuthMode.ResetPasswordRequest -> {
                         EmailField(uiState.email, onEmailChanged)
                         SubmitButton(
-                            text = "Send reset code",
+                            text = "リセットメールを送信",
                             isLoading = uiState.isSubmitting,
                             onClick = onSendResetCode,
                         )
                         OutlinedButton(onClick = onBackToSignIn) {
-                            Text("Back to sign in")
+                            Text("サインインへ戻る")
                         }
                     }
 
@@ -404,20 +424,20 @@ private fun AuthScreen(
                         EmailField(uiState.email, onEmailChanged, enabled = false)
                         CodeField(uiState.code, onCodeChanged)
                         SubmitButton(
-                            text = "Verify code",
+                            text = "コードを確認",
                             isLoading = uiState.isSubmitting,
                             onClick = onVerifyResetCode,
                         )
                         OutlinedButton(onClick = onBackToSignIn) {
-                            Text("Back to sign in")
+                            Text("サインインへ戻る")
                         }
                     }
 
                     AuthMode.ResetPasswordNewPassword -> {
-                        PasswordField("New password", uiState.password, onPasswordChanged)
-                        PasswordField("Confirm password", uiState.confirmPassword, onConfirmPasswordChanged)
+                        PasswordField("新しいパスワード", uiState.password, onPasswordChanged)
+                        PasswordField("新しいパスワード（確認）", uiState.confirmPassword, onConfirmPasswordChanged)
                         SubmitButton(
-                            text = "Update password",
+                            text = "パスワードを変更",
                             isLoading = uiState.isSubmitting,
                             onClick = onResetPassword,
                         )
@@ -446,8 +466,14 @@ private fun RssNavigation(
     val scope = rememberCoroutineScope()
     val titleTranslations = remember { com.filo.app.ui.TitleTranslationStore(context, scope) }
     val readingPlayer = remember { com.filo.app.ui.ReadingPlayerController(context.applicationContext, scope) }
+    val articlesModel: com.filo.app.ui.ArticlesViewModel = viewModel()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val isReadingBrowser = currentBackStackEntry?.destination?.route?.startsWith("reading") == true
+
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
 
     LaunchedEffect(currentBackStackEntry?.destination?.route) {
         currentBackStackEntry?.destination?.route?.let { route ->
@@ -469,11 +495,68 @@ private fun RssNavigation(
         if (sharedUrl != null) navController.navigate("addArticle")
     }
 
-    Column(Modifier.fillMaxSize()) {
-        NavHost(
+    Column(
+        Modifier
+            .fillMaxSize()
+            .safeDrawingPadding(),
+    ) {
+        BoxWithConstraints(modifier = Modifier.weight(1f)) {
+            val isDesktop = maxWidth >= 1024.dp
+            val drawerContent: @Composable () -> Unit = {
+                com.filo.app.ui.RssSourcesDrawerContent(
+                    tags = articlesModel.tags,
+                    subscriptions = articlesModel.subscriptions,
+                    selectedTagId = articlesModel.selectedTagId,
+                    readingListOnly = articlesModel.readingListOnly,
+                    bookmarkedOnly = articlesModel.bookmarkedOnly,
+                    activeRoute = currentBackStackEntry?.destination?.route,
+                    activeSubscriptionId = currentBackStackEntry?.arguments?.getString("id")?.toIntOrNull(),
+                    showCloseButton = !isDesktop,
+                    onCloseDrawer = { scope.launch { drawerState.close() } },
+                    onSelectView = { tagId, readingList, bookmarked ->
+                        articlesModel.selectedTagId = tagId
+                        articlesModel.readingListOnly = readingList
+                        articlesModel.bookmarkedOnly = bookmarked
+                        scope.launch {
+                            drawerState.close()
+                            navController.popBackStack("articles", false)
+                        }
+                    },
+                    onOpenSubscription = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("subscription/$it")
+                    },
+                    onOpenAddFeed = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("addFeed")
+                    },
+                    onOpenAddArticle = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("addArticle")
+                    },
+                    onOpenSubscriptions = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("subscriptions")
+                    },
+                    onOpenTags = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("tags")
+                    },
+                    onOpenStatus = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("status")
+                    },
+                    onOpenSettings = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("settings")
+                    },
+                )
+            }
+            val navContent: @Composable () -> Unit = {
+                NavHost(
             navController = navController,
             startDestination = "articles",
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 slideInHorizontally(
                     initialOffsetX = { it },
@@ -503,11 +586,24 @@ private fun RssNavigation(
             val selectedTagId by entry.savedStateHandle
                 .getStateFlow<Int?>("selectedTagId", null)
                 .collectAsState()
+            val initialReadingList by entry.savedStateHandle
+                .getStateFlow("readingList", false)
+                .collectAsState()
             com.filo.app.ui.ArticlesScreen(
                 translations = titleTranslations,
+                model = articlesModel,
+                showDesktopSidebar = false,
+                showMobileDrawer = false,
+                showMobileMenu = true,
+                onCloseMobileDrawer = { scope.launch { drawerState.close() } },
+                onOpenMobileDrawer = { scope.launch { drawerState.open() } },
                 initialSelectedTagId = selectedTagId,
                 onInitialSelectedTagConsumed = {
                     entry.savedStateHandle.remove<Int>("selectedTagId")
+                },
+                initialReadingList = initialReadingList,
+                onInitialReadingListConsumed = {
+                    entry.savedStateHandle.remove<Boolean>("readingList")
                 },
                 onOpenSubscription = { navController.navigate("subscription/$it") },
                 onOpenSubscriptions = { navController.navigate("subscriptions") },
@@ -530,10 +626,6 @@ private fun RssNavigation(
                 onOpenTags = { navController.navigate("tags") },
                 onOpenStatus = { navController.navigate("status") },
                 onOpenSettings = { navController.navigate("settings") },
-                onStartReading = { autoplay ->
-                    Analytics.track("start_reading", mapOf("autoplay" to autoplay))
-                    navController.navigate("reading/$autoplay")
-                },
             )
         }
         composable("reading/{autoplay}") { entry ->
@@ -583,14 +675,19 @@ private fun RssNavigation(
                 onOpenSubscription = { navController.navigate("subscription/$it") },
                 onOpenAddFeed = { navController.navigate("addFeed") },
                 onOpenTags = { navController.navigate("tags") },
-                onOpenSettings = { navController.navigate("settings") },
                 onSelectTag = { tagId ->
                     navController.previousBackStackEntry?.savedStateHandle?.set("selectedTagId", tagId)
                     navController.navigateUp()
                 },
             )
         }
-        composable("addFeed") { com.filo.app.ui.AddFeedScreen(onBack = { navController.navigateUp() }) }
+        composable("addFeed") {
+            com.filo.app.ui.AddFeedScreen(
+                onBack = { navController.navigateUp() },
+                onOpenArticles = { navController.popBackStack("articles", false) },
+                onCreated = { articlesModel.reload() },
+            )
+        }
         composable("addArticle") {
             com.filo.app.ui.AddArticleScreen(
                 initialUrl = sharedUrl.orEmpty(),
@@ -598,11 +695,10 @@ private fun RssNavigation(
                     onSharedUrlConsumed()
                     navController.navigateUp()
                 },
-                onReadAloud = { url ->
+                onSaved = {
                     onSharedUrlConsumed()
-                    navController.navigate("reading-page?url=${Uri.encode(url)}") {
-                        popUpTo("addArticle") { inclusive = true }
-                    }
+                    navController.previousBackStackEntry?.savedStateHandle?.set("readingList", true)
+                    navController.popBackStack("articles", false)
                 },
             )
         }
@@ -638,12 +734,55 @@ private fun RssNavigation(
                 },
             )
         }
-        composable("accountDeletion?token={token}") { entry ->
-            com.filo.app.ui.AccountDeletionScreen(
-                deletionToken = entry.arguments?.getString("token"),
-                onSignOut = onSignOut,
-            )
+            composable("accountDeletion?token={token}") { entry ->
+                com.filo.app.ui.AccountDeletionScreen(
+                    deletionToken = entry.arguments?.getString("token"),
+                    onSignOut = onSignOut,
+                    onBackToSettings = { navController.navigateUp() },
+                )
+            }
         }
+            }
+            if (isDesktop) {
+                PermanentNavigationDrawer(
+                    drawerContent = {
+                        PermanentDrawerSheet(
+                            modifier = Modifier.width(280.dp),
+                            drawerShape = RectangleShape,
+                        ) { drawerContent() }
+                    },
+                ) { navContent() }
+            } else {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ModalDrawerSheet(
+                            modifier = Modifier.fillMaxWidth(),
+                            drawerShape = RectangleShape,
+                        ) { drawerContent() }
+                    },
+                ) {
+                    Column(Modifier.fillMaxSize()) {
+                        if (currentBackStackEntry?.destination?.route != "articles") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(51.dp)
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(Icons.Default.Menu, contentDescription = "メニュー")
+                                }
+                                Text("Filo", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                            }
+                            HorizontalDivider()
+                        }
+                        navContent()
+                    }
+                }
+            }
         }
         if (readingPlayer.isPlaying && !isReadingBrowser) {
             com.filo.app.ui.ReadingMiniPlayer(readingPlayer)
@@ -655,7 +794,7 @@ private fun RssNavigation(
 private fun EmailField(value: String, onValueChange: (String) -> Unit, enabled: Boolean = true) {
     OutlinedTextField(
         enabled = enabled,
-        label = { Text("Email") },
+        label = { Text("メールアドレス") },
         modifier = Modifier.fillMaxWidth(),
         onValueChange = onValueChange,
         singleLine = true,
@@ -676,7 +815,7 @@ private fun PasswordField(label: String, value: String, onValueChange: (String) 
 @Composable
 private fun CodeField(value: String, onValueChange: (String) -> Unit) {
     OutlinedTextField(
-        label = { Text("Code") },
+        label = { Text("リセットコード") },
         modifier = Modifier.fillMaxWidth(),
         onValueChange = onValueChange,
         singleLine = true,

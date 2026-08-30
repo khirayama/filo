@@ -3,6 +3,10 @@ package com.filo.app.ui
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -112,9 +118,9 @@ fun FilterChipButton(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.labelMedium,
             color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
         )
     }
 }
@@ -171,6 +177,7 @@ fun FaviconImage(url: String?, modifier: Modifier = Modifier, siteUrl: String? =
 fun ArticleRow(
     article: ArticleListItem,
     selected: Boolean = false,
+    onOpenFeed: (() -> Unit)? = null,
     onOpen: () -> Unit,
     onToggleRead: (() -> Unit)? = null,
     onToggleReadingList: (() -> Unit)? = null,
@@ -183,102 +190,216 @@ fun ArticleRow(
     val translatedTitle = translations?.titleFor(article.id)
     val isTranslated = translatedTitle != null
     val displayTitle = if (showOriginal) article.title else translatedTitle ?: article.title
+    val isDesktop = LocalConfiguration.current.screenWidthDp >= 1024
+    val titleStyle = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp)
+    val hoverInteractionSource = remember { MutableInteractionSource() }
+    val isHovered by hoverInteractionSource.collectIsHoveredAsState()
 
     Surface(
-        onClick = onOpen,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        color = if (isDesktop && isHovered) {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f)
+        } else {
+            Color.Transparent
+        },
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (isDesktop) Modifier.hoverable(hoverInteractionSource) else Modifier)
             .alpha(if (article.userState.isRead) 0.55f else 1f),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
+        if (isDesktop) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    article.feedTitle,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                Row(
+                    modifier = Modifier.width(120.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    feedTitle(article.feedTitle, onOpenFeed, Modifier.weight(1f))
+                    translationButton(isTranslated, showOriginal) { showOriginal = !showOriginal }
+                }
+                articleTitle(
+                    displayTitle,
+                    titleStyle,
+                    article.userState.isRead,
+                    Modifier.weight(1f).padding(start = 16.dp),
+                    singleLine = true,
+                    onOpen = onOpen,
                 )
-                if (isTranslated) {
-                    Surface(
-                        onClick = { showOriginal = !showOriginal },
-                        shape = MaterialTheme.shapes.extraSmall,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                        color = Color.Transparent,
-                    ) {
-                        Text(
-                            if (showOriginal) "翻訳" else "原文",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                        )
-                    }
+                if (!article.previewText.isNullOrEmpty()) {
+                    Text(
+                        article.previewText.orEmpty(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 Text(
                     compactRelativeTime(article.publishedAt ?: article.fetchedAt),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (onToggleRead != null) {
-                    Surface(
-                        onClick = onToggleRead,
-                        color = Color.Transparent,
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.CheckCircle,
-                            contentDescription = if (article.userState.isRead) "未読にする" else "既読にする",
-                            tint = if (article.userState.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(7.dp),
-                        )
-                    }
-                }
-                if (onToggleReadingList != null) {
-                    Surface(
-                        onClick = onToggleReadingList,
-                        color = Color.Transparent,
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.PlaylistAdd,
-                            contentDescription = if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加",
-                            tint = if (article.userState.inReadingList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(7.dp),
-                        )
-                    }
-                }
-                if (onToggleBookmark != null) {
-                    Surface(
-                        onClick = onToggleBookmark,
-                        color = Color.Transparent,
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            if (article.userState.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = if (article.userState.isBookmarked) "ブックマークを解除" else "ブックマーク",
-                            tint = if (article.userState.isBookmarked) WirePalette.Star else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(7.dp),
-                        )
-                    }
-                }
+                ArticleActions(
+                    article = article,
+                    onToggleRead = onToggleRead,
+                    onToggleReadingList = onToggleReadingList,
+                    onToggleBookmark = onToggleBookmark,
+                    visible = isHovered || selected || article.userState.inReadingList || article.userState.isBookmarked,
+                )
             }
+        } else {
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = horizontalPadding)
+                    .padding(top = 1.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    feedTitle(article.feedTitle, onOpenFeed, Modifier.weight(1f))
+                    translationButton(isTranslated, showOriginal) { showOriginal = !showOriginal }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        compactRelativeTime(article.publishedAt ?: article.fetchedAt),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    ArticleActions(
+                        article = article,
+                        onToggleRead = onToggleRead,
+                        onToggleReadingList = onToggleReadingList,
+                        onToggleBookmark = onToggleBookmark,
+                    )
+                }
+                articleTitle(
+                    displayTitle,
+                    titleStyle,
+                    article.userState.isRead,
+                    Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    onOpen = onOpen,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun feedTitle(title: String, onOpenFeed: (() -> Unit)?, modifier: Modifier) {
+    val feedModifier = if (onOpenFeed != null) modifier.clickable { onOpenFeed() } else modifier
+    Text(
+        title,
+        modifier = feedModifier,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun translationButton(isTranslated: Boolean, showOriginal: Boolean, onClick: () -> Unit) {
+    if (isTranslated) {
+        Surface(
+            onClick = onClick,
+            shape = MaterialTheme.shapes.extraSmall,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+            color = Color.Transparent,
+        ) {
             Text(
-                displayTitle,
-                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
-                fontWeight = if (article.userState.isRead) FontWeight.Normal else FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                if (showOriginal) "翻訳" else "原文",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun articleTitle(
+    title: String,
+    style: androidx.compose.ui.text.TextStyle,
+    isRead: Boolean,
+    modifier: Modifier,
+    singleLine: Boolean,
+    onOpen: () -> Unit,
+) {
+    Text(
+        title,
+        style = style,
+        fontWeight = if (isRead) FontWeight.Normal else FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = if (singleLine) 1 else Int.MAX_VALUE,
+        overflow = if (singleLine) TextOverflow.Ellipsis else TextOverflow.Clip,
+        modifier = modifier.clickable(onClick = onOpen),
+    )
+}
+
+@Composable
+private fun ArticleActions(
+    article: ArticleListItem,
+    onToggleRead: (() -> Unit)?,
+    onToggleReadingList: (() -> Unit)?,
+    onToggleBookmark: (() -> Unit)?,
+    visible: Boolean = true,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.alpha(if (visible) 1f else 0f),
+    ) {
+        if (onToggleRead != null) {
+            Surface(
+                onClick = onToggleRead,
+                color = Color.Transparent,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.CheckCircle,
+                    contentDescription = if (article.userState.isRead) "未読にする" else "既読にする",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(7.dp),
+                )
+            }
+        }
+        if (onToggleReadingList != null) {
+            Surface(
+                onClick = onToggleReadingList,
+                color = Color.Transparent,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.PlaylistAdd,
+                    contentDescription = if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加",
+                    tint = if (article.userState.inReadingList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(7.dp),
+                )
+            }
+        }
+        if (onToggleBookmark != null) {
+            Surface(
+                onClick = onToggleBookmark,
+                color = Color.Transparent,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    if (article.userState.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                    contentDescription = if (article.userState.isBookmarked) "ブックマークを解除" else "ブックマーク",
+                    tint = if (article.userState.isBookmarked) WirePalette.Star else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(7.dp),
+                )
+            }
         }
     }
 }

@@ -47,7 +47,7 @@ class MainViewModel : ViewModel() {
             val body = JSONObject().apply {
                 put("email", state.email.trim())
                 put("password", state.password)
-                put("name", "Filo user")
+                put("name", state.email.substringBefore("@").ifBlank { "Filo user" })
             }.toString()
             val connection = post("/api/auth/$endpoint/email", body)
             val token = connection.getHeaderField("set-auth-token")

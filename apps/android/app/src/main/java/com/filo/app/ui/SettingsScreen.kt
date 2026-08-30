@@ -191,8 +191,13 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(onClick = { translations.isShowingSetup = true }) {
-                    Text(stringResource(com.filo.app.R.string.prepare_translation))
+                if (translations.isSupported) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(stringResource(com.filo.app.R.string.prepare_translation), fontWeight = FontWeight.SemiBold)
+                        TextButton(onClick = { translations.isShowingSetup = true }) {
+                            Text("言語を確認")
+                        }
+                    }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(com.filo.app.R.string.readable_languages), style = MaterialTheme.typography.labelLarge)
@@ -348,6 +353,7 @@ private fun ChoiceRow(
 fun AccountDeletionScreen(
     deletionToken: String?,
     onSignOut: () -> Unit,
+    onBackToSettings: () -> Unit = {},
 ) {
     var status by remember { mutableStateOf<String?>(null) }
 
@@ -395,7 +401,10 @@ fun AccountDeletionScreen(
                     StatusBadge("削除処理に失敗しました", BadgeTone.Danger)
                     Text("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。")
                 }
-                "none" -> Text("進行中の削除処理はありません。")
+                "none" -> {
+                    Text("進行中の削除処理はありません。")
+                    TextButton(onClick = onBackToSettings) { Text("設定へ戻る") }
+                }
                 else -> {
                     CircularProgressIndicator()
                     Text("削除処理中…")

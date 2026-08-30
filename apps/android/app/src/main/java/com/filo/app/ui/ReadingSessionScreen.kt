@@ -491,6 +491,14 @@ fun ReadingSessionScreen(
                 true
             } else if (hasModifier) {
                 false
+            } else if (
+                event.nativeKeyEvent.repeatCount > 0
+                && event.key != Key.J
+                && event.key != Key.DirectionDown
+                && event.key != Key.K
+                && event.key != Key.DirectionUp
+            ) {
+                false
             } else {
                 when {
                     event.key == Key.Spacebar -> {

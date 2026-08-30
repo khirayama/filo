@@ -15,7 +15,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,11 +31,10 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onReadAloud: (String) -> Unit = {}) {
+fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onSaved: (() -> Unit)? = null) {
     val scope = rememberCoroutineScope()
     var url by remember(initialUrl) { mutableStateOf(initialUrl) }
     var isSubmitting by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
@@ -55,10 +53,10 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onReadAloud: (Strin
             modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("共有されたURLを保存または読み上げます。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("URLをリーディングリストに保存します。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = url,
-                onValueChange = { url = it; error = null; result = null },
+                onValueChange = { url = it; error = null },
                 label = { Text("記事URL") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -69,14 +67,13 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onReadAloud: (Strin
                     scope.launch {
                         isSubmitting = true
                         error = null
-                        result = null
                         try {
                             val saved = ApiClient.importArticle(url.trim())
                             Analytics.track(
                                 "add_to_reading_list",
                                 mapOf("source" to "manual_url", "created" to saved.created),
                             )
-                            result = if (saved.created) "リーディングリストに追加しました。" else "リーディングリストに保存済みです。"
+                            onSaved?.invoke()
                         } catch (cause: Exception) {
                             error = ErrorMessages.forError(cause)
                         } finally {
@@ -85,11 +82,6 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onReadAloud: (Strin
                     }
                 },
             ) { Text(if (isSubmitting) "保存中…" else "追加") }
-            TextButton(
-                enabled = !isSubmitting && url.isNotBlank(),
-                onClick = { onReadAloud(url.trim()) },
-            ) { Text("保存せずに読み上げ") }
-            result?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             error?.let { ErrorBanner(it) }
         }
     }

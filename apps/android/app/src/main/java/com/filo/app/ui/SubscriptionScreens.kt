@@ -1,10 +1,13 @@
 package com.filo.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,13 +18,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -52,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.filo.app.WirePalette
 import com.filo.app.api.ApiClient
 import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
@@ -76,7 +81,6 @@ fun SubscriptionsScreen(
     onOpenSubscription: (Int) -> Unit,
     onOpenAddFeed: () -> Unit,
     onOpenTags: () -> Unit,
-    onOpenSettings: () -> Unit,
     onSelectTag: (Int) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -87,6 +91,7 @@ fun SubscriptionsScreen(
     var collapsed by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var renamingTag by remember { mutableStateOf<Tag?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var isReordering by remember { mutableStateOf(false) }
 
     suspend fun reload() {
         isLoading = true
@@ -114,6 +119,7 @@ fun SubscriptionsScreen(
     }
 
     fun move(subscriptionId: Int, direction: Int, groupSubscriptionIds: List<Int>) {
+        if (isReordering) return
         val groupIndex = groupSubscriptionIds.indexOf(subscriptionId)
         val targetGroupIndex = groupIndex + direction
         if (groupIndex < 0 || targetGroupIndex !in groupSubscriptionIds.indices) return
@@ -127,9 +133,29 @@ fun SubscriptionsScreen(
         next[index] = next[target]
         next[target] = item
         subscriptions = next
+        isReordering = true
         scope.launch {
             try {
                 ApiClient.reorderSubscriptions(next.map { it.id })
+            } catch (e: Exception) {
+                errorMessage = ErrorMessages.forError(e)
+                reload()
+            }
+            isReordering = false
+        }
+    }
+
+    fun moveTag(tagId: Int, direction: Int) {
+        val index = tags.indexOfFirst { it.id == tagId }
+        val target = index + direction
+        if (index < 0 || target !in tags.indices) return
+        val next = tags.toMutableList()
+        val item = next.removeAt(index)
+        next.add(target, item)
+        tags = next
+        scope.launch {
+            try {
+                ApiClient.reorderTags(next.map { it.id })
             } catch (e: Exception) {
                 errorMessage = ErrorMessages.forError(e)
                 reload()
@@ -140,7 +166,7 @@ fun SubscriptionsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("購読一覧") },
+                title = { Text("購読管理") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
@@ -149,7 +175,6 @@ fun SubscriptionsScreen(
                 actions = {
                     IconButton(onClick = onOpenAddFeed) { Icon(Icons.Default.Add, contentDescription = "フィード追加") }
                     TextButton(onClick = onOpenTags) { Text("タグ") }
-                    IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "設定") }
                 },
             )
         },
@@ -167,7 +192,7 @@ fun SubscriptionsScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) { CircularProgressIndicator() }
                 }
-            } else if (errorMessage != null && subscriptions.isEmpty()) {
+            } else if (errorMessage != null) {
                 item { ErrorBanner(errorMessage!!) { scope.launch { reload() } } }
             } else if (subscriptions.isEmpty()) {
                 item {
@@ -177,7 +202,7 @@ fun SubscriptionsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text("まだ購読がありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Button(onClick = onOpenAddFeed) { Text("フィードを追加して始めましょう") }
+                        Button(onClick = onOpenAddFeed) { Text("フィードを追加") }
                     }
                 }
             } else {
@@ -195,7 +220,7 @@ fun SubscriptionsScreen(
                                 collapsed = if (collapsed.contains(key)) collapsed - key else collapsed + key
                             }) {
                                 Icon(
-                                    if (collapsed.contains(key)) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    if (collapsed.contains(key)) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
                                     contentDescription = null,
                                 )
                             }
@@ -205,6 +230,17 @@ fun SubscriptionsScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.weight(1f).clickable { onSelectTag(tag.id) },
                             )
+                            Text(
+                                "${items.size}件",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            IconButton(onClick = { moveTag(tag.id, -1) }) {
+                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "タグを上へ")
+                            }
+                            IconButton(onClick = { moveTag(tag.id, 1) }) {
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "タグを下へ")
+                            }
                             TextButton(onClick = {
                                 renameText = tag.name
                                 renamingTag = tag
@@ -217,6 +253,7 @@ fun SubscriptionsScreen(
                                 subscription,
                                 allTags = tags,
                                 onOpen = { onOpenSubscription(subscription.id) },
+                                moveEnabled = !isReordering,
                                 onMove = { id, direction -> move(id, direction, items.map { it.id }) },
                                 onTagsChange = ::updateSubscriptionTags,
                             )
@@ -227,21 +264,39 @@ fun SubscriptionsScreen(
                 val untagged = subscriptions.filter { it.tagIds.isEmpty() }
                 if (untagged.isNotEmpty()) {
                     item(key = "untagged-header") {
-                        Text(
-                            "タグなし",
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = {
+                                collapsed = if (collapsed.contains(-1)) collapsed - (-1) else collapsed + (-1)
+                            }) {
+                                Icon(
+                                    if (collapsed.contains(-1)) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (collapsed.contains(-1)) "展開" else "折りたたむ",
+                                )
+                            }
+                            Text("タグなし", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${untagged.size}件",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
                     }
-                    items(untagged, key = { "sub-untagged-${it.id}" }) { subscription ->
-                        SubscriptionListRow(
-                            subscription,
-                            allTags = tags,
-                            onOpen = { onOpenSubscription(subscription.id) },
-                            onMove = { id, direction -> move(id, direction, untagged.map { it.id }) },
-                            onTagsChange = ::updateSubscriptionTags,
-                        )
-                        HorizontalDivider()
+                    if (!collapsed.contains(-1)) {
+                        items(untagged, key = { "sub-untagged-${it.id}" }) { subscription ->
+                            SubscriptionListRow(
+                                subscription,
+                                allTags = tags,
+                                onOpen = { onOpenSubscription(subscription.id) },
+                                moveEnabled = !isReordering,
+                                onMove = { id, direction -> move(id, direction, untagged.map { it.id }) },
+                                onTagsChange = ::updateSubscriptionTags,
+                            )
+                            HorizontalDivider()
+                        }
                     }
                 }
             }
@@ -278,19 +333,20 @@ private fun SubscriptionListRow(
     subscription: Subscription,
     allTags: List<Tag>,
     onOpen: () -> Unit,
+    moveEnabled: Boolean = true,
     onMove: (Int, Int) -> Unit,
     onTagsChange: (Int, List<Int>) -> Unit,
 ) {
     var tagMenuOpen by remember { mutableStateOf(false) }
 
-    Surface(onClick = onOpen, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
+    Surface(color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FaviconImage(url = subscription.feed.faviconUrl, siteUrl = subscription.feed.siteUrl)
+            FaviconImage(url = subscription.feed.faviconUrl)
             Column(modifier = Modifier.weight(1f).padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(subscription.displayTitle, fontWeight = FontWeight.Medium)
+                Text(subscription.displayTitle, fontWeight = FontWeight.Medium, modifier = Modifier.clickable(onClick = onOpen))
                 Text(
                     "最終公開 ${subscription.feed.latestPublishedAt?.let(::relativeTime).takeUnless { it.isNullOrEmpty() } ?: "—"}",
                     style = MaterialTheme.typography.bodySmall,
@@ -335,19 +391,23 @@ private fun SubscriptionListRow(
                     }
                 }
             }
-            IconButton(onClick = { onMove(subscription.id, -1) }) {
+            IconButton(enabled = moveEnabled, onClick = { onMove(subscription.id, -1) }) {
                 Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上へ")
             }
-            IconButton(onClick = { onMove(subscription.id, 1) }) {
+            IconButton(enabled = moveEnabled, onClick = { onMove(subscription.id, 1) }) {
                 Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下へ")
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun AddFeedScreen(onBack: () -> Unit) {
+fun AddFeedScreen(
+    onBack: () -> Unit,
+    onOpenArticles: () -> Unit = {},
+    onCreated: suspend () -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
     var url by remember { mutableStateOf("") }
     var tags by remember { mutableStateOf<List<Tag>>(emptyList()) }
@@ -365,7 +425,7 @@ fun AddFeedScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("フィード追加") },
+                title = { Text("フィードを追加") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
@@ -386,6 +446,7 @@ fun AddFeedScreen(onBack: () -> Unit) {
                     value = url,
                     onValueChange = { url = it },
                     label = { Text("RSS/Atom URL または サイトURL") },
+                    placeholder = { Text("https://example.com/feed.xml") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -394,9 +455,9 @@ fun AddFeedScreen(onBack: () -> Unit) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("タグ", style = MaterialTheme.typography.labelLarge)
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             tags.forEach { tag ->
                                 FilterChipButton(tag.name, selectedTagIds.contains(tag.id)) {
@@ -416,6 +477,7 @@ fun AddFeedScreen(onBack: () -> Unit) {
                     value = newTagNames,
                     onValueChange = { newTagNames = it },
                     label = { Text("新規タグ（カンマ区切り）") },
+                    placeholder = { Text("AI, Engineering") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -434,7 +496,15 @@ fun AddFeedScreen(onBack: () -> Unit) {
                                     tagIds = selectedTagIds.toList(),
                                     tagNames = newTagNames.split(",", "、").map { it.trim() }.filter { it.isNotEmpty() },
                                 )
-                                com.filo.app.Analytics.track("add_feed", mapOf("tag_count" to selectedTagIds.size))
+                                onCreated()
+                                val newTagCount = newTagNames.split(",", "、").count { it.trim().isNotEmpty() }
+                                com.filo.app.Analytics.track(
+                                    "add_feed",
+                                    mapOf(
+                                        "has_custom_tags" to (newTagCount > 0),
+                                        "tag_count" to (selectedTagIds.size + newTagCount),
+                                    ),
+                                )
                             } catch (e: Exception) {
                                 errorMessage = ErrorMessages.forError(e)
                             }
@@ -448,36 +518,47 @@ fun AddFeedScreen(onBack: () -> Unit) {
             }
             created?.let { subscription ->
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(subscription.displayTitle, fontWeight = FontWeight.SemiBold)
-                        when (subscription.initialFetchStatus) {
-                            "ready" -> {
-                                StatusBadge("追加完了", BadgeTone.Ok)
-                                Text("記事の取得が完了しています。")
-                            }
-                            "fetching" -> {
-                                StatusBadge("記事取得中")
-                                Text("購読の追加は完了しました。記事を取得しています。")
-                            }
-                            else -> {
-                                StatusBadge("初回取得失敗", BadgeTone.Danger)
-                                Text("購読は作成されましたが、${ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode)}")
-                                Button(
-                                    enabled = !isRetrying,
-                                    onClick = {
-                                        scope.launch {
-                                            isRetrying = true
-                                            try {
-                                                created = ApiClient.retryInitialFetch(subscription.id)
-                                                com.filo.app.Analytics.track("retry_feed_fetch")
-                                            } catch (e: Exception) {
-                                                errorMessage = ErrorMessages.forError(e)
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, WirePalette.Border),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(subscription.displayTitle, fontWeight = FontWeight.SemiBold)
+                            when (subscription.initialFetchStatus) {
+                                "ready" -> {
+                                    StatusBadge("追加完了", BadgeTone.Ok)
+                                    Text("記事の取得が完了しています。")
+                                }
+                                "fetching" -> {
+                                    StatusBadge("記事取得中")
+                                    Text("購読の追加は完了しました。記事を取得しています。")
+                                }
+                                else -> {
+                                    StatusBadge("初回取得失敗", BadgeTone.Danger)
+                                    Text("購読は作成されましたが、${ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode)}")
+                                    Button(
+                                        enabled = !isRetrying,
+                                        onClick = {
+                                            scope.launch {
+                                                isRetrying = true
+                                                try {
+                                                    created = ApiClient.retryInitialFetch(subscription.id)
+                                                    com.filo.app.Analytics.track("retry_feed_fetch")
+                                                } catch (e: Exception) {
+                                                    errorMessage = ErrorMessages.forError(e)
+                                                }
+                                                isRetrying = false
                                             }
-                                            isRetrying = false
-                                        }
-                                    },
-                                ) { Text(if (isRetrying) "再試行中…" else "再試行") }
+                                        },
+                                    ) { Text(if (isRetrying) "再試行中…" else "再試行") }
+                                }
                             }
+                            TextButton(onClick = onOpenArticles) { Text("記事一覧へ") }
                         }
                     }
                 }
@@ -523,7 +604,12 @@ fun TagsScreen(onBack: () -> Unit) {
         next.add(target, item)
         tags = next
         scope.launch {
-            runCatching { ApiClient.reorderTags(next.map { it.id }) }
+            try {
+                ApiClient.reorderTags(next.map { it.id })
+            } catch (e: Exception) {
+                errorMessage = ErrorMessages.forError(e)
+                reload()
+            }
         }
     }
 
