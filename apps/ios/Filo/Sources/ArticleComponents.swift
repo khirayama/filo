@@ -1,5 +1,32 @@
 import SwiftUI
 
+private struct FiloIsDesktopKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var filoIsDesktop: Bool {
+        get { self[FiloIsDesktopKey.self] }
+        set { self[FiloIsDesktopKey.self] = newValue }
+    }
+}
+
+struct FiloResponsiveContainer<Content: View>: View {
+    let content: (Bool) -> Content
+
+    init(@ViewBuilder content: @escaping (Bool) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            content(proxy.size.width >= 1024)
+                .environment(\.filoIsDesktop, proxy.size.width >= 1024)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+}
+
 struct FaviconView: View {
     let url: String?
     var fallbackSiteUrl: String? = nil
@@ -43,9 +70,9 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.callout)
+                .font(.system(size: 13))
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
                 .background(isOn ? Color.primary : Color.clear)
                 .foregroundStyle(isOn ? FiloPalette.background : FiloPalette.text)
                 .overlay(Capsule().stroke(FiloPalette.border, lineWidth: 1))
@@ -57,13 +84,17 @@ struct FilterChip: View {
 
 struct ArticleRowView: View {
     let article: ArticleListItem
+    var selected = false
     var horizontalPadding: CGFloat = 16
+    var onOpenFeed: (() -> Void)? = nil
     var onOpen: (() -> Void)? = nil
     var onToggleRead: (() -> Void)? = nil
     var onToggleReadingList: (() -> Void)? = nil
     var onToggleBookmark: (() -> Void)? = nil
     @ObservedObject private var translations = TitleTranslationStore.shared
     @State private var showOriginal = false
+    @State private var hovered = false
+    @Environment(\.filoIsDesktop) private var isDesktop
 
     // 翻訳は端末内で走るので、届いた分から順に差し替わる
     private var translatedTitle: String? { translations.title(for: article.id) }
@@ -71,62 +102,145 @@ struct ArticleRowView: View {
     private var displayTitle: String { (showOriginal ? nil : translatedTitle) ?? article.title }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        Group {
+            if isDesktop {
+                desktopRow
+            } else {
+                mobileRow
+            }
+        }
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, isDesktop ? 2 : 1)
+        .padding(.bottom, isDesktop ? 2 : 8)
+        .background(isDesktop && hovered ? Color.primary.opacity(0.03) : Color.clear)
+        .opacity(article.userState.isRead ? 0.55 : 1)
+        .overlay {
+            if selected {
+                Rectangle()
+                    .stroke(FiloPalette.accent, lineWidth: 2)
+            }
+        }
+        .onHover { hovered = $0 }
+    }
+
+    private var desktopRow: some View {
+        HStack(spacing: 8) {
             HStack(spacing: 6) {
+                feedName
+                translationButton
+            }
+            .frame(width: 120, alignment: .leading)
+            .clipped()
+
+            title
+                .lineLimit(1)
+                .padding(.leading, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let previewText = article.previewText, !previewText.isEmpty {
+                Text(previewText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(FiloPalette.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text(DateFormatting.compact(article.publishedAt ?? article.fetchedAt))
+                .font(.system(size: 12))
+                .foregroundStyle(FiloPalette.muted)
+                .fixedSize()
+            actions
+                .opacity(hovered || selected || article.userState.inReadingList || article.userState.isBookmarked ? 1 : 0)
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(FiloPalette.muted)
+    }
+
+    private var mobileRow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                feedName
+                translationButton
+                Spacer(minLength: 0)
+                Text(DateFormatting.compact(article.publishedAt ?? article.fetchedAt))
+                    .layoutPriority(1)
+                actions
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(FiloPalette.muted)
+            title
+        }
+    }
+
+    private var feedName: some View {
+        Group {
+            if let onOpenFeed {
+                Button(action: onOpenFeed) {
+                    Text(article.feed.title)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            } else {
                 Text(article.feed.title)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if isTranslated {
-                    Button {
-                        showOriginal.toggle()
-                    } label: {
-                        Text(showOriginal ? "翻訳" : "原文")
-                            .font(.caption2)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .stroke(Color.secondary.opacity(0.5), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-                Text(DateFormatting.compact(article.publishedAt ?? article.fetchedAt))
-                    .layoutPriority(1)
-                actionButton(
-                    systemName: "checkmark.circle",
-                    active: article.userState.isRead,
-                    action: onToggleRead,
-                    label: article.userState.isRead ? "未読にする" : "既読にする",
-                )
-                actionButton(
-                    systemName: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus",
-                    active: article.userState.inReadingList,
-                    action: onToggleReadingList,
-                    label: article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
-                )
-                actionButton(
-                    systemName: article.userState.isBookmarked ? "bookmark.fill" : "bookmark",
-                    active: article.userState.isBookmarked,
-                    activeColor: FiloPalette.star,
-                    action: onToggleBookmark,
-                    label: article.userState.isBookmarked ? "ブックマークを解除" : "ブックマーク",
-                )
             }
-            .font(.system(size: 12))
-            .foregroundStyle(FiloPalette.muted)
-            Text(displayTitle)
-                .font(.system(size: 14, weight: article.userState.isRead ? .regular : .semibold))
-                .foregroundStyle(FiloPalette.text)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture { onOpen?() }
         }
-        .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, 8)
-        .opacity(article.userState.isRead ? 0.55 : 1)
+    }
+
+    private var translationButton: some View {
+        Group {
+            if isTranslated {
+                Button {
+                    showOriginal.toggle()
+                } label: {
+                    Text(showOriginal ? "翻訳" : "原文")
+                        .font(.system(size: 10))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(FiloPalette.border, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var title: some View {
+        Text(displayTitle)
+            .font(.system(size: 14, weight: article.userState.isRead ? .regular : .semibold))
+            .foregroundStyle(FiloPalette.text)
+            .contentShape(Rectangle())
+            .onTapGesture { onOpen?() }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 2) {
+            actionButton(
+                systemName: "checkmark.circle",
+                active: article.userState.isRead,
+                activeColor: FiloPalette.muted,
+                action: onToggleRead,
+                label: article.userState.isRead ? "未読にする" : "既読にする",
+            )
+            actionButton(
+                systemName: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus",
+                active: article.userState.inReadingList,
+                action: onToggleReadingList,
+                label: article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
+            )
+            actionButton(
+                systemName: article.userState.isBookmarked ? "bookmark.fill" : "bookmark",
+                active: article.userState.isBookmarked,
+                activeColor: FiloPalette.star,
+                action: onToggleBookmark,
+                label: article.userState.isBookmarked ? "ブックマークを解除" : "ブックマーク",
+            )
+        }
     }
 
     @ViewBuilder

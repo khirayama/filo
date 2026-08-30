@@ -3,31 +3,37 @@ import SwiftUI
 struct SourcesDrawer: View {
     @ObservedObject var model: ArticlesViewModel
     let onSelect: () -> Void
+    var showCloseButton = true
+    var onClose: (() -> Void)? = nil
+    var onRoute: ((AppRoute) -> Void)? = nil
+    var activeRoute: AppRoute? = nil
     @State private var expandedTags: Set<Int> = []
     @State private var untaggedExpanded = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Spacer()
-                    Button {
-                        onSelect()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .frame(width: 32, height: 32)
+                if showCloseButton {
+                    HStack {
+                        Spacer()
+                        Button {
+                            if let onClose { onClose() } else { onSelect() }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("閉じる")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("閉じる")
+                    .padding(.horizontal, 12)
                 }
-                .padding(.horizontal, 12)
 
                 Text("Filo")
                     .font(.title3.bold())
                     .padding(.horizontal, 8)
                     .padding(.bottom, 12)
 
-                NavigationLink(value: AppRoute.addFeed) {
+                routeLink(AppRoute.addFeed) {
                     Label("フィードを追加", systemImage: "plus")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(FiloPalette.onAccent)
@@ -35,22 +41,18 @@ struct SourcesDrawer: View {
                         .padding(.vertical, 10)
                         .background(FiloPalette.accent, in: RoundedRectangle(cornerRadius: 6))
                 }
-                .buttonStyle(.plain)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
-                .simultaneousGesture(TapGesture().onEnded { onSelect() })
 
-                NavigationLink(value: AppRoute.addArticle("")) {
+                routeLink(AppRoute.addArticle("")) {
                     Label("記事を追加", systemImage: "doc.badge.plus")
                         .font(.callout)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(FiloPalette.border, lineWidth: 1))
                 }
-                .buttonStyle(.plain)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
-                .simultaneousGesture(TapGesture().onEnded { onSelect() })
 
                 drawerItem("全ての記事", icon: "list.bullet", isActive: model.selectedTagId == nil && !model.readingListOnly && !model.bookmarkedOnly) {
                     model.selectView()
@@ -81,26 +83,26 @@ struct SourcesDrawer: View {
                 Divider()
                     .padding(.vertical, 8)
 
-                NavigationLink(value: AppRoute.subscriptions) {
+                routeLink(AppRoute.subscriptions) {
                     drawerLabel("購読管理", icon: "list.bullet")
+                        .background(activeRoute == .subscriptions ? FiloPalette.mutedBorder : Color.clear)
+                        .fontWeight(activeRoute == .subscriptions ? .semibold : .regular)
                 }
-                .buttonStyle(.plain)
-                .simultaneousGesture(TapGesture().onEnded { onSelect() })
-                NavigationLink(value: AppRoute.tags) {
+                routeLink(AppRoute.tags) {
                     drawerLabel("タグ管理", icon: "tag")
+                        .background(activeRoute == .tags ? FiloPalette.mutedBorder : Color.clear)
+                        .fontWeight(activeRoute == .tags ? .semibold : .regular)
                 }
-                .buttonStyle(.plain)
-                .simultaneousGesture(TapGesture().onEnded { onSelect() })
-                NavigationLink(value: AppRoute.status) {
+                routeLink(AppRoute.status) {
                     drawerLabel("処理ステータス", icon: "arrow.triangle.2.circlepath")
+                        .background(activeRoute == .status ? FiloPalette.mutedBorder : Color.clear)
+                        .fontWeight(activeRoute == .status ? .semibold : .regular)
                 }
-                .buttonStyle(.plain)
-                .simultaneousGesture(TapGesture().onEnded { onSelect() })
-                NavigationLink(value: AppRoute.settings) {
+                routeLink(AppRoute.settings) {
                     drawerLabel("設定", icon: "gearshape")
+                        .background(activeRoute == .settings ? FiloPalette.mutedBorder : Color.clear)
+                        .fontWeight(activeRoute == .settings ? .semibold : .regular)
                 }
-                .buttonStyle(.plain)
-                .simultaneousGesture(TapGesture().onEnded { onSelect() })
             }
             .padding(.vertical, 8)
         }
@@ -127,7 +129,7 @@ struct SourcesDrawer: View {
             onSelect()
         } label: {
             drawerLabel(title, icon: icon)
-                .background(isActive ? Color.primary.opacity(0.08) : Color.clear)
+                .background(isActive ? FiloPalette.mutedBorder : Color.clear)
         }
         .buttonStyle(.plain)
     }
@@ -199,11 +201,12 @@ struct SourcesDrawer: View {
     }
 
     private func subscriptionRow(_ subscription: Subscription) -> some View {
-        NavigationLink(value: AppRoute.subscriptionDetail(subscription.id)) {
+        routeLink(AppRoute.subscriptionDetail(subscription.id)) {
             HStack(spacing: 8) {
-                FaviconView(url: subscription.feed.faviconUrl, fallbackSiteUrl: subscription.feed.siteUrl)
+                FaviconView(url: subscription.feed.faviconUrl)
                 Text(subscription.displayTitle)
                     .font(.callout)
+                    .fontWeight(activeRoute == .subscriptionDetail(subscription.id) ? .semibold : .regular)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if subscription.initialFetchStatus == "failed" || subscription.feedHealthStatus == "paused" {
@@ -225,8 +228,27 @@ struct SourcesDrawer: View {
             .padding(.trailing, 16)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
+            .background(activeRoute == .subscriptionDetail(subscription.id) ? FiloPalette.mutedBorder : Color.clear)
+            .opacity(subscription.feedHealthStatus == "stale" ? 0.7 : 1)
         }
-        .buttonStyle(.plain)
-        .simultaneousGesture(TapGesture().onEnded { onSelect() })
+    }
+
+    @ViewBuilder
+    private func routeLink<Label: View>(_ route: AppRoute, @ViewBuilder label: () -> Label) -> some View {
+        if let onRoute {
+            Button {
+                onSelect()
+                onRoute(route)
+            } label: {
+                label()
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: route) {
+                label()
+            }
+            .buttonStyle(.plain)
+            .simultaneousGesture(TapGesture().onEnded { onSelect() })
+        }
     }
 }

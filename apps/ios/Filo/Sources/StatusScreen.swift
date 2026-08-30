@@ -8,6 +8,10 @@ struct StatusScreen: View {
     @State private var busyFeedId: Int?
     @State private var notice: String?
     @State private var pollTask: Task<Void, Never>?
+    @State private var filterText = ""
+    @State private var statusFilter: StatusFilter = .all
+    @State private var sortKey: StatusSortKey = .status
+    @State private var sortAscending = true
 
     private let pollInterval: TimeInterval = 5
 
@@ -17,6 +21,7 @@ struct StatusScreen: View {
                 ProgressView("読み込み中…")
             } else if let status {
                 actionsSection(status)
+                listControls
                 subscriptionStatusesSection(status)
             }
             if let errorMessage {
@@ -64,15 +69,102 @@ struct StatusScreen: View {
 
     @ViewBuilder
     private func subscriptionStatusesSection(_ s: StatusOverview) -> some View {
-        Section("購読一覧（状態順・\(s.subscriptionStatuses.count)件）") {
+        Section("購読一覧（\(s.subscriptionStatuses.count)件）") {
             if s.subscriptionStatuses.isEmpty {
                 Text("購読がありません。")
                     .foregroundStyle(FiloPalette.muted)
+            } else if visibleSubscriptions(s).isEmpty {
+                Text("条件に一致する購読がありません。")
+                    .foregroundStyle(FiloPalette.muted)
             } else {
-                ForEach(sortedStatusSubscriptions(s.subscriptionStatuses)) { sub in
+                ForEach(visibleSubscriptions(s)) { sub in
                     subscriptionRow(sub)
                 }
             }
+        }
+    }
+
+    private var listControls: some View {
+        Section {
+            TextField("購読名で検索", text: $filterText)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    FilterChip(label: "すべて", isOn: statusFilter == .all) { statusFilter = .all }
+                    FilterChip(label: "問題あり", isOn: statusFilter == .attention) { statusFilter = .attention }
+                    FilterChip(label: "取得中", isOn: statusFilter == .fetching) { statusFilter = .fetching }
+                    FilterChip(label: "停止", isOn: statusFilter == .paused) { statusFilter = .paused }
+                }
+            }
+            Menu {
+                Button("状態") { toggleSort(.status) }
+                Button("購読") { toggleSort(.feedTitle) }
+                Button("取得") { toggleSort(.fetchStatus) }
+                Button("最終取得") { toggleSort(.lastFetchedAt) }
+            } label: {
+                Label("並び替え: \(sortLabel)", systemImage: sortAscending ? "arrow.up" : "arrow.down")
+            }
+            if let status {
+                Text("\(visibleSubscriptions(status).count)/\(status.subscriptionStatuses.count)")
+                    .font(.caption)
+                    .foregroundStyle(FiloPalette.muted)
+            }
+        } header: {
+            Text("購読一覧を絞り込み")
+        }
+    }
+
+    private var sortLabel: String {
+        switch sortKey {
+        case .status: return "状態"
+        case .feedTitle: return "購読"
+        case .fetchStatus: return "取得"
+        case .lastFetchedAt: return "最終取得"
+        }
+    }
+
+    private func toggleSort(_ key: StatusSortKey) {
+        if sortKey == key {
+            sortAscending.toggle()
+        } else {
+            sortKey = key
+            sortAscending = true
+        }
+    }
+
+    private func visibleSubscriptions(_ s: StatusOverview) -> [StatusSubscription] {
+        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
+        let filtered = s.subscriptionStatuses.filter { sub in
+            if !query.isEmpty && !sub.feedTitle.localizedLowercase.contains(query) { return false }
+            switch statusFilter {
+            case .all: return true
+            case .attention: return hasStatusAttention(sub)
+            case .fetching: return sub.fetchJob?.status == "pending" || sub.fetchJob?.status == "running"
+            case .paused: return sub.feedStatus == "paused"
+            }
+        }
+        return filtered.sorted { lhs, rhs in
+            let comparison: ComparisonResult
+            switch sortKey {
+            case .status:
+                comparison = statusRank(lhs) == statusRank(rhs) ? lhs.feedTitle.localizedStandardCompare(rhs.feedTitle) : (statusRank(lhs) < statusRank(rhs) ? .orderedAscending : .orderedDescending)
+            case .feedTitle:
+                comparison = lhs.feedTitle.localizedStandardCompare(rhs.feedTitle)
+            case .fetchStatus:
+                comparison = fetchStatusRank(lhs) == fetchStatusRank(rhs) ? lhs.feedTitle.localizedStandardCompare(rhs.feedTitle) : (fetchStatusRank(lhs) < fetchStatusRank(rhs) ? .orderedAscending : .orderedDescending)
+            case .lastFetchedAt:
+                if lhs.lastFetchedAt == nil && rhs.lastFetchedAt != nil {
+                    comparison = .orderedDescending
+                } else if lhs.lastFetchedAt != nil && rhs.lastFetchedAt == nil {
+                    comparison = .orderedAscending
+                } else {
+                    let left = lhs.lastFetchedAt ?? ""
+                    let right = rhs.lastFetchedAt ?? ""
+                    comparison = left == right ? lhs.feedTitle.localizedStandardCompare(rhs.feedTitle) : (left < right ? .orderedAscending : .orderedDescending)
+                }
+            }
+            return sortAscending ? comparison == .orderedAscending : comparison == .orderedDescending
         }
     }
 
@@ -205,16 +297,6 @@ struct StatusScreen: View {
 }
 
 // Keep the same actionable-first order as the web and Android status screens.
-// The list is rebuilt from every polled snapshot, so a feed moves as soon as
-// its fetch state changes.
-private func sortedStatusSubscriptions(_ subscriptions: [StatusSubscription]) -> [StatusSubscription] {
-    subscriptions.sorted { lhs, rhs in
-        let rankDifference = statusRank(lhs) - statusRank(rhs)
-        if rankDifference != 0 { return rankDifference < 0 }
-        return lhs.feedTitle.localizedStandardCompare(rhs.feedTitle) == .orderedAscending
-    }
-}
-
 private func statusRank(_ sub: StatusSubscription) -> Int {
     if hasStatusAttention(sub) { return 0 }
     if sub.fetchJob?.stalled == true { return 1 }
@@ -228,4 +310,21 @@ private func hasStatusAttention(_ sub: StatusSubscription) -> Bool {
     sub.consecutiveFailures > 0
         || sub.fetchJob?.status == "failed"
         || sub.lastResult == "error"
+}
+
+private enum StatusFilter {
+    case all, attention, fetching, paused
+}
+
+private enum StatusSortKey {
+    case status, feedTitle, fetchStatus, lastFetchedAt
+}
+
+private func fetchStatusRank(_ sub: StatusSubscription) -> Int {
+    if hasStatusAttention(sub) { return 0 }
+    if sub.fetchJob?.stalled == true { return 1 }
+    if sub.fetchJob?.status == "running" { return 2 }
+    if sub.fetchJob?.status == "pending" { return 3 }
+    if sub.feedStatus == "paused" { return 4 }
+    return 5
 }

@@ -226,8 +226,31 @@ struct SubscriptionDetailScreen: View {
         .navigationTitle(model.subscription?.displayTitle ?? "購読詳細")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                articleFiltersMenu
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    if let faviconUrl = model.subscription?.feed.faviconUrl {
+                        FaviconView(url: faviconUrl)
+                    }
+                    Text(model.subscription?.displayTitle ?? "購読詳細")
+                        .lineLimit(1)
+                }
+            }
+            if !model.isGone {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        Task { await model.refreshFeedAndReload() }
+                    } label: {
+                        Label("このフィードを更新", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(model.isRefreshingFeed)
+                    Button {
+                        showMarkAllReadConfirm = true
+                    } label: {
+                        Label("すべて既読にする", systemImage: "checkmark.circle")
+                    }
+                    subscriptionActionsMenu
+                    articleFiltersMenu
+                }
             }
         }
         .task { await model.load() }
@@ -245,18 +268,6 @@ struct SubscriptionDetailScreen: View {
                 Section {
                     statusRow(subscription)
                     tagRow(subscription)
-                    Button("すべて既読にする") { showMarkAllReadConfirm = true }
-                    Button("購読名を変更") {
-                        renameText = subscription.customTitle ?? ""
-                        showRename = true
-                    }
-                    if let siteUrlString = subscription.feed.siteUrl, let siteUrl = URL(string: siteUrlString) {
-                        Button("サイトを開く") { openURL(siteUrl) }
-                    }
-                    if subscription.feed.feedUrl != nil {
-                        Button("フィードURLを表示") { showFeedUrl = true }
-                    }
-                    Button("購読解除", role: .destructive) { showUnsubscribeConfirm = true }
                 }
             }
             if model.isRefreshingFeed {
@@ -274,11 +285,7 @@ struct SubscriptionDetailScreen: View {
                 if model.isLoading {
                     ProgressView("購読記事を読み込んでいます…")
                 } else if model.articles.isEmpty {
-                    if model.readFilter == false {
-                        EmptyStateView { Text("未読の記事はありません。") }
-                    } else if model.readFilter == true {
-                        EmptyStateView { Text("既読の記事はありません。") }
-                    } else if model.subscription?.initialFetchStatus == "fetching" {
+                    if model.subscription?.initialFetchStatus == "fetching" {
                         EmptyStateView {
                             ProgressView()
                             Text("記事を取得しています…")
@@ -287,16 +294,13 @@ struct SubscriptionDetailScreen: View {
                         EmptyStateView { Text("表示できる記事がありません。") }
                     }
                 } else {
-                    ForEach(model.articles) { article in
+                    ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
                         ArticleRowView(
                             article: article,
                             onOpen: {
-                                if model.openInBrowserByDefault,
-                                   let urlString = article.canonicalUrl,
+                                if let urlString = article.canonicalUrl,
                                    let url = URL(string: urlString) {
                                     openURL(url)
-                                } else {
-                                    onOpenArticle(article)
                                 }
                             },
                             onToggleRead: {
@@ -309,44 +313,15 @@ struct SubscriptionDetailScreen: View {
                                 Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
                             },
                         )
-                        .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
-                        .swipeActions(edge: .trailing) {
-                            Button {
-                                Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
-                            } label: {
-                                Label(
-                                    article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
-                                    systemImage: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus"
-                                )
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .onAppear {
+                            if index >= max(model.articles.count - 4, 0) {
+                                Task { await model.loadMore() }
                             }
-                            .tint(FiloPalette.accent)
-                            Button {
-                                Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
-                            } label: {
-                                Label(
-                                    article.userState.isBookmarked ? "ブックマークを解除" : "ブックマーク",
-                                    systemImage: article.userState.isBookmarked ? "bookmark.slash" : "bookmark"
-                                )
-                            }
-                            .tint(FiloPalette.star)
-                        }
-                        .swipeActions(edge: .leading) {
-                            Button {
-                                Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
-                            } label: {
-                                Label(
-                                    article.userState.isRead ? "未読にする" : "既読にする",
-                                    systemImage: article.userState.isRead ? "circle" : "checkmark.circle"
-                                )
-                            }
-                            .tint(.green)
                         }
                     }
-                    if model.nextCursor != nil {
-                        Button(model.isLoadingMore ? "次の記事を読み込んでいます…" : "さらに読み込む") {
-                            Task { await model.loadMore() }
-                        }
-                        .disabled(model.isLoadingMore)
+                    if model.isLoadingMore {
+                        ProgressView("次の記事を読み込んでいます…")
                     }
                 }
             }
@@ -378,7 +353,7 @@ struct SubscriptionDetailScreen: View {
     private var articleFiltersMenu: some View {
         Menu {
             if translations.isDeviceSupported {
-                Picker("翻訳", selection: Binding(
+            Picker("タイトルを翻訳", selection: Binding(
                     get: { translations.isEnabled },
                     set: { if $0 != translations.isEnabled { translations.toggle() } }
                 )) {
@@ -405,6 +380,24 @@ struct SubscriptionDetailScreen: View {
         }
     }
 
+    private var subscriptionActionsMenu: some View {
+        Menu {
+            Button("名前を変更") {
+                renameText = model.subscription?.customTitle ?? ""
+                showRename = true
+            }
+            if let siteUrlString = model.subscription?.feed.siteUrl, let siteUrl = URL(string: siteUrlString) {
+                Button("サイトを開く") { openURL(siteUrl) }
+            }
+            if model.subscription?.feed.feedUrl != nil {
+                Button("フィードURLを表示") { showFeedUrl = true }
+            }
+            Button("購読解除", role: .destructive) { showUnsubscribeConfirm = true }
+        } label: {
+            Label("購読の操作", systemImage: "ellipsis")
+        }
+    }
+
     @ViewBuilder
     private func statusRow(_ subscription: Subscription) -> some View {
         HStack {
@@ -418,8 +411,6 @@ struct SubscriptionDetailScreen: View {
                 StatusBadge(label: "更新停止中", tone: .danger)
             } else if subscription.feedHealthStatus == "stale" {
                 StatusBadge(label: "しばらく更新なし", tone: .warn)
-            } else {
-                StatusBadge(label: "正常", tone: .ok)
             }
         }
     }

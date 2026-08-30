@@ -33,6 +33,7 @@ enum FiloPalette {
 }
 
 enum AppRoute: Hashable {
+    case drawer
     case subscriptions
     case settings
     case status
@@ -108,6 +109,9 @@ struct ContentView: View {
 
 struct AppNavigationView: View {
     @State private var path = NavigationPath()
+    @State private var activeRoute: AppRoute?
+    @State private var drawerStackDepth: Int?
+    @State private var showGlobalDrawer = false
     @StateObject private var articlesModel = ArticlesViewModel()
     @ObservedObject private var languageManager = LanguageManager.shared
     @ObservedObject private var titleTranslations = TitleTranslationStore.shared
@@ -120,66 +124,44 @@ struct AppNavigationView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            NavigationStack(path: $path) {
-                ArticlesScreen(
-                    path: $path,
-                    model: articlesModel,
-                )
-                .onAppear { FiloAnalytics.screen("articles") }
-                    .navigationDestination(for: AppRoute.self) { route in
-                        switch route {
-                        case .subscriptions:
-                            SubscriptionsScreen(onSelectTag: { tagId in
-                                articlesModel.selectView(tagId: tagId)
-                                path = NavigationPath()
-                            })
-                            .onAppear { FiloAnalytics.screen("subscriptions") }
-                        case .settings:
-                            SettingsScreen().onAppear { FiloAnalytics.screen("settings") }
-                        case .status:
-                            StatusScreen().onAppear { FiloAnalytics.screen("status") }
-                        case .addFeed:
-                            AddFeedScreen().onAppear { FiloAnalytics.screen("add_feed") }
-                        case .tags:
-                            TagsScreen().onAppear { FiloAnalytics.screen("tags") }
-                        case .subscriptionDetail(let id):
-                            SubscriptionDetailScreen(
-                                subscriptionId: id,
-                                onOpenArticle: { article in
-                                    path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
-                                },
-                            )
-                            .onAppear { FiloAnalytics.screen("subscription_detail") }
-                        case .accountDeletionStatus(let token):
-                            AccountDeletionStatusScreen(deletionToken: token)
-                        case .readingSession(let autoplay):
-                            ReadingSessionScreen(autoplay: autoplay).onAppear { FiloAnalytics.screen("reading") }
-                        case .readingPage(let url):
-                            ReadingSessionScreen(autoplay: false, temporaryUrl: url).onAppear { FiloAnalytics.screen("reading_page") }
-                        case .readingArticle(let article):
-                            ReadingSessionScreen(autoplay: false, article: article).onAppear {
-                                FiloAnalytics.screen("reading_article")
-                            }
-                        case .addArticle(let url):
-                            AddArticleScreen(
-                                initialUrl: url,
-                                onDone: { if !path.isEmpty { path.removeLast() } },
-                                onReadAloud: { sharedUrl in
-                                    if !path.isEmpty { path.removeLast() }
-                                    path.append(AppRoute.readingPage(sharedUrl))
-                                },
-                            )
-                            .onAppear { FiloAnalytics.screen("add_article") }
+        FiloResponsiveContainer { isDesktop in
+            if isDesktop {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        SourcesDrawer(
+                            model: articlesModel,
+                            onSelect: resetToArticles,
+                            showCloseButton: false,
+                            onRoute: { route in
+                                activeRoute = route
+                                path.append(route)
+                            },
+                            activeRoute: activeRoute,
+                        )
+                        .frame(width: 280)
+                        .background(FiloPalette.surface)
+                        Divider()
+                        navigationStack
+                    }
+                    if readingPlayer.isPlaying && !readingPlayer.isReadingBrowserVisible {
+                        ReadingMiniPlayer(player: readingPlayer)
+                    }
+                }
+            } else {
+                ZStack(alignment: .leading) {
+                    VStack(spacing: 0) {
+                        if !showGlobalDrawer && activeRoute != nil {
+                            mobileHeader
+                        }
+                        navigationStack
+                        if readingPlayer.isPlaying && !readingPlayer.isReadingBrowserVisible {
+                            ReadingMiniPlayer(player: readingPlayer)
                         }
                     }
-            }
-            // 翻訳セッションはアプリ全体で 1 つ。画面ごとに付けると同じバッチに
-            // 複数のセッションが張られて互いを畳み合う。
-            .titleTranslation(store: titleTranslations)
-            .environmentObject(readingPlayer)
-            if readingPlayer.isPlaying && !readingPlayer.isReadingBrowserVisible {
-                ReadingMiniPlayer(player: readingPlayer)
+                    if showGlobalDrawer {
+                        globalDrawerOverlay
+                    }
+                }
             }
         }
         .sheet(isPresented: $titleTranslations.isShowingSetup) {
@@ -190,10 +172,198 @@ struct AppNavigationView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { openPendingShare() }
         }
+        .onChange(of: path.count) { _, depth in
+            guard showGlobalDrawer, let drawerStackDepth, depth < drawerStackDepth else { return }
+            self.drawerStackDepth = nil
+            withAnimation(.easeIn(duration: 0.2)) { showGlobalDrawer = false }
+        }
         .task {
             if let settings = try? await APIClient.shared.getSettings() {
                 languageManager.language = settings.language
             }
+        }
+    }
+
+    private var navigationStack: some View {
+        NavigationStack(path: $path) {
+            ArticlesScreen(
+                path: $path,
+                model: articlesModel,
+                showDesktopSidebar: false,
+                showMobileDrawer: false,
+                showMobileMenu: true,
+                onCloseMobileDrawer: closeMobileDrawer,
+                onOpenMobileDrawer: openMobileDrawer,
+            )
+            .onAppear {
+                activeRoute = nil
+                FiloAnalytics.screen("articles")
+            }
+            .navigationDestination(for: AppRoute.self) { route in
+                switch route {
+                case .subscriptions:
+                    SubscriptionsScreen(onSelectTag: { tagId in
+                        articlesModel.selectView(tagId: tagId)
+                        resetToArticles()
+                    })
+                    .onAppear {
+                        activeRoute = .subscriptions
+                        FiloAnalytics.screen("subscriptions")
+                    }
+                case .drawer:
+                    Color.clear
+                case .settings:
+                    SettingsScreen().onAppear {
+                        activeRoute = .settings
+                        FiloAnalytics.screen("settings")
+                    }
+                case .status:
+                    StatusScreen().onAppear {
+                        activeRoute = .status
+                        FiloAnalytics.screen("status")
+                    }
+                case .addFeed:
+                    AddFeedScreen(onOpenArticles: {
+                        resetToArticles()
+                    }, onCreated: {
+                        await articlesModel.load()
+                    })
+                    .onAppear {
+                        activeRoute = .addFeed
+                        FiloAnalytics.screen("add_feed")
+                    }
+                case .tags:
+                    TagsScreen().onAppear {
+                        activeRoute = .tags
+                        FiloAnalytics.screen("tags")
+                    }
+                case .subscriptionDetail(let id):
+                    SubscriptionDetailScreen(
+                        subscriptionId: id,
+                        onOpenArticle: { article in
+                            path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
+                        },
+                    )
+                    .onAppear {
+                        activeRoute = .subscriptionDetail(id)
+                        FiloAnalytics.screen("subscription_detail")
+                    }
+                case .accountDeletionStatus(let token):
+                    AccountDeletionStatusScreen(
+                        deletionToken: token,
+                        onBack: { if !path.isEmpty { path.removeLast() } },
+                    )
+                case .readingSession(let autoplay):
+                    ReadingSessionScreen(autoplay: autoplay).onAppear { FiloAnalytics.screen("reading") }
+                case .readingPage(let url):
+                    ReadingSessionScreen(autoplay: false, temporaryUrl: url).onAppear { FiloAnalytics.screen("reading_page") }
+                case .readingArticle(let article):
+                    ReadingSessionScreen(autoplay: false, article: article).onAppear {
+                        FiloAnalytics.screen("reading_article")
+                    }
+                case .addArticle(let url):
+                    AddArticleScreen(
+                        initialUrl: url,
+                        onDone: { if !path.isEmpty { path.removeLast() } },
+                        onSaved: {
+                            articlesModel.selectView(readingList: true)
+                            if !path.isEmpty { path.removeLast() }
+                        },
+                    )
+                    .onAppear { FiloAnalytics.screen("add_article") }
+                }
+            }
+        }
+        // 翻訳セッションはアプリ全体で 1 つ。画面ごとに付けると同じバッチに
+        // 複数のセッションが張られて互いを畳み合う。
+        .titleTranslation(store: titleTranslations)
+        .environmentObject(readingPlayer)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var mobileHeader: some View {
+        HStack(spacing: 8) {
+            Button {
+                openMobileDrawer()
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("メニュー")
+            Button {
+                resetToArticles()
+            } label: {
+                Text("Filo")
+                    .font(.body.weight(.bold))
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 51)
+        .background(FiloPalette.surface)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var globalDrawerOverlay: some View {
+        ZStack(alignment: .leading) {
+            Color.black.opacity(0.3)
+                .onTapGesture { closeMobileDrawer() }
+                .transition(.opacity)
+            SourcesDrawer(
+                model: articlesModel,
+                onSelect: resetToArticles,
+                showCloseButton: true,
+                onClose: closeMobileDrawer,
+                onRoute: { route in
+                    activeRoute = route
+                    path.append(route)
+                },
+                activeRoute: activeRoute,
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(FiloPalette.surface)
+            .transition(.asymmetric(
+                insertion: .move(edge: .leading),
+                removal: .move(edge: .leading),
+            ))
+        }
+        .zIndex(1)
+    }
+
+    private func resetToArticles() {
+        drawerStackDepth = nil
+        withAnimation(.easeIn(duration: 0.2)) {
+            showGlobalDrawer = false
+        }
+        path = NavigationPath()
+        activeRoute = nil
+    }
+
+    private func openMobileDrawer() {
+        guard !showGlobalDrawer else { return }
+        drawerStackDepth = path.count + 1
+        withAnimation(.easeOut(duration: 0.2)) {
+            showGlobalDrawer = true
+        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            path.append(AppRoute.drawer)
+        }
+    }
+
+    private func closeMobileDrawer() {
+        guard showGlobalDrawer else { return }
+        drawerStackDepth = nil
+        withAnimation(.easeIn(duration: 0.2)) {
+            showGlobalDrawer = false
+        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if !path.isEmpty { path.removeLast() }
         }
     }
 

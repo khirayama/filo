@@ -13,6 +13,7 @@ struct SettingsScreen: View {
     @State private var navigateToDeletion = false
     @State private var pollTask: Task<Void, Never>?
     @ObservedObject private var languageManager = LanguageManager.shared
+    @ObservedObject private var titleTranslations = TitleTranslationStore.shared
 
     var body: some View {
         Form {
@@ -91,10 +92,14 @@ struct SettingsScreen: View {
         } footer: {
             Text("選択した言語の記事は翻訳せず原文で表示します。")
         }
-        Section {
-            Button("翻訳の準備") { TitleTranslationStore.shared.isShowingSetup = true }
-        } footer: {
-            Text("タイトルの翻訳は端末の中で行います。言語ごとにダウンロードが要ります。")
+        if titleTranslations.isDeviceSupported {
+            Section {
+                Button("言語を確認") { titleTranslations.isShowingSetup = true }
+            } header: {
+                Text("翻訳の準備")
+            } footer: {
+                Text("タイトルの翻訳は端末の中で行います。言語ごとにダウンロードが要ります。")
+            }
         }
     }
 
@@ -280,6 +285,7 @@ struct SettingsScreen: View {
 
 struct AccountDeletionStatusScreen: View {
     let deletionToken: String?
+    var onBack: () -> Void = {}
 
     @State private var status: DeletionStatus?
     @State private var pollTask: Task<Void, Never>?
@@ -300,6 +306,7 @@ struct AccountDeletionStatusScreen: View {
                         Text("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。")
                     case "none":
                         Text("進行中の削除処理はありません。")
+                        Button("設定へ戻る", action: onBack)
                     default:
                         HStack {
                             ProgressView()

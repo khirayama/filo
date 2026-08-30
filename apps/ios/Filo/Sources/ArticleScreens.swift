@@ -240,6 +240,11 @@ final class ArticlesViewModel: ObservableObject {
 struct ArticlesScreen: View {
     @Binding var path: NavigationPath
     @ObservedObject var model: ArticlesViewModel
+    var showDesktopSidebar = true
+    var showMobileDrawer = true
+    var showMobileMenu = true
+    var onCloseMobileDrawer: () -> Void = {}
+    var onOpenMobileDrawer: (() -> Void)? = nil
     @ObservedObject private var translations = TitleTranslationStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -248,8 +253,11 @@ struct ArticlesScreen: View {
     @State private var showRemoveReadConfirm = false
     @State private var selectedArticleIndex: Int? = nil
     @State private var listScrollPosition: Int? = nil
+    @State private var visibleArticleIds: Set<Int> = []
     @State private var viewedArticleIds = ""
     @State private var showShortcutHelp = false
+    @FocusState private var isKeyboardFocused: Bool
+    @Environment(\.filoIsDesktop) private var isDesktop
 
     private var markAllReadPrompt: String {
         if let tagId = model.selectedTagId, let tag = model.tags.first(where: { $0.id == tagId }) {
@@ -259,31 +267,64 @@ struct ArticlesScreen: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            articleList
-            if showDrawer {
-                drawerOverlay
+        Group {
+            if isDesktop {
+                if showDesktopSidebar {
+                    HStack(spacing: 0) {
+                        SourcesDrawer(model: model, onSelect: {}, showCloseButton: false)
+                            .frame(width: 280)
+                            .background(FiloPalette.surface)
+                        Divider()
+                        articleList
+                    }
+                } else {
+                    articleList
+                }
+            } else if showMobileDrawer {
+                ZStack(alignment: .leading) {
+                    articleList
+                    if showDrawer {
+                        drawerOverlay
+                    }
+                }
+            } else {
+                articleList
             }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .focusable()
+        .focused($isKeyboardFocused)
+        .onKeyPress(
+            keys: [KeyEquivalent("j"), .downArrow, KeyEquivalent("k"), .upArrow],
+            phases: [.down, .repeat]
+        ) { press in
+            guard press.modifiers.isEmpty else { return .ignored }
+            if press.key == .downArrow || press.key == KeyEquivalent("j") {
+                moveSelection(1)
+            } else if press.key == .upArrow || press.key == KeyEquivalent("k") {
+                moveSelection(-1)
+            } else {
+                return .ignored
+            }
+            return .handled
+        }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                HStack(spacing: 6) {
-                    Text(model.viewTitle)
-                        .font(.headline)
-                    if model.isRefreshingFeeds {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("フィードを更新しています")
-                    }
-                }
+                Text(model.viewTitle)
+                    .font(.system(size: 16, weight: .semibold))
             }
             ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    withAnimation(.easeOut(duration: 0.2)) { showDrawer = true }
-                } label: {
-                    Label("フィードメニュー", systemImage: "line.3.horizontal")
+                if !isDesktop && showMobileMenu {
+                    Button {
+                        if let onOpenMobileDrawer {
+                            onOpenMobileDrawer()
+                        } else {
+                            withAnimation(.easeOut(duration: 0.2)) { showDrawer = true }
+                        }
+                    } label: {
+                        Label("フィードメニュー", systemImage: "line.3.horizontal")
+                    }
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -292,9 +333,6 @@ struct ArticlesScreen: View {
                         showRemoveReadConfirm = true
                     } label: {
                         Label("既読記事を削除", systemImage: "trash")
-                    }
-                    NavigationLink(value: AppRoute.readingSession(false)) {
-                        Label("閲覧開始", systemImage: "book")
                     }
                 }
                 if !model.bookmarkedOnly && !model.readingListOnly {
@@ -305,10 +343,6 @@ struct ArticlesScreen: View {
                     }
                 }
                 articleFiltersMenu
-                NavigationLink(value: AppRoute.addFeed) {
-                    Label("フィード追加", systemImage: "plus")
-                }
-                optionsMenu
             }
         }
         .confirmationDialog(markAllReadPrompt, isPresented: $showMarkAllReadConfirm, titleVisibility: .visible) {
@@ -318,6 +352,7 @@ struct ArticlesScreen: View {
             Button("既読記事を削除", role: .destructive) { Task { await model.removeReadArticlesFromReadingList() } }
         }
         .refreshable { await model.refreshFeedsAndReload() }
+        .onAppear { isKeyboardFocused = true }
         .task {
             await model.load()
             registerTitlesForTranslation()
@@ -358,25 +393,6 @@ struct ArticlesScreen: View {
         translations.register(model.articles)
     }
 
-    private var optionsMenu: some View {
-        Menu {
-            NavigationLink(value: AppRoute.subscriptions) {
-                Label("購読管理", systemImage: "list.bullet")
-            }
-            NavigationLink(value: AppRoute.tags) {
-                Label("タグ管理", systemImage: "tag")
-            }
-            NavigationLink(value: AppRoute.status) {
-                Label("処理ステータス", systemImage: "arrow.triangle.2.circlepath")
-            }
-            NavigationLink(value: AppRoute.settings) {
-                Label("設定", systemImage: "gearshape")
-            }
-        } label: {
-            Label("メニュー", systemImage: "ellipsis")
-        }
-    }
-
     private var articleList: some View {
         ScrollViewReader { proxy in
             List {
@@ -385,8 +401,27 @@ struct ArticlesScreen: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(FiloPalette.background)
+            .overlay(alignment: .bottom) {
+                if let notice = model.refreshNotice {
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(FiloPalette.muted)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(FiloPalette.surface, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(FiloPalette.mutedBorder, lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                        .frame(maxWidth: 480, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .allowsHitTesting(false)
+                }
+            }
             .scrollPosition(id: $listScrollPosition)
-            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             .onChange(of: selectedArticleIndex) { _, index in
                 guard let index, model.articles.indices.contains(index) else { return }
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -399,7 +434,7 @@ struct ArticlesScreen: View {
     private var articleFiltersMenu: some View {
         Menu {
             if translations.isDeviceSupported {
-                Picker("翻訳", selection: Binding(
+                Picker("タイトルを翻訳", selection: Binding(
                     get: { translations.isEnabled },
                     set: { if $0 != translations.isEnabled { translations.toggle() } }
                 )) {
@@ -432,30 +467,24 @@ struct ArticlesScreen: View {
     @ViewBuilder
     private var articleSection: some View {
         Section {
-            if let notice = model.refreshNotice {
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(FiloPalette.muted)
-            }
             if model.isLoading, model.articles.isEmpty {
                 ProgressView("記事一覧を読み込んでいます…")
-            } else if let error = model.errorMessage, model.articles.isEmpty {
+            } else if let error = model.errorMessage {
                 ErrorBanner(message: error) { Task { await model.load() } }
             } else if model.articles.isEmpty {
                 emptyState
                 } else {
-                    ForEach(model.articles) { article in
-                    ArticleRowView(
-                        article: article,
-                        horizontalPadding: 16,
-                        onOpen: {
+                    ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
+                        ArticleRowView(
+                            article: article,
+                            selected: article.id == selectedArticle?.id,
+                            onOpenFeed: article.subscriptionContext.subscriptionIds.first.map { subscriptionId in
+                                { path.append(AppRoute.subscriptionDetail(subscriptionId)) }
+                            },
+                            onOpen: {
                             FiloAnalytics.track("select_item", parameters: ["article_id": article.id])
                             if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
-                                if model.settings?.openInBrowserByDefault == true {
-                                    openURL(url)
-                                } else {
-                                    path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
-                                }
+                                openURL(url)
                             }
                         },
                         onToggleRead: {
@@ -468,50 +497,18 @@ struct ArticlesScreen: View {
                             Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
                         },
                     )
-                    .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .id(article.id)
-                    .swipeActions(edge: .trailing) {
-                        Button {
-                            Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
-                        } label: {
-                            Label(
-                                article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
-                                systemImage: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus"
-                            )
-                        }
-                        .tint(FiloPalette.accent)
-                        Button {
-                            Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
-                        } label: {
-                            Label(
-                                article.userState.isBookmarked ? "ブックマークを解除" : "ブックマーク",
-                                systemImage: article.userState.isBookmarked ? "bookmark.slash" : "bookmark"
-                            )
-                        }
-                        .tint(FiloPalette.star)
-                    }
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
-                        } label: {
-                            Label(
-                                article.userState.isRead ? "未読にする" : "既読にする",
-                                systemImage: article.userState.isRead ? "circle" : "checkmark.circle"
-                            )
-                        }
-                        .tint(.green)
-                    }
                     .onAppear {
-                        if article.id == model.articles.last?.id {
+                        visibleArticleIds.insert(article.id)
+                        if index >= max(model.articles.count - 4, 0) {
                             Task { await model.loadMore() }
                         }
                     }
+                    .onDisappear { visibleArticleIds.remove(article.id) }
                 }
-                if model.nextCursor != nil {
-                    Button(model.isLoadingMore ? "次の記事を読み込んでいます…" : "さらに読み込む") {
-                        Task { await model.loadMore() }
-                    }
-                    .disabled(model.isLoadingMore)
+                if model.isLoadingMore {
+                    ProgressView("次の記事を読み込んでいます…")
                 }
             }
         }
@@ -524,7 +521,15 @@ struct ArticlesScreen: View {
 
     private func moveSelection(_ offset: Int) {
         guard !model.articles.isEmpty else { return }
-        let nextIndex = selectedArticleIndex.map { $0 + offset } ?? 0
+        let selectedIsVisible = selectedArticleIndex.map { index in
+            model.articles.indices.contains(index) && visibleArticleIds.contains(model.articles[index].id)
+        } ?? false
+        let startIndex = selectedIsVisible
+            ? selectedArticleIndex!
+            : model.articles.firstIndex(where: { visibleArticleIds.contains($0.id) })
+                ?? model.articles.firstIndex(where: { $0.id == listScrollPosition })
+                ?? 0
+        let nextIndex = selectedIsVisible ? startIndex + offset : startIndex
         selectedArticleIndex = min(max(nextIndex, 0), model.articles.count - 1)
     }
 
@@ -535,12 +540,8 @@ struct ArticlesScreen: View {
 
     private var shortcutButtons: some View {
         VStack(spacing: 0) {
-            Button("", action: { moveSelection(1) }).keyboardShortcut("j", modifiers: [])
-            Button("", action: { moveSelection(1) }).keyboardShortcut(.downArrow, modifiers: [])
-            Button("", action: { moveSelection(-1) }).keyboardShortcut("k", modifiers: [])
-            Button("", action: { moveSelection(-1) }).keyboardShortcut(.upArrow, modifiers: [])
-            Button("", action: { openSelectedArticle(external: false) }).keyboardShortcut(.return, modifiers: [])
-            Button("", action: { openSelectedArticle(external: false) }).keyboardShortcut("o", modifiers: [])
+            Button("", action: { openSelectedArticle(external: true) }).keyboardShortcut(.return, modifiers: [])
+            Button("", action: { openSelectedArticle(external: true) }).keyboardShortcut("o", modifiers: [])
             Button("", action: { openSelectedArticle(external: true) }).keyboardShortcut("v", modifiers: [])
             Button("", action: {
                 guard let article = selectedArticle else { return }
@@ -561,6 +562,7 @@ struct ArticlesScreen: View {
             Button("", action: {
                 if showDrawer { closeDrawer() }
                 else if !path.isEmpty { dismiss() }
+                else { onCloseMobileDrawer() }
             }).keyboardShortcut(.escape, modifiers: [])
         }
         .frame(width: 1, height: 1)
@@ -578,18 +580,18 @@ struct ArticlesScreen: View {
             EmptyStateView {
                 Text("まだ購読がありません。")
                 NavigationLink(value: AppRoute.addFeed) {
-                    Text("フィードを追加して始めましょう")
+                    Text("フィードを追加")
                 }
             }
         } else if model.readingListOnly {
-            EmptyStateView { Text("リーディングリストに保存した記事はありません。") }
-        } else if model.bookmarkedOnly {
-            EmptyStateView { Text("ブックマークした記事はありません。") }
-        } else if model.readFilter == false {
-            EmptyStateView { Text("未読の記事はありません。") }
-        } else if model.readFilter == true {
-            EmptyStateView { Text("既読の記事はありません。") }
-        } else if relevantSubscriptions.contains(where: { $0.initialFetchStatus == "fetching" }) {
+            EmptyStateView {
+                Text("リーディングリストに保存した記事はありません。")
+                Button("全ての記事") { model.selectView() }
+            }
+        } else if model.readFilter == nil,
+                  !model.readingListOnly,
+                  !model.bookmarkedOnly,
+                  relevantSubscriptions.contains(where: { $0.initialFetchStatus == "fetching" }) {
             EmptyStateView {
                 ProgressView()
                 Text("記事を取得しています…")
@@ -614,7 +616,7 @@ struct ArticlesScreen: View {
                 .onTapGesture { closeDrawer() }
                 .transition(.opacity)
             SourcesDrawer(model: model, onSelect: { closeDrawer() })
-                .frame(width: 280)
+                .frame(maxWidth: .infinity)
                 .frame(maxHeight: .infinity)
                 .background(FiloPalette.surface)
                 .transition(.move(edge: .leading))
@@ -640,8 +642,7 @@ struct ShortcutHelpView: View {
                 Text("B  ブックマーク")
                 Text("R  更新")
                 Text("Shift+A  すべて既読")
-                Text("Space  読み上げ開始／停止")
-                Text("Esc  戻る／閉じる")
+                Text("?  この一覧")
             }
             .navigationTitle("ショートカット")
         }

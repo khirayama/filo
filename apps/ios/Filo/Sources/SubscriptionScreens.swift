@@ -8,6 +8,7 @@ final class SubscriptionsViewModel: ObservableObject {
     @Published var tags: [Tag] = []
     @Published var isLoading = true
     @Published var errorMessage: String?
+    @Published var isBusy = false
 
     func load() async {
         isLoading = true
@@ -24,6 +25,7 @@ final class SubscriptionsViewModel: ObservableObject {
     }
 
     func move(_ subscriptionId: Int, direction: Int, within groupIds: [Int]) async {
+        guard !isBusy else { return }
         guard let groupIndex = groupIds.firstIndex(of: subscriptionId) else { return }
         let targetGroupIndex = groupIndex + direction
         guard targetGroupIndex >= 0, targetGroupIndex < groupIds.count else { return }
@@ -31,12 +33,14 @@ final class SubscriptionsViewModel: ObservableObject {
         guard let index = subscriptions.firstIndex(where: { $0.id == subscriptionId }),
               let targetIndex = subscriptions.firstIndex(where: { $0.id == targetId }) else { return }
         subscriptions.swapAt(index, targetIndex)
+        isBusy = true
         do {
             try await APIClient.shared.reorderSubscriptions(subscriptions.map(\.id))
         } catch {
             errorMessage = ErrorMessages.message(for: error)
             await load()
         }
+        isBusy = false
     }
 
     func renameTag(_ tag: Tag, to name: String) async {
@@ -45,6 +49,19 @@ final class SubscriptionsViewModel: ObservableObject {
             await load()
         } catch {
             errorMessage = ErrorMessages.message(for: error)
+        }
+    }
+
+    func moveTag(_ tagId: Int, direction: Int) async {
+        guard let index = tags.firstIndex(where: { $0.id == tagId }) else { return }
+        let target = index + direction
+        guard tags.indices.contains(target) else { return }
+        tags.swapAt(index, target)
+        do {
+            try await APIClient.shared.reorderTags(tags.map(\.id))
+        } catch {
+            errorMessage = ErrorMessages.message(for: error)
+            await load()
         }
     }
 
@@ -71,13 +88,13 @@ struct SubscriptionsScreen: View {
         List {
             if model.isLoading {
                 ProgressView("読み込み中…")
-            } else if let error = model.errorMessage, model.subscriptions.isEmpty {
+            } else if let error = model.errorMessage {
                 ErrorBanner(message: error) { Task { await model.load() } }
             } else if model.subscriptions.isEmpty {
                 EmptyStateView {
                     Text("まだ購読がありません。")
                     NavigationLink(value: AppRoute.addFeed) {
-                        Text("フィードを追加して始めましょう")
+                        Text("フィードを追加")
                     }
                 }
             } else {
@@ -89,9 +106,25 @@ struct SubscriptionsScreen: View {
                 }
                 let untagged = model.subscriptions.filter { $0.tagIds.isEmpty }
                 if !untagged.isEmpty {
-                    Section("タグなし") {
-                        ForEach(untagged) { subscription in
-                            subscriptionRow(subscription, groupIds: untagged.map(\.id))
+                    Section {
+                        if !collapsed.contains(-1) {
+                            ForEach(untagged) { subscription in
+                                subscriptionRow(subscription, groupIds: untagged.map(\.id))
+                            }
+                        }
+                    } header: {
+                        HStack {
+                            Button {
+                                if collapsed.contains(-1) { collapsed.remove(-1) } else { collapsed.insert(-1) }
+                            } label: {
+                                Image(systemName: collapsed.contains(-1) ? "chevron.right" : "chevron.down")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            Text("タグなし")
+                            Text("\(untagged.count)件")
+                                .foregroundStyle(FiloPalette.muted)
+                            Spacer()
                         }
                     }
                 }
@@ -99,7 +132,7 @@ struct SubscriptionsScreen: View {
         }
         .scrollContentBackground(.hidden)
         .background(FiloPalette.background)
-        .navigationTitle("購読一覧")
+        .navigationTitle("購読管理")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 NavigationLink(value: AppRoute.addFeed) {
@@ -107,9 +140,6 @@ struct SubscriptionsScreen: View {
                 }
                 NavigationLink(value: AppRoute.tags) {
                     Label("タグ管理", systemImage: "tag")
-                }
-                NavigationLink(value: AppRoute.settings) {
-                    Label("設定", systemImage: "gearshape")
                 }
             }
         }
@@ -151,7 +181,24 @@ struct SubscriptionsScreen: View {
                     Text(tag.name)
                 }
                 .buttonStyle(.plain)
+                Text("\(items.count)件")
+                    .font(.caption)
+                    .foregroundStyle(FiloPalette.muted)
                 Spacer()
+                Button {
+                    Task { await model.moveTag(tag.id, direction: -1) }
+                } label: {
+                    Image(systemName: "chevron.up")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("タグを上へ")
+                Button {
+                    Task { await model.moveTag(tag.id, direction: 1) }
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("タグを下へ")
                 Button("名前変更") {
                     renameText = tag.name
                     renamingTag = tag
@@ -163,27 +210,60 @@ struct SubscriptionsScreen: View {
 
     @ViewBuilder
     private func subscriptionRow(_ subscription: Subscription, groupIds: [Int]) -> some View {
-        NavigationLink(value: AppRoute.subscriptionDetail(subscription.id)) {
-            HStack(spacing: 8) {
-                FaviconView(url: subscription.feed.faviconUrl, fallbackSiteUrl: subscription.feed.siteUrl)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(subscription.displayTitle)
-                        .font(.body.weight(.medium))
-                    Text("最終公開 \(DateFormatting.relative(subscription.feed.latestPublishedAt).isEmpty ? "—" : DateFormatting.relative(subscription.feed.latestPublishedAt))")
-                        .font(.caption)
-                        .foregroundStyle(FiloPalette.muted)
-                    healthBadge(subscription)
+        HStack(spacing: 8) {
+            NavigationLink(value: AppRoute.subscriptionDetail(subscription.id)) {
+                HStack(spacing: 8) {
+                    FaviconView(url: subscription.feed.faviconUrl)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(subscription.displayTitle)
+                            .font(.body.weight(.medium))
+                        Text("最終公開 \(DateFormatting.relative(subscription.feed.latestPublishedAt).isEmpty ? "—" : DateFormatting.relative(subscription.feed.latestPublishedAt))")
+                            .font(.caption)
+                            .foregroundStyle(FiloPalette.muted)
+                        healthBadge(subscription)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.plain)
+            if !model.tags.isEmpty {
+                Menu {
+                    ForEach(model.tags) { tag in
+                        Button {
+                            Task {
+                                var next = subscription.tagIds
+                                if let index = next.firstIndex(of: tag.id) { next.remove(at: index) } else { next.append(tag.id) }
+                                await model.setTags(subscription.id, tagIds: next)
+                            }
+                        } label: {
+                            Label(tag.name, systemImage: subscription.tagIds.contains(tag.id) ? "checkmark.circle.fill" : "circle")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "tag")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("タグを編集")
+            }
+            Button {
+                Task { await model.move(subscription.id, direction: -1, within: groupIds) }
+            } label: {
+                Image(systemName: "chevron.up")
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isBusy)
+            .accessibilityLabel("上へ")
+            Button {
+                Task { await model.move(subscription.id, direction: 1, within: groupIds) }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isBusy)
+            .accessibilityLabel("下へ")
         }
-        .swipeActions(edge: .leading) {
-            if let index = groupIds.firstIndex(of: subscription.id), index > 0 {
-                Button("上へ") { Task { await model.move(subscription.id, direction: -1, within: groupIds) } }
-            }
-            if let index = groupIds.firstIndex(of: subscription.id), index < groupIds.count - 1 {
-                Button("下へ") { Task { await model.move(subscription.id, direction: 1, within: groupIds) } }
-            }
-        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
         .contextMenu {
             if !model.tags.isEmpty {
                 Section("タグ") {
