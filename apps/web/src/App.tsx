@@ -16,6 +16,7 @@ import { TagsPage } from "./screens/TagsPage";
 import { trackPageView } from "./lib/analytics";
 import { authClient } from "./auth-client";
 import { AuthPage, ForgotPasswordPage, ResetPasswordPage } from "./screens/AuthPage";
+import { Brand } from "./components/Brand";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { data: session, isPending } = authClient.useSession();
@@ -28,7 +29,9 @@ function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <main style={pageStyle}>
       <section style={{ ...shellStyle, ...sectionStyle, display: "grid", justifyContent: "center" }}>
-        <h1 style={{ textAlign: "center" }}>Filo</h1>
+        <h1 style={{ textAlign: "center" }}>
+          <Brand size={64} />
+        </h1>
         {children}
       </section>
     </main>

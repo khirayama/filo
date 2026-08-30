@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
-import { AppShell, useIsDesktop } from "../components/AppShell";
+import { AppShell, SIDEBAR_WIDTH, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
@@ -10,6 +10,19 @@ import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage } from "../lib/messages";
 import { refreshFeedsAndWait } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
+
+function isArticleVisibleInViewport(articleId: number): boolean {
+  const row = document.getElementById(`filo-article-${articleId}`);
+  if (!row) return false;
+  const headerBottom = document.querySelector<HTMLElement>(".articles-page > header")?.getBoundingClientRect().bottom ?? 0;
+  const rect = row.getBoundingClientRect();
+  return rect.bottom > headerBottom && rect.top < window.innerHeight;
+}
+
+function firstVisibleArticleIndex(articles: readonly { id: number }[]): number {
+  const firstIndex = articles.findIndex((article) => isArticleVisibleInViewport(article.id));
+  return firstIndex >= 0 ? firstIndex : 0;
+}
 
 export function ArticlesPage() {
   return <ArticlesListPage />;
@@ -26,8 +39,23 @@ function ArticlesListPage() {
   const [removingReadArticles, setRemovingReadArticles] = useState(false);
   const [activeArticleIndex, setActiveArticleIndex] = useState<number | null>(null);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const articleHeaderRef = useRef<HTMLElement | null>(null);
+  const [articleHeaderHeight, setArticleHeaderHeight] = useState(0);
   const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
   useDialogFocus(showShortcutHelp, "filo-shortcut-help", closeShortcutHelp);
+
+  useLayoutEffect(() => {
+    const header = articleHeaderRef.current;
+    if (!isDesktop || !header) {
+      setArticleHeaderHeight(0);
+      return;
+    }
+    const updateHeight = () => setArticleHeaderHeight(header.offsetHeight);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [isDesktop]);
 
   const apiFilters = useMemo(
     () => ({
@@ -151,13 +179,28 @@ function ArticlesListPage() {
         if (!bookmarkedOnly && !readingListOnly) void markAllRead();
         return;
       }
-      if (modifier || event.repeat) return;
+      if (modifier) return;
+      const isArticleNavigationKey = key === "j"
+        || event.key === "ArrowDown"
+        || key === "k"
+        || event.key === "ArrowUp";
+      if (event.repeat && !isArticleNavigationKey) return;
       if (key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
-        setActiveArticleIndex((current) => current == null ? 0 : Math.min(current + 1, Math.max(list.articles.length - 1, 0)));
+        setActiveArticleIndex((current) => {
+          if (current != null && isArticleVisibleInViewport(list.articles[current]?.id ?? -1)) {
+            return Math.min(current + 1, Math.max(list.articles.length - 1, 0));
+          }
+          return firstVisibleArticleIndex(list.articles);
+        });
       } else if (key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
-        setActiveArticleIndex((current) => current == null ? 0 : Math.max(current - 1, 0));
+        setActiveArticleIndex((current) => {
+          if (current != null && isArticleVisibleInViewport(list.articles[current]?.id ?? -1)) {
+            return Math.max(current - 1, 0);
+          }
+          return firstVisibleArticleIndex(list.articles);
+        });
       } else if (key === "enter" || key === "o" || key === "v") {
         event.preventDefault();
         const articleIndex = activeArticleIndex ?? 0;
@@ -196,61 +239,61 @@ function ArticlesListPage() {
     if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "center" });
   }, [activeArticleIndex, list.articles]);
 
+  const renderArticleHeaderContent = () => (
+    <>
+      <h1 style={{ flex: 1, fontSize: "18px", margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {title}
+      </h1>
+      {readingListOnly ? (
+        <IconButton
+          icon="trash"
+          label={t("既読記事を削除")}
+          disabled={removingReadArticles}
+          onClick={() => void removeReadArticles()}
+        />
+      ) : null}
+      {!bookmarkedOnly && !readingListOnly ? (
+        <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />
+      ) : null}
+      <ArticleListControls
+        read={read}
+        sort={sort}
+        readOrder={readOrder}
+        defaultSort={settings?.articleSortOrder ?? "published_at_desc"}
+        setRead={setRead}
+        setSort={setSort}
+        setReadOrder={setReadOrder}
+        t={t}
+      />
+    </>
+  );
+
   return (
-    <AppShell>
-      <main className="articles-page" style={{ padding: "0 0 16px" }}>
-        <header
-          style={{
-            alignItems: "center",
-            borderBottom: `1px solid ${palette.mutedBorder}`,
-            display: "flex",
-            gap: "8px",
-            padding: "8px",
-            position: "sticky",
-            top: isDesktop ? 0 : "51px",
-            zIndex: 10,
-            background: palette.bg,
-          }}
-        >
-          <h1 style={{ alignItems: "center", display: "flex", flex: 1, fontSize: "20px", gap: "8px", margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
-            {refreshing ? <Spinner label={t("フィードを更新しています…")} /> : null}
-          </h1>
-          {readingListOnly ? (
-            <>
-              <IconButton
-                icon="trash"
-                label={t("既読記事を削除")}
-                disabled={removingReadArticles}
-                onClick={() => void removeReadArticles()}
-              />
-            </>
-          ) : null}
-          {!bookmarkedOnly && !readingListOnly ? (
-            <>
-              <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />
-            </>
-          ) : null}
-          <IconButton
-            icon="refresh"
-            label={t("フィードを更新")}
-            disabled={refreshing}
-            onClick={() => void refreshFeeds()}
-          />
-          <ArticleListControls
-            read={read}
-            sort={sort}
-            readOrder={readOrder}
-            defaultSort={settings?.articleSortOrder ?? "published_at_desc"}
-            setRead={setRead}
-            setSort={setSort}
-            setReadOrder={setReadOrder}
-            t={t}
-          />
-        </header>
+    <AppShell mobileHeaderContent={isDesktop ? undefined : renderArticleHeaderContent()}>
+      <main className="articles-page" style={{ padding: "0 0 16px", ...(isDesktop ? { paddingTop: `${articleHeaderHeight}px` } : {}) }}>
+        {isDesktop ? (
+          <header
+            ref={articleHeaderRef}
+            style={{
+              alignItems: "center",
+              borderBottom: `1px solid ${palette.mutedBorder}`,
+              display: "flex",
+              gap: "8px",
+              padding: "8px 16px",
+              position: "fixed",
+              left: `${SIDEBAR_WIDTH}px`,
+              right: 0,
+              top: 0,
+              zIndex: 10,
+              background: palette.bg,
+            }}
+          >
+            {renderArticleHeaderContent()}
+          </header>
+        ) : null}
 
         {selectedTag ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 8px 4px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 16px 4px" }}>
             <FilterChip label={`タグ: ${selectedTag.name} ✕`} active onClick={clearTag} />
           </div>
         ) : null}
@@ -258,7 +301,31 @@ function ArticlesListPage() {
         {sideError ? <ErrorBox message={sideError} /> : null}
         {markAllError ? <ErrorBox message={markAllError} /> : null}
         {refreshNotice ? (
-          <p role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "13px", margin: "8px 0 0" }}>{refreshNotice}</p>
+          <p
+            role="status"
+            aria-live="polite"
+            style={{
+              background: palette.surface,
+              border: `1px solid ${palette.mutedBorder}`,
+              borderRadius: "6px",
+              bottom: "16px",
+              boxShadow: `0 4px 12px ${palette.shadow}`,
+              boxSizing: "border-box",
+              color: palette.muted,
+              fontSize: "13px",
+              left: isDesktop ? `${SIDEBAR_WIDTH + 16}px` : "16px",
+              margin: 0,
+              maxWidth: "480px",
+              padding: "8px 12px",
+              pointerEvents: "none",
+              position: "fixed",
+              right: "16px",
+              width: "calc(100% - 32px)",
+              zIndex: 15,
+            }}
+          >
+            {refreshNotice}
+          </p>
         ) : null}
         {list.loading && list.articles.length === 0 ? (
           <Spinner />

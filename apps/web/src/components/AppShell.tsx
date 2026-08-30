@@ -3,9 +3,10 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import type { Subscription } from "../api/types";
 import { groupSubscriptionsByTag } from "../lib/grouping";
 import { useAppData } from "./AppDataContext";
+import { Brand } from "./Brand";
 import { Icon, IconButton, palette } from "./ui";
 
-const SIDEBAR_WIDTH = 280;
+export const SIDEBAR_WIDTH = 280;
 const DESKTOP_QUERY = "(min-width: 1024px)";
 
 export function useIsDesktop(): boolean {
@@ -21,7 +22,7 @@ export function useIsDesktop(): boolean {
 
 const DRAWER_ANIMATION_MS = 200;
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, mobileHeaderContent }: { children: ReactNode; mobileHeaderContent?: ReactNode }) {
   const { t } = useAppData();
   const isDesktop = useIsDesktop();
   const location = useLocation();
@@ -88,24 +89,34 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   if (isDesktop) {
     return (
-      <div style={{ color: palette.text, display: "flex", fontFamily: "system-ui, sans-serif", minHeight: "100vh" }}>
+      <div style={{ color: palette.text, fontFamily: "system-ui, sans-serif", minHeight: "100vh" }}>
         <aside
           aria-label={t("サイドバー")}
           style={{
+            bottom: 0,
             borderRight: `1px solid ${palette.mutedBorder}`,
             boxSizing: "border-box",
-            flexShrink: 0,
+            left: 0,
             height: "100vh",
             overflowY: "auto",
             padding: "16px 12px",
-            position: "sticky",
+            position: "fixed",
             top: 0,
             width: `${SIDEBAR_WIDTH}px`,
+            zIndex: 20,
           }}
         >
           <SidebarNav />
         </aside>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            height: "100vh",
+            marginLeft: `${SIDEBAR_WIDTH}px`,
+            minHeight: "100vh",
+            minWidth: 0,
+            overflowY: "auto",
+          }}
+        >
           {children}
         </div>
       </div>
@@ -136,9 +147,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           ariaControls="filo-mobile-drawer"
           onClick={openDrawer}
         />
-        <Link to="/articles" style={{ color: "inherit", fontWeight: 700, textDecoration: "none" }}>
-          Filo
-        </Link>
+        {mobileHeaderContent ?? (
+          <Link
+            to="/articles"
+            style={{ alignItems: "center", color: "inherit", display: "inline-flex", fontWeight: 700, textDecoration: "none" }}
+          >
+            <Brand size={24} />
+          </Link>
+        )}
       </header>
       {drawerMounted ? (
         <div
@@ -209,7 +225,7 @@ function SidebarNav() {
         to="/articles"
         style={{ color: "inherit", fontSize: "18px", fontWeight: 700, padding: "4px 8px 12px", textDecoration: "none" }}
       >
-        Filo
+        <Brand size={32} />
       </Link>
       <button
         type="button"

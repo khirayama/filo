@@ -183,7 +183,7 @@ export function ArticleRows({
   if (articles.length === 0) return <>{emptyContent}</>;
   return (
     <>
-      <ul aria-label={t("記事一覧")} style={{ listStyle: "none", margin: isDesktop ? "8px 0 0" : 0, padding: 0 }}>
+      <ul aria-label={t("記事一覧")} style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {articles.map((article) => (
               <ArticleRow key={article.id} article={article} onUpdateState={onUpdateState} active={article.id === activeArticleId} />
             ))}
@@ -232,12 +232,12 @@ function ArticleRow({
       target="_blank"
       rel="noreferrer"
       onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}
-      style={{ ...titleStyle, color: "inherit", position: "relative", textDecoration: "none", whiteSpace: "nowrap", zIndex: 1 }}
+      style={{ ...titleStyle, color: "inherit", marginLeft: "16px", position: "relative", textDecoration: "none", whiteSpace: "nowrap", zIndex: 1 }}
     >
       {displayTitle}
     </a>
   ) : (
-    <span style={{ ...titleStyle, whiteSpace: "nowrap" }}>{displayTitle}</span>
+    <span style={{ ...titleStyle, marginLeft: "16px", whiteSpace: "nowrap" }}>{displayTitle}</span>
   );
 
   const feedNameEl =
@@ -327,6 +327,8 @@ function ArticleRow({
         icon="checkCircle"
         label={isRead ? t("未読にする") : t("既読にする")}
         active={isRead}
+        color={palette.muted}
+        filled={false}
         onClick={() => onUpdateState(article.id, { isRead: !isRead })}
       />
       <IconButton
@@ -355,7 +357,7 @@ function ArticleRow({
         background: hovered ? palette.hover : "transparent",
         borderBottom: `1px solid ${palette.mutedBorder}`,
         opacity: isRead ? 0.55 : 1,
-        padding: isDesktop ? "6px 8px" : "4px 8px 8px",
+        padding: isDesktop ? "2px 16px" : "1px 16px 8px",
         position: "relative",
         ...(isDesktop ? { alignItems: "center", display: "flex", gap: "8px" } : {}),
         outline: active ? `2px solid ${palette.accent}` : undefined,
