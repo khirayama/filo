@@ -3,7 +3,13 @@
   "name": "Filo Reader",
   "version": "0.1.0",
   "description": "Read a Filo reading list in the original article pages",
-  "permissions": ["cookies", "storage", "tabs", "tts"],
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "permissions": ["cookies", "scripting", "storage", "tabs", "tts"],
   "host_permissions": ["http://*/*", "https://*/*", "https://www.google-analytics.com/*"],
   "background": {
     "service_worker": "background.js",
@@ -17,6 +23,10 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png"
+    }
   }
 }

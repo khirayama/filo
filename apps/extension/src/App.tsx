@@ -8,6 +8,7 @@ interface ReaderSettings {
   targetLanguage: string;
   rate: number;
   voiceName: string | null;
+  extractionMode: "article" | "display";
 }
 
 interface Voice {
@@ -27,6 +28,7 @@ interface ReaderSession {
   targetLanguage: string;
   rate: number;
   voiceName: string | null;
+  extractionMode: "article" | "display";
   playing: boolean;
 }
 
@@ -44,6 +46,20 @@ function openArticle(url: string | null): void {
   if (url) void chrome.tabs.create({ url, active: true });
 }
 
+function isQueueArticleVisible(articleId: number): boolean {
+  const list = document.querySelector<HTMLElement>(".queue-list");
+  const row = document.getElementById(`filo-queue-${articleId}`);
+  if (!list || !row) return false;
+  const listRect = list.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  return rowRect.bottom > listRect.top && rowRect.top < listRect.bottom;
+}
+
+function firstVisibleQueueArticleIndex(articles: readonly { id: number }[]): number {
+  const firstIndex = articles.findIndex((article) => isQueueArticleVisible(article.id));
+  return firstIndex >= 0 ? firstIndex : 0;
+}
+
 export function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -52,16 +68,17 @@ export function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
   const api = useMemo(() => createExtensionApi(refreshToken), []);
   const [articles, setArticles] = useState<ReadingArticle[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
-  const [settings, setSettings] = useState<ReaderSettings>({ targetLanguage: "ja", rate: 1, voiceName: null });
+  const [settings, setSettings] = useState<ReaderSettings>({ targetLanguage: "ja", rate: 1, voiceName: null, extractionMode: "article" });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<{ url: string; title: string } | null>(null);
   const [readerState, setReaderState] = useState<ReaderSession | null>(null);
-  const [selectedArticleIndex, setSelectedArticleIndex] = useState(0);
+  const [selectedArticleIndex, setSelectedArticleIndex] = useState<number | null>(null);
   const viewedArticleIds = useRef("");
   useEffect(() => {
     void refreshToken().then(token => {
@@ -77,12 +94,14 @@ export function App() {
     setAuthError(null);
     try {
       if (authMode === "sign-in") {
-        await signIn(authEmail, authPassword);
+        await signIn(authEmail.trim(), authPassword);
         setIsSignedIn(true);
       } else {
         await signUp(authEmail, authPassword);
         setIsSignedIn(true);
       }
+      setAuthPassword("");
+      setAuthOpen(false);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "認証に失敗しました。");
     } finally {
@@ -189,6 +208,7 @@ export function App() {
         page,
         autoplay: true,
         targetLanguage: settings.targetLanguage,
+        extractionMode: settings.extractionMode,
       }));
       await loadReaderState();
     } catch (cause) {
@@ -201,7 +221,8 @@ export function App() {
   const addCurrentPage = async () => {
     if (busy) return;
     if (!isSignedIn) {
-      openWeb("/sign-in");
+      setAuthError(null);
+      setAuthOpen(true);
       return;
     }
     setBusy(true);
@@ -236,7 +257,7 @@ export function App() {
   };
 
   const updateSelectedState = async (patch: { isRead?: boolean; inReadingList?: boolean; isBookmarked?: boolean }) => {
-    const article = articles[selectedArticleIndex];
+    const article = articles[selectedArticleIndex ?? 0];
     if (!article || busy) return;
     setBusy(true);
     setError(null);
@@ -294,12 +315,12 @@ export function App() {
     }
   };
 
-  const { targetLanguage, rate, voiceName } = settings;
+  const { targetLanguage, rate, voiceName, extractionMode } = settings;
   const filteredVoices = voices.filter((voice) => !targetLanguage || voice.lang?.startsWith(targetLanguage));
   const isPlaying = readerState?.playing === true;
 
   useEffect(() => {
-    setSelectedArticleIndex((current) => Math.min(current, Math.max(articles.length - 1, 0)));
+    setSelectedArticleIndex((current) => current == null ? null : Math.min(current, Math.max(articles.length - 1, 0)));
   }, [articles.length]);
 
   useEffect(() => {
@@ -311,7 +332,7 @@ export function App() {
   }, [articles, isSignedIn, loading]);
 
   useEffect(() => {
-    const article = articles[selectedArticleIndex];
+    const article = selectedArticleIndex == null ? undefined : articles[selectedArticleIndex];
     if (article) document.getElementById(`filo-queue-${article.id}`)?.scrollIntoView({ block: "center" });
   }, [articles, selectedArticleIndex]);
 
@@ -330,26 +351,41 @@ export function App() {
         }
         return;
       }
-      if (modifier || event.repeat) return;
+      if (modifier) return;
+      const isArticleNavigationKey = key === "j"
+        || event.key === "ArrowDown"
+        || key === "k"
+        || event.key === "ArrowUp";
+      if (event.repeat && !isArticleNavigationKey) return;
       if (key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
-        setSelectedArticleIndex((current) => Math.min(current + 1, Math.max(articles.length - 1, 0)));
+        setSelectedArticleIndex((current) => {
+          if (current != null && isQueueArticleVisible(articles[current]?.id ?? -1)) {
+            return Math.min(current + 1, Math.max(articles.length - 1, 0));
+          }
+          return firstVisibleQueueArticleIndex(articles);
+        });
       } else if (key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
-        setSelectedArticleIndex((current) => Math.max(current - 1, 0));
+        setSelectedArticleIndex((current) => {
+          if (current != null && isQueueArticleVisible(articles[current]?.id ?? -1)) {
+            return Math.max(current - 1, 0);
+          }
+          return firstVisibleQueueArticleIndex(articles);
+        });
       } else if (key === "enter" || key === "o" || key === "v") {
         event.preventDefault();
-        const article = articles[selectedArticleIndex];
+        const article = articles[selectedArticleIndex ?? 0];
         if (article?.canonicalUrl) openArticle(article.canonicalUrl);
       } else if (key === "m") {
         event.preventDefault();
-        void updateSelectedState({ isRead: !articles[selectedArticleIndex]?.userState.isRead });
+        void updateSelectedState({ isRead: !articles[selectedArticleIndex ?? 0]?.userState.isRead });
       } else if (key === "s") {
         event.preventDefault();
         void addCurrentPage();
       } else if (key === "b") {
         event.preventDefault();
-        void updateSelectedState({ isBookmarked: !articles[selectedArticleIndex]?.userState.isBookmarked });
+        void updateSelectedState({ isBookmarked: !articles[selectedArticleIndex ?? 0]?.userState.isBookmarked });
       } else if (key === "r") {
         event.preventDefault();
         trackEvent("refresh_feeds", { source: "extension" });
@@ -371,16 +407,25 @@ export function App() {
 
   if (!isLoaded) return <main className="empty-view">ログイン状態を確認しています…</main>;
 
-  if (!isSignedIn) return <main className="popup-shell"><header className="brand"><span>Filo</span><small>Better Auth</small></header><section className="current-page"><h1>{authMode === "sign-in" ? "ログイン" : "アカウント作成"}</h1><input aria-label="メールアドレス" type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="メールアドレス" /><input aria-label="パスワード" type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="8文字以上のパスワード" /><button className="primary-action" disabled={authBusy} onClick={() => void submitAuth()}>{authBusy ? "処理中…" : authMode === "sign-in" ? "ログイン" : "登録"}</button>{authError && <p className="error-message">{authError}</p>}<button className="link-button" onClick={() => setAuthMode(authMode === "sign-in" ? "sign-up" : "sign-in")}>{authMode === "sign-in" ? "アカウントを作成" : "ログインへ戻る"}</button></section></main>;
-
   return (
     <main className="popup-shell">
       <div className="popup-fixed">
         <header className="brand">
+          <img className="brand-mark" src="/logo.svg" alt="" aria-hidden="true" width="24" height="24" />
           <span>Filo</span>
-          <small> {isSignedIn ? "Better Authでログイン中" : "ログイン不要で読み上げ"}</small>
-          {isSignedIn ? <><button className="link-button" onClick={() => openWeb("/articles?readingList=1")}>Webを開く</button><button className="link-button" onClick={() => void handleSignOut()}>ログアウト</button></> : <button className="link-button" onClick={() => openWeb("/sign-in")}>ログイン</button>}
+          {isSignedIn ? <><button className="link-button" onClick={() => openWeb("/articles?readingList=1")}>Webを開く</button><button className="link-button" onClick={() => void handleSignOut()}>ログアウト</button></> : <button className="link-button" onClick={() => { setAuthError(null); setAuthOpen((open) => !open); }}>{authOpen ? "閉じる" : "ログイン"}</button>}
         </header>
+
+        {!isSignedIn && authOpen ? (
+          <form className="auth-panel" onSubmit={(event) => { event.preventDefault(); void submitAuth(); }}>
+            <p className="section-label">{authMode === "sign-in" ? "ログイン" : "アカウント作成"}</p>
+            <input aria-label="メールアドレス" type="email" required autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" />
+            <input aria-label="パスワード" type="password" required minLength={8} autoComplete={authMode === "sign-in" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="8文字以上のパスワード" />
+            <button className="primary-action auth-submit" disabled={authBusy} type="submit">{authBusy ? "処理中…" : authMode === "sign-in" ? "ログイン" : "登録"}</button>
+            {authError ? <p className="error-message">{authError}</p> : null}
+            <button className="link-button auth-switch" type="button" onClick={() => { setAuthError(null); setAuthMode(authMode === "sign-in" ? "sign-up" : "sign-in"); }}>{authMode === "sign-in" ? "アカウントを作成" : "ログインへ戻る"}</button>
+          </form>
+        ) : null}
 
         <section className="current-page" aria-label="現在のページ">
           <p className="section-label">現在のページ</p>
@@ -402,6 +447,14 @@ export function App() {
 
         <section className="settings" aria-label="読み上げ設定">
           <p className="section-label">読み上げ設定</p>
+          <div className="setting-row">
+            <label htmlFor="extraction-mode">内容</label>
+            <select id="extraction-mode" value={extractionMode} disabled={busy} onChange={(event) => void control("settings", { extractionMode: event.target.value })}>
+              <option value="article">本文を抽出</option>
+              <option value="display">表示中の文章</option>
+            </select>
+          </div>
+          {extractionMode === "display" ? <p className="setting-hint">ページ翻訳後に使うと、表示中の翻訳を読み上げます。</p> : null}
           <div className="setting-row">
             <label htmlFor="language">言語</label>
             <select id="language" value={targetLanguage} disabled={busy} onChange={(event) => void control("settings", { targetLanguage: event.target.value })}>

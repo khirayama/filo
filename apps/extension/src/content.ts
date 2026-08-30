@@ -1,5 +1,7 @@
 import { Readability } from "@mozilla/readability";
 
+type ExtractionMode = "article" | "display";
+
 function normalize(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -29,7 +31,33 @@ function articleText(article: { title?: string | null; content?: string | null; 
   return [title, ...contentLines].filter(Boolean).join("\n\n");
 }
 
-function extract() {
+function displayedText(): string {
+  // Prefer the page's main reading container so menus and sidebars are not
+  // read when the page exposes one. innerText reflects the currently rendered
+  // text, which also gives browser-applied translations a chance to be used.
+  const root = document.querySelector<HTMLElement>("article")
+    ?? document.querySelector<HTMLElement>("main")
+    ?? document.body;
+  if (!root) return "";
+
+  const lines: string[] = [];
+  for (const line of root.innerText.split(/\n+/)) {
+    const value = normalize(line);
+    if (!value || value === lines[lines.length - 1]) continue;
+    lines.push(value);
+  }
+  const title = normalize(document.title);
+  return [title, ...lines.filter((line) => line !== title)].filter(Boolean).join("\n\n");
+}
+
+function extract(mode: ExtractionMode = "article") {
+  if (mode === "display") {
+    const text = displayedText();
+    return text.length >= 100
+      ? { text, lang: document.documentElement.lang || null }
+      : null;
+  }
+
   const article = new Readability(document.cloneNode(true) as Document, { charThreshold: 100 }).parse();
   const text = article ? articleText(article) : "";
   return text.length >= 100
@@ -39,7 +67,7 @@ function extract() {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "filoExtract") return false;
-  sendResponse(extract());
+  sendResponse(extract(message.mode === "display" ? "display" : "article"));
   return false;
 });
 

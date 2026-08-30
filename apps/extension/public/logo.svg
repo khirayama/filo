@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="shroGradient" x1="112" y1="360" x2="408" y2="152" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4FC3FF"/>
+      <stop offset="50%" stop-color="#7C5CFF"/>
+      <stop offset="100%" stop-color="#FF4DB8"/>
+    </linearGradient>
+  </defs>
+
+  <path
+    d="M112 260
+       C112 248 120 240 132 236
+       L390 146
+       C404 141 416 153 410 166
+       L298 402
+       C292 415 277 416 269 405
+       L226 340
+       C221 333 215 327 207 323
+       L126 277
+       C116 271 112 267 112 260Z"
+    fill="url(#shroGradient)"
+  />
+</svg>

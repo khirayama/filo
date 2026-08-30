@@ -1,20 +1,38 @@
+type ExtractionMode = "article" | "display";
+
 interface ReaderSession {
   tabId: number;
   autoplay: boolean;
   targetLanguage: string;
   rate: number;
   voiceName: string | null;
+  extractionMode: ExtractionMode;
   playing: boolean;
 }
 
 const STATE_KEY = "filo:readerState";
 const SETTINGS_KEY = "filo:readerSettings";
-const DEFAULT_SETTINGS = { targetLanguage: "ja", rate: 1, voiceName: null as string | null };
+const DEFAULT_SETTINGS = {
+  targetLanguage: "ja",
+  rate: 1,
+  voiceName: null as string | null,
+  extractionMode: "article" as ExtractionMode,
+};
 let playToken = 0;
+
+interface ExtractedPage {
+  text: string;
+  lang: string | null;
+}
+
+function normalizeExtractionMode(value: unknown): ExtractionMode {
+  return value === "display" ? "display" : "article";
+}
 
 async function loadState(): Promise<ReaderSession | null> {
   const stored = await chrome.storage.local.get(STATE_KEY);
-  return (stored[STATE_KEY] as ReaderSession | undefined) ?? null;
+  const state = stored[STATE_KEY] as ReaderSession | undefined;
+  return state ? { ...state, extractionMode: normalizeExtractionMode(state.extractionMode) } : null;
 }
 
 async function loadSettings(): Promise<typeof DEFAULT_SETTINGS> {
@@ -30,6 +48,7 @@ async function loadSettings(): Promise<typeof DEFAULT_SETTINGS> {
     voiceName: typeof value?.voiceName === "string" || value?.voiceName === null
       ? value.voiceName
       : DEFAULT_SETTINGS.voiceName,
+    extractionMode: normalizeExtractionMode(value?.extractionMode),
   };
 }
 
@@ -38,12 +57,24 @@ async function saveSettings(settings: Partial<typeof DEFAULT_SETTINGS>): Promise
   if (settings.targetLanguage !== undefined) next.targetLanguage = settings.targetLanguage;
   if (settings.rate !== undefined) next.rate = Math.min(3, Math.max(0.75, settings.rate));
   if (settings.voiceName !== undefined) next.voiceName = settings.voiceName;
+  if (settings.extractionMode !== undefined) next.extractionMode = normalizeExtractionMode(settings.extractionMode);
   await chrome.storage.local.set({ [SETTINGS_KEY]: next });
   return next;
 }
 
 async function saveState(state: ReaderSession): Promise<void> {
   await chrome.storage.local.set({ [STATE_KEY]: state });
+}
+
+async function extractPage(tabId: number, extractionMode: ExtractionMode): Promise<ExtractedPage | null> {
+  try {
+    return await chrome.tabs.sendMessage(tabId, { type: "filoExtract", mode: extractionMode }) as ExtractedPage | null;
+  } catch {
+    // A manifest content script is not added retroactively to tabs that were
+    // already open when an unpacked extension was installed or reloaded.
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+    return await chrome.tabs.sendMessage(tabId, { type: "filoExtract", mode: extractionMode }) as ExtractedPage | null;
+  }
 }
 
 function splitText(text: string, maxLength = 3000): string[] {
@@ -81,32 +112,52 @@ async function playCurrentImpl(): Promise<void> {
   const state = await loadState();
   if (!state) return;
 
-  const extracted = await chrome.tabs.sendMessage(state.tabId, { type: "filoExtract" }).catch(() => null) as
-    | { text: string; lang: string | null }
-    | null;
-  if (token !== playToken || !extracted?.text) return;
+  let extracted: ExtractedPage | null;
+  try {
+    extracted = await extractPage(state.tabId, state.extractionMode);
+  } catch {
+    throw new Error("ページ本文を読み込めませんでした。ページを再読み込みしてからもう一度お試しください。");
+  }
+  if (token !== playToken) return;
+  if (!extracted?.text) throw new Error("このページから読み上げる文章を取得できませんでした。");
 
-  const text = await translateBestEffort(extracted.text, extracted.lang, state.targetLanguage);
+  // Display mode intentionally trusts the text currently visible in the
+  // page. This avoids translating an already browser-translated page again.
+  const text = state.extractionMode === "display"
+    ? extracted.text
+    : await translateBestEffort(extracted.text, extracted.lang, state.targetLanguage);
   if (token !== playToken) return;
   state.autoplay = false;
   state.playing = true;
   await saveState(state);
   chrome.tts.stop();
-  chrome.tts.speak(text, {
-    lang: state.targetLanguage || extracted.lang || undefined,
-    rate: state.rate,
-    voiceName: state.voiceName ?? undefined,
-    enqueue: false,
-    onEvent: (event) => {
-      if (token !== playToken) return;
-      if (event.type !== "end" && event.type !== "error" && event.type !== "cancelled" && event.type !== "interrupted") return;
-      void loadState().then(async (latest) => {
-        if (!latest) return;
-        latest.playing = false;
-        await saveState(latest);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      chrome.tts.speak(text, {
+        lang: state.targetLanguage || extracted.lang || undefined,
+        rate: state.rate,
+        voiceName: state.voiceName ?? undefined,
+        enqueue: false,
+        onEvent: (event) => {
+          if (token !== playToken) return;
+          if (event.type !== "end" && event.type !== "error" && event.type !== "cancelled" && event.type !== "interrupted") return;
+          void loadState().then(async (latest) => {
+            if (!latest) return;
+            latest.playing = false;
+            await saveState(latest);
+          });
+        },
+      }, () => {
+        const message = chrome.runtime.lastError?.message;
+        if (message) reject(new Error(message));
+        else resolve();
       });
-    },
-  });
+    });
+  } catch {
+    state.playing = false;
+    await saveState(state);
+    throw new Error("音声の再生を開始できませんでした。読み上げ音声の設定を確認してください。");
+  }
 }
 
 function playCurrent(): Promise<void> {
@@ -132,6 +183,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       targetLanguage: typeof message.targetLanguage === "string" ? message.targetLanguage : undefined,
       rate: typeof message.rate === "number" ? Math.min(3, Math.max(0.75, message.rate)) : undefined,
       voiceName: typeof message.voiceName === "string" || message.voiceName === null ? message.voiceName : undefined,
+      extractionMode: message.extractionMode === "display" || message.extractionMode === "article"
+        ? message.extractionMode
+        : undefined,
     }).then((settings) => sendResponse({ ok: true, data: settings }));
     return true;
   }
@@ -150,9 +204,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         targetLanguage: String(message.targetLanguage || settings.targetLanguage),
         rate: previous?.rate ?? settings.rate,
         voiceName: previous?.voiceName ?? settings.voiceName,
+        extractionMode: normalizeExtractionMode(message.extractionMode ?? settings.extractionMode),
         playing: false,
       };
-      await saveSettings({ targetLanguage: state.targetLanguage, rate: state.rate, voiceName: state.voiceName });
+      await saveSettings({
+        targetLanguage: state.targetLanguage,
+        rate: state.rate,
+        voiceName: state.voiceName,
+        extractionMode: state.extractionMode,
+      });
       await saveState(state);
       await playCurrent();
       sendResponse({ ok: true, data: await loadSettings() });
@@ -187,7 +247,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (typeof message.rate === "number") state.rate = Math.min(3, Math.max(0.75, message.rate));
         if (typeof message.voiceName === "string" || message.voiceName === null) state.voiceName = message.voiceName;
         if (typeof message.targetLanguage === "string") state.targetLanguage = message.targetLanguage;
-        await saveSettings({ targetLanguage: state.targetLanguage, rate: state.rate, voiceName: state.voiceName });
+        if (message.extractionMode === "display" || message.extractionMode === "article") state.extractionMode = message.extractionMode;
+        await saveSettings({
+          targetLanguage: state.targetLanguage,
+          rate: state.rate,
+          voiceName: state.voiceName,
+          extractionMode: state.extractionMode,
+        });
         if (state.playing) {
           state.playing = false;
           await saveState(state);
