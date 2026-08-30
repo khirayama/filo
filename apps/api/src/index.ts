@@ -7,6 +7,7 @@ import { runExtractContent } from "./jobs/extractContent";
 import { runOpmlImport } from "./jobs/opmlImport";
 import { requireAdmin, requireUser, requireUserOrSystem, type AppContext, type OpsContext } from "./lib/auth";
 import { ApiError, errors } from "./lib/errors";
+import { resolveCorsOrigin } from "./lib/origin";
 import { nowIso } from "./lib/util";
 import { createBetterAuth } from "./betterAuth";
 import { accountRoutes } from "./routes/account";
@@ -21,26 +22,13 @@ import { tagRoutes } from "./routes/tags";
 
 const app = new Hono<{ Bindings: Env; Variables: { requestId: string } }>();
 
-const DEV_ALLOWED_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
 const ALLOWED_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 const ALLOWED_HEADERS = ["Authorization", "Content-Type", "X-Request-Id"];
-
-function resolveCorsOrigin(origin: string | undefined, allowedOrigins: string): string | undefined {
-  if (!origin) return undefined;
-  const configuredOrigins = new Set(
-    allowedOrigins
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
-  );
-  if (DEV_ALLOWED_ORIGINS.has(origin) || configuredOrigins.has(origin)) return origin;
-  return undefined;
-}
 
 app.use(
   "*",
   cors({
-    origin: (origin, c) => resolveCorsOrigin(origin, c.env.CORS_ALLOWED_ORIGINS ?? ""),
+    origin: (origin, c) => resolveCorsOrigin(origin, c.env.CORS_ALLOWED_ORIGINS, c.env.APP_ENV),
     allowHeaders: ALLOWED_HEADERS,
     allowMethods: ALLOWED_METHODS,
     credentials: true,
@@ -57,7 +45,7 @@ app.use("/api/v1/*", async (c, next) => {
   const safeMethod = c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS";
   const usesCookieSession = Boolean(c.req.header("Cookie")) && !c.req.header("Authorization");
   if (usesCookieSession && !safeMethod) {
-    const origin = resolveCorsOrigin(c.req.header("Origin"), c.env.CORS_ALLOWED_ORIGINS ?? "");
+    const origin = resolveCorsOrigin(c.req.header("Origin"), c.env.CORS_ALLOWED_ORIGINS, c.env.APP_ENV);
     if (!origin) throw errors.forbidden();
   }
   await next();

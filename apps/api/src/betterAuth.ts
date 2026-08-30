@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Resend } from "resend";
 import type { Env } from "./env";
 import { authSchema } from "./auth-schema";
+import { resolveBetterAuthTrustedOrigins } from "./lib/origin";
 
 export function createBetterAuth(env: Env) {
   const db = drizzle(env.DB);
@@ -19,10 +20,7 @@ export function createBetterAuth(env: Env) {
       throw result.error;
     }
   };
-  const trustedOrigins = [
-    ...(env.CORS_ALLOWED_ORIGINS ?? "").split(","),
-    ...(env.BETTER_AUTH_TRUSTED_ORIGINS ?? "filo://auth").split(","),
-  ].map(value => value.trim()).filter(Boolean);
+  const trustedOrigins = resolveBetterAuthTrustedOrigins(env);
 
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
