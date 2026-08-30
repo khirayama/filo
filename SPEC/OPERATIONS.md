@@ -40,7 +40,7 @@ Vars（`wrangler.jsonc`）:
 
 - `ADMIN_BETTER_AUTH_USER_IDS`: `/api/v1/admin/*` を呼べる Better Auth user id のカンマ区切り。admin 判定はこれ一本で行う
 - `APP_ENV`: `development` または `production`。health endpoint の環境確認にも使う
-- `CORS_ALLOWED_ORIGINS`: 環境ごとのWebとChrome Extensionのoriginをカンマ区切りで指定する。localの2 originは常に許可する
+- `CORS_ALLOWED_ORIGINS`: 環境ごとのWebとChrome Extensionのoriginをカンマ区切りで指定する。localの2 Web originに加え、developmentではunpacked Chrome Extensionのoriginを許可する
 
 Secrets（`wrangler secret put`）:
 
