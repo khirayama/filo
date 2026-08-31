@@ -89,6 +89,12 @@ const iconPaths = {
     </>
   ),
   play: <polygon points="6 4 20 12 6 20 6 4" />,
+  pause: (
+    <>
+      <path d="M6 4h4v16H6z" />
+      <path d="M14 4h4v16h-4z" />
+    </>
+  ),
   trash: (
     <>
       <path d="M3 6h18" />
