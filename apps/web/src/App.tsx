@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { AppDataProvider } from "./components/AppDataContext";
+import { AppDataProvider, useAppData } from "./components/AppDataContext";
 import { TitleTranslationProvider } from "./components/TitleTranslationContext";
 import { TitleTranslationSetup } from "./components/TitleTranslationSetup";
 import { pageStyle, sectionStyle, shellStyle } from "./components/ui";
@@ -46,6 +46,7 @@ function RootRedirect() {
 
 function SignOutPage() {
   const { data: session, isPending } = authClient.useSession();
+  const { t } = useAppData();
 
   useEffect(() => {
     if (isPending) return;
@@ -58,7 +59,7 @@ function SignOutPage() {
     })();
   }, [isPending, session]);
 
-  return <AuthLayout><p style={{ textAlign: "center" }}>サインアウト中…</p></AuthLayout>;
+  return <AuthLayout><p style={{ textAlign: "center" }}>{t("サインアウト中…")}</p></AuthLayout>;
 }
 
 function AnalyticsPageView() {

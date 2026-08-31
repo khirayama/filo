@@ -130,8 +130,6 @@ function ArticlesListPage() {
   };
 
   const markAllRead = async () => {
-    const scope = selectedTag ? `${t("タグ")}「${selectedTag.name}」` : t("すべての購読");
-    if (!window.confirm(`${scope}${t("の記事をすべて既読にしますか？")}`)) return;
     try {
       await api.markAllArticlesRead(tagId);
       trackEvent("mark_all_articles_read", { scope: selectedTag ? "tag" : "all_articles" });
@@ -294,7 +292,7 @@ function ArticlesListPage() {
 
         {selectedTag ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 16px 4px" }}>
-            <FilterChip label={`タグ: ${selectedTag.name} ✕`} active onClick={clearTag} />
+            <FilterChip label={t("タグ: {name} ✕", { name: selectedTag.name })} active onClick={clearTag} />
           </div>
         ) : null}
 
@@ -355,7 +353,7 @@ function ArticlesListPage() {
         >
           <section onClick={(event) => event.stopPropagation()} style={{ background: palette.surface, borderRadius: "8px", maxWidth: "360px", padding: "20px", width: "calc(100% - 32px)" }}>
             <h2 id="filo-shortcut-help-title" style={{ fontSize: "18px", margin: "0 0 12px" }}>{t("ショートカット")}</h2>
-            <pre style={{ fontFamily: "inherit", lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{"J / ↓  次の記事\nK / ↑  前の記事\nEnter / O  記事を開く\nV  元記事を開く\nM  既読／未読\nS  リーディングリスト\nB  ブックマーク\nR  更新\nShift+A  すべて既読\n?  この一覧"}</pre>
+            <pre style={{ fontFamily: "inherit", lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{t("ショートカットヘルプ")}</pre>
             <Button onClick={() => setShowShortcutHelp(false)}>{t("閉じる")}</Button>
           </section>
         </div>

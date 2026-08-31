@@ -286,8 +286,10 @@ function SidebarNav() {
       >
         {t("フィード")}
       </p>
-      {groups.map((group) =>
-        group.items.length === 0 && group.key === "untagged" ? null : (
+      {groups.map((group) => {
+        const unreadCount = group.items.reduce((total, subscription) => total + subscription.unreadCount, 0);
+        if (group.items.length === 0 && group.key === "untagged") return null;
+        return (
           <div key={String(group.key)}>
             <div style={{ alignItems: "center", display: "flex" }}>
               {(() => {
@@ -295,7 +297,7 @@ function SidebarNav() {
                 return (
                   <IconButton
                     icon={expandedTags.has(group.key) ? "chevronDown" : "chevronRight"}
-                    label={`${group.label}: ${expandedTags.has(group.key) ? t("折りたたむ") : t("展開")}`}
+                    label={`${group.key === "untagged" ? t("タグなし") : group.label}: ${expandedTags.has(group.key) ? t("折りたたむ") : t("展開")}`}
                     size={14}
                     ariaExpanded={expandedTags.has(group.key)}
                     ariaControls={groupId}
@@ -306,15 +308,13 @@ function SidebarNav() {
               {group.tag !== undefined ? (
                 <SidebarRowLink
                   to={`/articles?tagId=${group.tag.id}`}
-                  label={group.label}
-                  count={group.items.reduce((total, subscription) => total + subscription.unreadCount, 0)}
+                  label={group.key === "untagged" ? t("タグなし") : group.label}
+                  count={unreadCount > 0 ? unreadCount : undefined}
                 />
               ) : (
                 <span style={{ ...sidebarRowStyle, color: palette.muted }}>
-                  <span style={ellipsisStyle}>{group.label}</span>
-                  <span style={countStyle}>
-                    {group.items.reduce((total, subscription) => total + subscription.unreadCount, 0)}
-                  </span>
+                  <span style={ellipsisStyle}>{group.key === "untagged" ? t("タグなし") : group.label}</span>
+                  {unreadCount > 0 ? <span style={countStyle}>{unreadCount}</span> : null}
                 </span>
               )}
             </div>
@@ -326,8 +326,8 @@ function SidebarNav() {
               </div>
             ) : null}
           </div>
-        )
-      )}
+        );
+      })}
 
       <div style={{ borderTop: `1px solid ${palette.mutedBorder}`, marginTop: "16px", paddingTop: "8px" }}>
         <SidebarLink to="/subscriptions" icon="list" label={t("購読管理")} />
@@ -392,7 +392,7 @@ function SidebarLink({ to, icon, label }: { to: string; icon: Parameters<typeof 
   );
 }
 
-function SidebarRowLink({ to, label, count }: { to: string; label: string; count: number }) {
+function SidebarRowLink({ to, label, count }: { to: string; label: string; count?: number }) {
   const active = useIsActive(to);
   return (
     <Link
@@ -405,13 +405,14 @@ function SidebarRowLink({ to, label, count }: { to: string; label: string; count
       }}
     >
       <span style={ellipsisStyle}>{label}</span>
-      <span style={countStyle}>{count}</span>
+      {count !== undefined ? <span style={countStyle}>{count}</span> : null}
     </Link>
   );
 }
 
 function SubscriptionLink({ subscription }: { subscription: Subscription }) {
   const location = useLocation();
+  const { t } = useAppData();
   const active = location.pathname === `/subscriptions/${subscription.id}`;
   const title = subscription.customTitle ?? subscription.feed.title;
   const unhealthy =
@@ -421,7 +422,7 @@ function SubscriptionLink({ subscription }: { subscription: Subscription }) {
     <Link
       to={`/subscriptions/${subscription.id}`}
       aria-current={active ? "page" : undefined}
-      title={unhealthy ? `${title}（更新異常）` : stale ? `${title}（しばらく更新なし）` : title}
+      title={unhealthy ? `${title}（${t("更新異常")}）` : stale ? `${title}（${t("しばらく更新なし")}）` : title}
       style={{
         ...sidebarRowStyle,
         background: active ? palette.mutedBorder : "transparent",

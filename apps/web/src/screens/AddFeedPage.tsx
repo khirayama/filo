@@ -89,7 +89,7 @@ export function AddFeedPage() {
         </header>
         <form onSubmit={(event) => void submit(event)} style={{ ...sectionStyle, border: "none", padding: "16px 0" }}>
           <label htmlFor="feed-url" style={{ display: "block" }}>
-            RSS/Atom URL または サイトURL
+            {t("RSS/Atom URL または サイトURL")}
             <input
               id="feed-url"
               type="url"
@@ -134,7 +134,7 @@ export function AddFeedPage() {
             </div>
           ) : null}
           <label htmlFor="new-feed-tags" style={{ display: "block", marginTop: "16px" }}>
-            新規タグ（カンマ区切り）
+            {t("新規タグ（カンマ区切り）")}
             <input
               id="new-feed-tags"
               type="text"
@@ -175,15 +175,15 @@ export function AddFeedPage() {
             ) : (
               <>
                 <Badge tone="danger">{t("初回取得失敗")}</Badge>
-                <p>{t("購読は作成されましたが、")}{initialFetchErrorMessage(created.initialFetchErrorCode, language)}</p>
+                <p>{t("購読は作成されましたが、{message}", { message: initialFetchErrorMessage(created.initialFetchErrorCode, language) })}</p>
                 <Button onClick={() => void retry()} disabled={retrying}>
-                  {retrying ? "再試行中…" : "再試行"}
+                  {retrying ? t("再試行中…") : t("再試行")}
                 </Button>
               </>
             )}
             <p>
               <Link to="/articles" style={{ color: "inherit" }}>
-                記事一覧へ
+                {t("記事一覧へ")}
               </Link>
             </p>
           </section>

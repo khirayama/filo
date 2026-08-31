@@ -15,6 +15,7 @@ type ArticleStateMutation =
 import { ErrorBox, IconButton, Spinner, formatTimeCompact, palette } from "./ui";
 
 export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
+  const { language } = useAppData();
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,11 +39,11 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
       setNextCursor(result.nextCursor);
     } catch (e) {
       if (generation.current !== gen) return;
-      setError(errorMessage(e));
+      setError(errorMessage(e, language));
     } finally {
       if (generation.current === gen) setLoading(false);
     }
-  }, [api, filtersKey]);
+  }, [api, filtersKey, language]);
 
   useEffect(() => {
     void load();
@@ -60,11 +61,11 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
       setNextCursor(result.nextCursor);
     } catch (e) {
       if (generation.current !== gen) return;
-      setError(errorMessage(e));
+      setError(errorMessage(e, language));
     } finally {
       if (generation.current === gen) setLoadingMore(false);
     }
-  }, [api, filtersKey, nextCursor, loadingMore]);
+  }, [api, filtersKey, language, nextCursor, loadingMore]);
 
   const updateState = useCallback(
     async (articleId: number, patch: ArticleStateMutation) => {
@@ -102,11 +103,11 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
         );
       } catch (e) {
         if (viewIdentity.current.api === api && viewIdentity.current.filtersKey === filtersKey) {
-          setError(errorMessage(e));
+          setError(errorMessage(e, language));
         }
       }
     },
-    [api, articles, filtersKey],
+    [api, articles, filtersKey, language],
   );
 
   return { articles, nextCursor, loading, loadingMore, error, reload: load, loadMore, updateState };
@@ -138,7 +139,7 @@ export function ArticleRows({
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const viewedArticleIds = useRef("");
   const isDesktop = useIsDesktop();
-  const { t } = useAppData();
+  const { t, language } = useAppData();
   const { enabled: translationEnabled, request: requestTranslations } = useTitleTranslation();
 
   useEffect(() => {
@@ -204,7 +205,7 @@ function ArticleRow({
   active?: boolean;
 }) {
   const isDesktop = useIsDesktop();
-  const { t } = useAppData();
+  const { t, language } = useAppData();
   const [hovered, setHovered] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const { isRead, inReadingList, isBookmarked } = article.userState;
@@ -307,7 +308,7 @@ function ArticleRow({
   const articleDate = article.publishedAt ?? article.fetchedAt;
   const dateEl = (
     <time dateTime={articleDate ?? undefined} style={{ color: palette.muted, flexShrink: 0, fontSize: "12px", whiteSpace: "nowrap" }}>
-      {formatTimeCompact(articleDate)}
+      {formatTimeCompact(articleDate, language)}
     </time>
   );
 

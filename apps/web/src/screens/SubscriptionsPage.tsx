@@ -151,7 +151,7 @@ export function SubscriptionsPage() {
                 >
                   <IconButton
                     icon={collapsedTags.has(group.key) ? "chevronRight" : "chevronDown"}
-                    label={`${group.label}: ${collapsedTags.has(group.key) ? t("展開") : t("折りたたむ")}`}
+                    label={`${group.key === "untagged" ? t("タグなし") : group.label}: ${collapsedTags.has(group.key) ? t("展開") : t("折りたたむ")}`}
                     size={14}
                     ariaExpanded={!collapsedTags.has(group.key)}
                     ariaControls={`subscription-group-items-${String(group.key)}`}
@@ -163,12 +163,12 @@ export function SubscriptionsPage() {
                       id={`subscription-group-${String(group.key)}`}
                       style={{ color: "inherit", fontWeight: 600, textDecoration: "none" }}
                     >
-                      {group.label}
+                      {group.key === "untagged" ? t("タグなし") : group.label}
                     </Link>
                   ) : (
-                    <span id={`subscription-group-${String(group.key)}`} style={{ fontWeight: 600 }}>{group.label}</span>
+                    <span id={`subscription-group-${String(group.key)}`} style={{ fontWeight: 600 }}>{group.key === "untagged" ? t("タグなし") : group.label}</span>
                   )}
-                  <span style={{ color: palette.muted, fontSize: "13px" }}>{group.items.length}件</span>
+                  <span style={{ color: palette.muted, fontSize: "13px" }}>{t("{count}件の購読", { count: group.items.length })}</span>
                   <div style={{ flex: 1 }} />
                   {group.tag ? (
                     <>
@@ -223,6 +223,7 @@ function SubscriptionRow({
   onTagsChange: (tagIds: number[]) => void;
 }) {
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const { t, language } = useAppData();
 
   useEffect(() => {
     if (!tagMenuOpen) return;
@@ -282,23 +283,23 @@ function SubscriptionRow({
           {subscription.customTitle ?? subscription.feed.title}
         </Link>
         <div style={{ color: palette.muted, fontSize: "12px", marginTop: "2px" }}>
-          最終公開 {formatTime(subscription.feed.latestPublishedAt ?? null) || "—"}
+          {t("最終公開 {time}", { time: formatTime(subscription.feed.latestPublishedAt ?? null, language) || "—" })}
         </div>
         {subscription.initialFetchStatus === "failed" ? (
-          <Badge tone="danger">{initialFetchErrorMessage(subscription.initialFetchErrorCode)}</Badge>
+          <Badge tone="danger">{initialFetchErrorMessage(subscription.initialFetchErrorCode, language)}</Badge>
         ) : subscription.initialFetchStatus === "fetching" ? (
-          <Badge>記事取得中</Badge>
+          <Badge>{t("記事取得中")}</Badge>
         ) : subscription.feedHealthStatus === "paused" ? (
-          <Badge tone="danger">更新停止中</Badge>
+          <Badge tone="danger">{t("更新停止中")}</Badge>
         ) : subscription.feedHealthStatus === "stale" ? (
-          <Badge tone="warn">しばらく更新なし</Badge>
+          <Badge tone="warn">{t("しばらく更新なし")}</Badge>
         ) : null}
       </div>
       {allTags.length > 0 ? (
         <div style={{ position: "relative" }}>
           <IconButton
             icon="tag"
-            label="タグを編集"
+            label={t("タグを編集")}
             size={14}
             ariaExpanded={tagMenuOpen}
             ariaHaspopup="dialog"
@@ -306,7 +307,7 @@ function SubscriptionRow({
             onClick={() => setTagMenuOpen((v) => !v)}
           />
           {tagMenuOpen ? (
-            <div id={`subscription-tag-menu-${subscription.id}`} role="dialog" aria-label="タグを編集" style={{ ...menuStyle, fontSize: "13px", gap: "2px", padding: "8px", width: "200px" }}>
+            <div id={`subscription-tag-menu-${subscription.id}`} role="dialog" aria-label={t("タグを編集")} style={{ ...menuStyle, fontSize: "13px", gap: "2px", padding: "8px", width: "200px" }}>
               {allTags.map((tag) => (
                 <label
                   key={tag.id}
@@ -344,8 +345,8 @@ function SubscriptionRow({
           ) : null}
         </div>
       ) : null}
-      <IconButton icon="chevronUp" label="上へ" size={14} disabled={busy} onClick={onMoveUp} />
-      <IconButton icon="chevronDown" label="下へ" size={14} disabled={busy} onClick={onMoveDown} />
+      <IconButton icon="chevronUp" label={t("上へ")} size={14} disabled={busy} onClick={onMoveUp} />
+      <IconButton icon="chevronDown" label={t("下へ")} size={14} disabled={busy} onClick={onMoveDown} />
     </li>
   );
 }

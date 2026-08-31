@@ -228,7 +228,7 @@ export function SettingsPage() {
                     <div>
                       <Badge tone="ok">{t("インポート完了")}</Badge>
                       <p style={{ color: palette.muted, fontSize: "13px" }}>
-                        追加 {importJob.created ?? 0} / スキップ {importJob.skipped ?? 0} / 失敗 {importJob.failed ?? 0}
+                        {t("追加 {created} / スキップ {skipped} / 失敗 {failed}", { created: importJob.created ?? 0, skipped: importJob.skipped ?? 0, failed: importJob.failed ?? 0 })}
                       </p>
                       {importJob.failures && importJob.failures.length > 0 ? (
                         <ul style={{ color: palette.muted, fontSize: "12px" }}>
@@ -248,7 +248,7 @@ export function SettingsPage() {
             <section style={sectionStyle}>
               <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600 }}>{t("既読履歴について")}</p>
               <p style={{ color: palette.muted, fontSize: "13px" }}>
-                閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。
+                {t("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。")}
               </p>
             </section>
 
@@ -260,7 +260,7 @@ export function SettingsPage() {
             <section style={{ ...sectionStyle, borderColor: palette.danger }}>
               <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600, color: palette.danger }}>{t("危険な操作")}</p>
               <p style={{ color: palette.muted, fontSize: "13px" }}>
-                アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。
+                {t("アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。")}
               </p>
               <Button kind="danger" onClick={() => void deleteAccount()}>
                 {t("アカウント削除")}

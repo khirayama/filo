@@ -81,7 +81,7 @@ export function TagsPage() {
   };
 
   const remove = async (tag: Tag) => {
-    if (!window.confirm(`${t("タグ")}「${tag.name}」${t("を削除しますか？購読は削除されません。")}`)) return;
+    if (!window.confirm(t("タグ「{name}」を削除しますか？購読は削除されません。", { name: tag.name }))) return;
     try {
       await api.deleteTag(tag.id);
       await load();
@@ -183,7 +183,7 @@ export function TagsPage() {
                         }}
                       />
                       <label style={{ alignItems: "center", display: "flex", gap: "4px", fontSize: "13px" }}>
-                        色
+                        {t("色")}
                         <input
                           id={`edit-tag-color-${tag.id}`}
                           type="color"
@@ -204,17 +204,17 @@ export function TagsPage() {
                               padding: "2px 4px",
                             }}
                           >
-                            解除
+                            {t("解除")}
                           </button>
                         ) : null}
                       </label>
                     </div>
                     <div style={{ display: "flex", gap: "4px" }}>
                       <Button small type="submit" kind="primary">
-                        保存
+                        {t("保存")}
                       </Button>
                       <Button small onClick={cancelEdit}>
-                        キャンセル
+                        {t("キャンセル")}
                       </Button>
                     </div>
                   </form>
@@ -235,17 +235,17 @@ export function TagsPage() {
                       ) : null}
                       <span style={{ fontWeight: 600 }}>{tag.name}</span>
                       <span style={{ color: palette.muted, fontSize: "13px" }}>
-                        {tag.subscriptionCount}件の購読
+                        {t("{count}件の購読", { count: tag.subscriptionCount })}
                       </span>
                     </div>
                     <div style={{ alignItems: "center", display: "flex", gap: "2px" }}>
-                      <IconButton icon="chevronUp" label="上へ" size={14} onClick={() => void move(tag.id, -1)} />
-                      <IconButton icon="chevronDown" label="下へ" size={14} onClick={() => void move(tag.id, 1)} />
+                      <IconButton icon="chevronUp" label={t("上へ")} size={14} onClick={() => void move(tag.id, -1)} />
+                      <IconButton icon="chevronDown" label={t("下へ")} size={14} onClick={() => void move(tag.id, 1)} />
                       <Button small onClick={() => startEdit(tag)}>
-                        編集
+                        {t("編集")}
                       </Button>
                       <Button small kind="danger" onClick={() => void remove(tag)}>
-                        削除
+                        {t("削除")}
                       </Button>
                     </div>
                   </div>

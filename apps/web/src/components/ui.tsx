@@ -358,7 +358,7 @@ export function IconButton({
   );
 }
 
-function relativeTime(iso: string | null, labels: { now: string; m: string; h: string; d: string }, dateFormat: Intl.DateTimeFormatOptions): string {
+function relativeTime(iso: string | null, labels: { now: string; m: string; h: string; d: string }, dateFormat: Intl.DateTimeFormatOptions, language: string): string {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
@@ -369,13 +369,32 @@ function relativeTime(iso: string | null, labels: { now: string; m: string; h: s
   if (hours < 24) return `${hours}${labels.h}`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}${labels.d}`;
-  return date.toLocaleDateString("ja-JP", dateFormat);
+  const locale = language === "zh" ? "zh-CN" : language === "ko" ? "ko-KR" : language === "es" ? "es-ES" : language === "en" ? "en-US" : "ja-JP";
+  return date.toLocaleDateString(locale, dateFormat);
 }
 
-export function formatTime(iso: string | null): string {
-  return relativeTime(iso, { now: "たった今", m: "分前", h: "時間前", d: "日前" }, { year: "numeric", month: "short", day: "numeric" });
+export function formatTime(iso: string | null, language = "ja"): string {
+  const labels = language === "en"
+    ? { now: "just now", m: " min ago", h: " hr ago", d: " days ago" }
+    : language === "zh"
+      ? { now: "刚刚", m: "分钟前", h: "小时前", d: "天前" }
+      : language === "ko"
+        ? { now: "방금", m: "분 전", h: "시간 전", d: "일 전" }
+        : language === "es"
+          ? { now: "ahora", m: " min", h: " h", d: " días" }
+          : { now: "たった今", m: "分前", h: "時間前", d: "日前" };
+  return relativeTime(iso, labels, { year: "numeric", month: "short", day: "numeric" }, language);
 }
 
-export function formatTimeCompact(iso: string | null): string {
-  return relativeTime(iso, { now: "now", m: "m", h: "h", d: "d" }, { month: "numeric", day: "numeric" });
+export function formatTimeCompact(iso: string | null, language = "ja"): string {
+  const labels = language === "ja"
+    ? { now: "今", m: "分", h: "時間", d: "日" }
+    : language === "zh"
+      ? { now: "刚刚", m: "分", h: "时", d: "天" }
+      : language === "ko"
+        ? { now: "방금", m: "분", h: "시간", d: "일" }
+        : language === "es"
+          ? { now: "ahora", m: "m", h: "h", d: "d" }
+          : { now: "now", m: "m", h: "h", d: "d" };
+  return relativeTime(iso, labels, { month: "numeric", day: "numeric" }, language);
 }

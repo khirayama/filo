@@ -48,27 +48,27 @@ export function AccountDeletionPage() {
           ) : status.status === "completed" ? (
             <>
               <Badge tone="ok">{t("削除完了")}</Badge>
-              <p>アカウントの削除が完了しました。ご利用ありがとうございました。</p>
+              <p>{t("アカウントの削除が完了しました。ご利用ありがとうございました。")}</p>
               <p style={{ color: palette.muted, fontSize: "13px" }}>
-                再ログインしてもデータは復元されません。
+                {t("再ログインしてもデータは復元されません。")}
               </p>
             </>
           ) : status.status === "failed" ? (
             <>
               <Badge tone="danger">{t("削除処理に失敗しました")}</Badge>
-              <p>削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。</p>
+              <p>{t("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。")}</p>
             </>
           ) : status.status === "none" ? (
             <>
-              <p>進行中の削除処理はありません。</p>
+              <p>{t("進行中の削除処理はありません。")}</p>
               <InlineButton onClick={() => navigate("/settings")}>{t("設定へ戻る")}</InlineButton>
             </>
           ) : (
             <>
-              <Badge>削除処理中（{status.status === "pending" ? "待機中" : "実行中"}）…</Badge>
-              <p>アカウントとデータを削除しています。このまましばらくお待ちください。</p>
+              <Badge>{t("削除処理中（{status}）…", { status: t(status.status === "pending" ? "待機中" : "実行中") })}</Badge>
+              <p>{t("アカウントとデータを削除しています。このまましばらくお待ちください。")}</p>
               <p style={{ color: palette.muted, fontSize: "13px" }}>
-                この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。
+                {t("この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。")}
               </p>
             </>
           )}

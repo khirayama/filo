@@ -161,13 +161,13 @@ export function StatusPage() {
               ) : null}
               <p style={{ color: palette.muted, fontSize: "12px", margin: "12px 0 0" }}>
                 {t("購読")} {status.feeds.total}・{t("記事")} {status.articles.total}
-                {status.feeds.lastFetchedAt ? `・最終取得 ${formatTime(status.feeds.lastFetchedAt)}` : ""}
-                ・約{Math.round(POLL_INTERVAL_MS / 1000)}秒ごとに自動更新
+                {status.feeds.lastFetchedAt ? `・${t("最終取得")} ${formatTime(status.feeds.lastFetchedAt, language)}` : ""}
+                ・{t("約{seconds}秒ごとに自動更新", { seconds: Math.round(POLL_INTERVAL_MS / 1000) })}
               </p>
             </section>
 
             <section style={sectionStyle}>
-              <p role="heading" aria-level={2} style={{ fontWeight: 600, margin: "0 0 4px" }}>{t("購読一覧")}（{status.subscriptionStatuses.length}）</p>
+              <p role="heading" aria-level={2} style={{ fontWeight: 600, margin: "0 0 4px" }}>{t("購読一覧（{count}）", { count: status.subscriptionStatuses.length })}</p>
               {status.subscriptionStatuses.length === 0 ? (
                 <EmptyState>{t("購読がありません。")}</EmptyState>
               ) : (
@@ -243,7 +243,7 @@ export function StatusPage() {
                                   <JobBadge label={t("取得")} job={sub.fetchJob} fallback={fetchFallbackBadge(sub.lastResult, t)} t={t} />
                                 </td>
                                 <td style={{ color: palette.muted, fontSize: "12px", padding: "10px 8px", whiteSpace: "nowrap" }}>
-                                  {sub.lastFetchedAt ? formatTime(sub.lastFetchedAt) : "—"}
+                                  {sub.lastFetchedAt ? formatTime(sub.lastFetchedAt, language) : "—"}
                                 </td>
                                 <td style={{ padding: "8px" }}>
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
