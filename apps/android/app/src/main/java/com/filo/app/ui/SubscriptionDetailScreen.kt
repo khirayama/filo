@@ -16,12 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,7 +23,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -93,7 +86,6 @@ fun SubscriptionDetailScreen(
     var showRename by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
     var showUnsubscribe by remember { mutableStateOf(false) }
-    var showMarkAllRead by remember { mutableStateOf(false) }
     var showFeedUrl by remember { mutableStateOf(false) }
     var articleOptionsMenuOpen by remember { mutableStateOf(false) }
     var subscriptionActionsMenuOpen by remember { mutableStateOf(false) }
@@ -143,6 +135,18 @@ fun SubscriptionDetailScreen(
                 }
             } finally {
                 if (requestGeneration == articleGeneration.get()) isLoadingMore = false
+            }
+        }
+    }
+
+    fun markAllRead() {
+        scope.launch {
+            try {
+                val result = ApiClient.markAllRead(subscriptionId)
+                subscription = subscription?.copy(unreadCount = result.unreadCount)
+                reloadArticles()
+            } catch (e: Exception) {
+                errorMessage = ErrorMessages.forError(e)
             }
         }
     }
@@ -207,7 +211,7 @@ fun SubscriptionDetailScreen(
             )
             val done = awaitRefreshCompletion(result.queuedAt, feedId)
             if (!done) {
-                refreshNotice = "取得に時間がかかっています。あとで再度更新してください。"
+                refreshNotice = AppStrings.get("取得に時間がかかっています。あとで再度更新してください。")
             }
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forError(e)
@@ -234,7 +238,7 @@ fun SubscriptionDetailScreen(
                                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(8.dp))
                             }
                             Text(
-                                subscription?.displayTitle ?: "購読詳細",
+                                subscription?.displayTitle ?: tr("購読詳細"),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -242,7 +246,7 @@ fun SubscriptionDetailScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                            FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
                         }
                     },
                     actions = {
@@ -251,21 +255,21 @@ fun SubscriptionDetailScreen(
                             enabled = !isRefreshingFeed,
                             onClick = { scope.launch { refreshFeedAndReload() } },
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "このフィードを更新")
+                            FiloIcon(FiloIconName.Refresh, contentDescription = tr("このフィードを更新"))
                         }
-                        IconButton(onClick = { showMarkAllRead = true }) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = "すべて既読にする")
+                        IconButton(onClick = { markAllRead() }) {
+                            FiloIcon(FiloIconName.CheckCircle, contentDescription = tr("すべて既読にする"))
                         }
                         Box {
                             IconButton(onClick = { subscriptionActionsMenuOpen = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "購読の操作")
+                                FiloIcon(FiloIconName.More, contentDescription = tr("購読の操作"))
                             }
                             DropdownMenu(
                                 expanded = subscriptionActionsMenuOpen,
                                 onDismissRequest = { subscriptionActionsMenuOpen = false },
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("名前を変更") },
+                                    text = { Text(tr("名前を変更")) },
                                     onClick = {
                                         subscriptionActionsMenuOpen = false
                                         renameText = subscription?.customTitle.orEmpty()
@@ -274,7 +278,7 @@ fun SubscriptionDetailScreen(
                                 )
                                 if (subscription?.feed?.siteUrl != null) {
                                     DropdownMenuItem(
-                                        text = { Text("サイトを開く") },
+                                        text = { Text(tr("サイトを開く")) },
                                         onClick = {
                                             subscriptionActionsMenuOpen = false
                                             runCatching {
@@ -285,7 +289,7 @@ fun SubscriptionDetailScreen(
                                 }
                                 if (subscription?.feed?.feedUrl != null) {
                                     DropdownMenuItem(
-                                        text = { Text("フィードURLを表示") },
+                                        text = { Text(tr("フィードURLを表示")) },
                                         onClick = {
                                             subscriptionActionsMenuOpen = false
                                             showFeedUrl = true
@@ -293,7 +297,7 @@ fun SubscriptionDetailScreen(
                                     )
                                 }
                                 DropdownMenuItem(
-                                    text = { Text("購読解除", color = MaterialTheme.colorScheme.error) },
+                                    text = { Text(tr("購読解除"), color = MaterialTheme.colorScheme.error) },
                                     onClick = {
                                         subscriptionActionsMenuOpen = false
                                         showUnsubscribe = true
@@ -303,26 +307,26 @@ fun SubscriptionDetailScreen(
                         }
                         Box {
                             IconButton(onClick = { articleOptionsMenuOpen = true }) {
-                                Icon(Icons.Default.Tune, contentDescription = "表示設定")
+                                FiloIcon(FiloIconName.Gear, contentDescription = tr("表示設定"))
                             }
                             DropdownMenu(expanded = articleOptionsMenuOpen, onDismissRequest = { articleOptionsMenuOpen = false }) {
                                 if (translations.isSupported) {
                                     DropdownMenuItem(
-                                        text = { Text(if (translations.isEnabled) "タイトルを翻訳（オン）" else "タイトルを翻訳（オフ）") },
+                                        text = { Text(if (translations.isEnabled) tr("タイトルを翻訳（オン）") else tr("タイトルを翻訳（オフ）")) },
                                         onClick = { translations.toggle(); articleOptionsMenuOpen = false },
                                     )
                                 }
-                                DropdownMenuItem(enabled = false, text = { Text("既読状態") }, onClick = {})
-                                DropdownMenuItem(text = { Text("全ての記事") }, onClick = { readFilter = null; articleOptionsMenuOpen = false })
-                                DropdownMenuItem(text = { Text("未読") }, onClick = { readFilter = false; articleOptionsMenuOpen = false })
-                                DropdownMenuItem(text = { Text("既読") }, onClick = { readFilter = true; articleOptionsMenuOpen = false })
-                                DropdownMenuItem(enabled = false, text = { Text("並び順") }, onClick = {})
-                                DropdownMenuItem(text = { Text("公開日時が新しい順") }, onClick = { sort = "published_at_desc"; articleOptionsMenuOpen = false })
-                                DropdownMenuItem(text = { Text("取得日時が新しい順") }, onClick = { sort = "fetched_at_desc"; articleOptionsMenuOpen = false })
-                                DropdownMenuItem(enabled = false, text = { Text("既読の扱い") }, onClick = {})
-                                DropdownMenuItem(text = { Text("既読で並び替えない") }, onClick = { readOrder = "none"; articleOptionsMenuOpen = false })
-                                DropdownMenuItem(text = { Text("既読は下") }, onClick = { readOrder = "unread_first"; articleOptionsMenuOpen = false })
-                                DropdownMenuItem(text = { Text("既読は上") }, onClick = { readOrder = "read_first"; articleOptionsMenuOpen = false })
+                                DropdownMenuItem(enabled = false, text = { Text(tr("既読状態")) }, onClick = {})
+                                DropdownMenuItem(text = { Text(tr("全ての記事")) }, onClick = { readFilter = null; articleOptionsMenuOpen = false })
+                                DropdownMenuItem(text = { Text(tr("未読")) }, onClick = { readFilter = false; articleOptionsMenuOpen = false })
+                                DropdownMenuItem(text = { Text(tr("既読")) }, onClick = { readFilter = true; articleOptionsMenuOpen = false })
+                                DropdownMenuItem(enabled = false, text = { Text(tr("並び順")) }, onClick = {})
+                                DropdownMenuItem(text = { Text(tr("公開日時が新しい順")) }, onClick = { sort = "published_at_desc"; articleOptionsMenuOpen = false })
+                                DropdownMenuItem(text = { Text(tr("取得日時が新しい順")) }, onClick = { sort = "fetched_at_desc"; articleOptionsMenuOpen = false })
+                                DropdownMenuItem(enabled = false, text = { Text(tr("既読の扱い")) }, onClick = {})
+                                DropdownMenuItem(text = { Text(tr("既読で並び替えない")) }, onClick = { readOrder = "none"; articleOptionsMenuOpen = false })
+                                DropdownMenuItem(text = { Text(tr("既読は下")) }, onClick = { readOrder = "unread_first"; articleOptionsMenuOpen = false })
+                                DropdownMenuItem(text = { Text(tr("既読は上")) }, onClick = { readOrder = "read_first"; articleOptionsMenuOpen = false })
                             }
                         }
                         }
@@ -337,8 +341,8 @@ fun SubscriptionDetailScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("この購読は削除されたか、表示できません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(onClick = onBack) { Text("購読一覧へ戻る") }
+                Text(tr("この購読は削除されたか、表示できません。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(onClick = onBack) { Text(tr("購読一覧へ戻る")) }
             }
             return@Scaffold
         }
@@ -373,7 +377,7 @@ fun SubscriptionDetailScreen(
                                             errorMessage = ErrorMessages.forError(e)
                                         }
                                     }
-                                }) { Text("再試行") }
+                                }) { Text(tr("再試行")) }
                             }
                         }
                         if (allTags.isNotEmpty()) {
@@ -421,7 +425,7 @@ fun SubscriptionDetailScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         CircularProgressIndicator()
-                        Text("購読記事を読み込んでいます…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(tr("購読記事を読み込んでいます…"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } else if (articles.isEmpty()) {
@@ -433,9 +437,9 @@ fun SubscriptionDetailScreen(
                     ) {
                         if (readFilter == null && subscription?.initialFetchStatus == "fetching") {
                             CircularProgressIndicator()
-                            Text("記事を取得しています…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(tr("記事を取得しています…"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
-                            Text("表示できる記事がありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(tr("表示できる記事がありません。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -446,7 +450,11 @@ fun SubscriptionDetailScreen(
                         translations = translations,
                         onOpen = {
                             val url = article.canonicalUrl
-                            if (url != null) context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                            if (openInBrowserByDefault && url != null) {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                            } else {
+                                onOpenArticle(article)
+                            }
                         },
                         onToggleRead = { patchState(article, isRead = !article.userState.isRead) },
                         onToggleReadingList = {
@@ -467,7 +475,7 @@ fun SubscriptionDetailScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Text("次の記事を読み込んでいます…", modifier = Modifier.padding(start = 8.dp))
+                            Text(tr("次の記事を読み込んでいます…"), modifier = Modifier.padding(start = 8.dp))
                         }
                     }
                 }
@@ -479,12 +487,12 @@ fun SubscriptionDetailScreen(
     if (showRename) {
         AlertDialog(
             onDismissRequest = { showRename = false },
-            title = { Text("購読名を変更") },
+            title = { Text(tr("購読名を変更")) },
             text = {
                 OutlinedTextField(
                     value = renameText,
                     onValueChange = { renameText = it },
-                    label = { Text("空欄でフィード名に戻す") },
+                    label = { Text(tr("空欄でフィード名に戻す")) },
                     singleLine = true,
                 )
             },
@@ -498,57 +506,35 @@ fun SubscriptionDetailScreen(
                         }
                     }
                     showRename = false
-                }) { Text("変更") }
+                }) { Text(tr("変更")) }
             },
-            dismissButton = { TextButton(onClick = { showRename = false }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = { showRename = false }) { Text(tr("キャンセル")) } },
         )
     }
 
-
-    if (showMarkAllRead) {
-        AlertDialog(
-            onDismissRequest = { showMarkAllRead = false },
-            title = { Text("このフィードの記事をすべて既読にしますか？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showMarkAllRead = false
-                    scope.launch {
-                        try {
-                            val result = ApiClient.markAllRead(subscriptionId)
-                            subscription = subscription?.copy(unreadCount = result.unreadCount)
-                            reloadArticles()
-                        } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forError(e)
-                        }
-                    }
-                }) { Text("すべて既読にする") }
-            },
-            dismissButton = { TextButton(onClick = { showMarkAllRead = false }) { Text("キャンセル") } },
-        )
-    }
 
     if (showFeedUrl) {
         val feedUrl = subscription?.feed?.feedUrl ?: ""
         AlertDialog(
             onDismissRequest = { showFeedUrl = false },
-            title = { Text("フィードURL") },
+            title = { Text(tr("フィードURL")) },
             text = { Text(feedUrl) },
             confirmButton = {
                 TextButton(onClick = {
                     context.getSystemService(ClipboardManager::class.java)
-                        ?.setPrimaryClip(ClipData.newPlainText("フィードURL", feedUrl))
+                        ?.setPrimaryClip(ClipData.newPlainText(AppStrings.get("フィードURL"), feedUrl))
                     showFeedUrl = false
-                }) { Text("コピー") }
+                }) { Text(tr("コピー")) }
             },
-            dismissButton = { TextButton(onClick = { showFeedUrl = false }) { Text("閉じる") } },
+            dismissButton = { TextButton(onClick = { showFeedUrl = false }) { Text(tr("閉じる")) } },
         )
     }
 
     if (showUnsubscribe) {
         AlertDialog(
             onDismissRequest = { showUnsubscribe = false },
-            title = { Text("この購読を解除しますか？") },
-                            text = { Text("ブックマークした記事は残ります。") },
+            title = { Text(tr("この購読を解除しますか？")) },
+            text = { Text(tr("ブックマークした記事は残ります。")) },
             confirmButton = {
                 TextButton(onClick = {
                     showUnsubscribe = false
@@ -560,9 +546,9 @@ fun SubscriptionDetailScreen(
                             errorMessage = ErrorMessages.forError(e)
                         }
                     }
-                }) { Text("購読解除", color = MaterialTheme.colorScheme.error) }
+                }) { Text(tr("購読解除"), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { showUnsubscribe = false }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = { showUnsubscribe = false }) { Text(tr("キャンセル")) } },
         )
     }
 }

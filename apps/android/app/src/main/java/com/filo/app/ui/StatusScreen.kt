@@ -10,14 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -105,15 +101,15 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("処理ステータス") },
+                title = { Text(tr("処理ステータス")) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
                     }
                 },
                 actions = {
                     IconButton(onClick = { scope.launch { load(showSpinner = true) } }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "再読み込み")
+                        FiloIcon(FiloIconName.Refresh, contentDescription = tr("再読み込み"))
                     }
                 },
             )
@@ -138,7 +134,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                 val s = status!!
 
                 // Actions
-                Text("操作", fontWeight = FontWeight.SemiBold)
+                Text(tr("操作"), fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         enabled = !isRefreshing,
@@ -150,9 +146,9 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                     val result = ApiClient.refreshFeeds(force = true)
                                     com.filo.app.Analytics.track("refresh_feeds", mapOf("source" to "status", "enqueued" to result.enqueued))
                                     notice = if (result.enqueued > 0) {
-                                        "${result.enqueued}件のフィードの取得を開始しました。"
+                                        AppStrings.format("%d件のフィードの取得を開始しました。", result.enqueued)
                                     } else {
-                                        "取得対象のフィードがありません。"
+                                        AppStrings.get("取得対象のフィードがありません。")
                                     }
                                     load()
                                 } catch (e: Exception) {
@@ -161,25 +157,29 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                 isRefreshing = false
                             }
                         },
-                    ) { Text(if (isRefreshing) "取得中…" else "すべて取得") }
+                    ) { Text(if (isRefreshing) tr("取得中…") else tr("すべて取得")) }
                 }
                 notice?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
-                    "購読 ${s.feeds.total}件・記事 ${s.articleTotal}件" +
-                        (s.feeds.lastFetchedAt?.let { "・最終取得 ${relativeTime(it)}" } ?: "") +
-                        "・約${POLL_INTERVAL_MS / 1000}秒ごとに自動更新",
+                    trf(
+                        "購読 %d件・記事 %d件",
+                        s.feeds.total,
+                        s.articleTotal,
+                    ) +
+                        (s.feeds.lastFetchedAt?.let { "・${trf("最終取得 %s", relativeTime(it))}" } ?: "") +
+                        "・${trf("約%d秒ごとに自動更新", POLL_INTERVAL_MS / 1000)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 HorizontalDivider()
 
                 // Subscription statuses
-                Text("購読一覧（${s.subscriptionStatuses.size}件）", fontWeight = FontWeight.SemiBold)
+                Text(trf("購読一覧（%d件）", s.subscriptionStatuses.size), fontWeight = FontWeight.SemiBold)
                 if (s.subscriptionStatuses.isEmpty()) {
                     Text(
-                        "購読がありません。",
+                        tr("購読がありません。"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -187,8 +187,8 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                     OutlinedTextField(
                         value = filterText,
                         onValueChange = { filterText = it },
-                        label = { Text("検索") },
-                        placeholder = { Text("購読名で検索") },
+                        label = { Text(tr("検索")) },
+                        placeholder = { Text(tr("購読名で検索")) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -196,24 +196,24 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        FilterChipButton("すべて", statusFilter == StatusFilter.All) { statusFilter = StatusFilter.All }
-                        FilterChipButton("問題あり", statusFilter == StatusFilter.Attention) { statusFilter = StatusFilter.Attention }
-                        FilterChipButton("取得中", statusFilter == StatusFilter.Fetching) { statusFilter = StatusFilter.Fetching }
-                        FilterChipButton("停止", statusFilter == StatusFilter.Paused) { statusFilter = StatusFilter.Paused }
+                        FilterChipButton(tr("すべて"), statusFilter == StatusFilter.All) { statusFilter = StatusFilter.All }
+                        FilterChipButton(tr("問題あり"), statusFilter == StatusFilter.Attention) { statusFilter = StatusFilter.Attention }
+                        FilterChipButton(tr("取得中"), statusFilter == StatusFilter.Fetching) { statusFilter = StatusFilter.Fetching }
+                        FilterChipButton(tr("停止"), statusFilter == StatusFilter.Paused) { statusFilter = StatusFilter.Paused }
                     }
                     Box {
                         OutlinedButton(onClick = { sortMenuOpen = true }) {
-                            Text("並び替え: ${statusSortLabel(sortKey)} ${if (sortAscending) "↑" else "↓"}")
+                            Text(trf("並び替え: %s", "${statusSortLabel(sortKey)} ${if (sortAscending) "↑" else "↓"}"))
                         }
                         DropdownMenu(
                             expanded = sortMenuOpen,
                             onDismissRequest = { sortMenuOpen = false },
                         ) {
                             listOf(
-                                StatusSortKey.Status to "状態",
-                                StatusSortKey.FeedTitle to "購読",
-                                StatusSortKey.FetchStatus to "取得",
-                                StatusSortKey.LastFetchedAt to "最終取得",
+                                StatusSortKey.Status to tr("状態"),
+                                StatusSortKey.FeedTitle to tr("購読"),
+                                StatusSortKey.FetchStatus to tr("取得"),
+                                StatusSortKey.LastFetchedAt to tr("最終取得"),
                             ).forEach { (key, label) ->
                                 DropdownMenuItem(
                                     text = { Text(label) },
@@ -246,7 +246,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                         }
                     if (visibleSubscriptions.isEmpty()) {
                         Text(
-                            "条件に一致する購読がありません。",
+                            tr("条件に一致する購読がありません。"),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -277,9 +277,9 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                     )
                                 }
                                 if (sub.feedStatus == "paused") {
-                                    StatusBadge("停止", BadgeTone.Muted)
+                                    StatusBadge(tr("停止"), BadgeTone.Muted)
                                 }
-                                JobBadge("取得", sub.fetchJob, fallbackDanger = sub.lastResult == "error")
+                                JobBadge(tr("取得"), sub.fetchJob, fallbackDanger = sub.lastResult == "error")
                                 Text(
                                     sub.lastFetchedAt?.let { relativeTime(it) } ?: "—",
                                     style = MaterialTheme.typography.labelSmall,
@@ -308,7 +308,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                             try {
                                                 ApiClient.refreshFeed(sub.feedId)
                                                 com.filo.app.Analytics.track("refresh_feed", mapOf("source" to "status", "feed_id" to sub.feedId))
-                                                notice = "フィードの取得を開始しました。"
+                                                notice = AppStrings.get("フィードの取得を開始しました。")
                                                 load()
                                             } catch (e: Exception) {
                                                 errorMessage = ErrorMessages.forError(e)
@@ -317,7 +317,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                             busyFeedId = null
                                         }
                                     },
-                                ) { Text(if (fetchBusy) "取得中…" else "取得") }
+                                ) { Text(if (fetchBusy) tr("取得中…") else tr("取得")) }
                             }
                         }
                         HorizontalDivider()
@@ -347,10 +347,10 @@ private fun hasStatusAttention(sub: StatusSubscription): Boolean =
         sub.lastResult == "error"
 
 private fun statusSortLabel(key: StatusSortKey): String = when (key) {
-    StatusSortKey.Status -> "状態"
-    StatusSortKey.FeedTitle -> "購読"
-    StatusSortKey.FetchStatus -> "取得"
-    StatusSortKey.LastFetchedAt -> "最終取得"
+    StatusSortKey.Status -> AppStrings.get("状態")
+    StatusSortKey.FeedTitle -> AppStrings.get("購読")
+    StatusSortKey.FetchStatus -> AppStrings.get("取得")
+    StatusSortKey.LastFetchedAt -> AppStrings.get("最終取得")
 }
 
 private fun fetchStatusRank(sub: StatusSubscription): Int {

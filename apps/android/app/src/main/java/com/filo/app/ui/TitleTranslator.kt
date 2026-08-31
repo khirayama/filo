@@ -7,14 +7,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -287,10 +283,10 @@ private suspend fun <T> Task<T>.await(): T? = suspendCancellableCoroutine { cont
 fun TitleTranslationToggle(store: TitleTranslationStore) {
     if (!store.isSupported) return
     IconButton(onClick = { store.toggle() }) {
-        Icon(
-            Icons.Default.Translate,
-            contentDescription = if (store.isEnabled) "原文タイトルに戻す" else "タイトルを翻訳",
-            tint = if (store.isEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+        FiloIcon(
+            FiloIconName.Translate,
+            contentDescription = tr(if (store.isEnabled) "原文タイトルに戻す" else "タイトルを翻訳"),
+            tint = if (store.isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -313,9 +309,9 @@ fun TitleTranslationSetupSheet(store: TitleTranslationStore, onDismiss: () -> Un
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("翻訳の準備", style = MaterialTheme.typography.titleMedium)
+            Text(tr("翻訳の準備"), style = MaterialTheme.typography.titleMedium)
             Text(
-                "タイトルの翻訳はこの端末の中で行います。はじめに、翻訳したい言語をダウンロードしてください。ダウンロードは Wi-Fi 接続時をおすすめします。",
+                tr("タイトルの翻訳はこの端末の中で行います。はじめに、翻訳したい言語をダウンロードしてください。ダウンロードは Wi-Fi 接続時をおすすめします。"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -326,11 +322,11 @@ fun TitleTranslationSetupSheet(store: TitleTranslationStore, onDismiss: () -> Un
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    Text("確認しています…", style = MaterialTheme.typography.bodySmall)
+                    Text(tr("確認しています…"), style = MaterialTheme.typography.bodySmall)
                 }
             } else if (store.languages.isEmpty()) {
                 Text(
-                    "購読しているフィードに、翻訳が必要な言語はありません。",
+                    tr("購読しているフィードに、翻訳が必要な言語はありません。"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -341,11 +337,11 @@ fun TitleTranslationSetupSheet(store: TitleTranslationStore, onDismiss: () -> Un
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text(language.displayName)
+                        Text(AppStrings.languageName(language.code))
                         when (language.status) {
                             TitleTranslationLanguage.Status.INSTALLED ->
                                 Text(
-                                    "準備済み",
+                                    tr("準備済み"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
@@ -354,11 +350,11 @@ fun TitleTranslationSetupSheet(store: TitleTranslationStore, onDismiss: () -> Un
                                     enabled = store.preparing == null,
                                     onClick = { store.prepare(language.code) },
                                 ) {
-                                    Text(if (store.preparing == language.code) "ダウンロード中…" else "ダウンロード")
+                                    Text(if (store.preparing == language.code) tr("ダウンロード中…") else tr("ダウンロード"))
                                 }
                             TitleTranslationLanguage.Status.UNSUPPORTED ->
                                 Text(
-                                    "この端末では非対応",
+                                    tr("この端末では非対応"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -369,7 +365,7 @@ fun TitleTranslationSetupSheet(store: TitleTranslationStore, onDismiss: () -> Un
             }
 
             Text(
-                "ここに無い言語の記事は、翻訳せず原文のまま表示します。",
+                tr("ここに無い言語の記事は、翻訳せず原文のまま表示します。"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

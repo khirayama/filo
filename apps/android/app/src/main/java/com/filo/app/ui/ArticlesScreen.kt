@@ -32,7 +32,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -49,23 +48,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -124,6 +106,7 @@ fun ArticlesScreen(
     onOpenSubscriptions: () -> Unit,
     onOpenAddFeed: () -> Unit,
     onOpenAddArticle: () -> Unit,
+    onStartReading: (Boolean) -> Unit,
     onOpenArticle: (ArticleListItem) -> Unit,
     onOpenTags: () -> Unit,
     onOpenStatus: () -> Unit,
@@ -150,7 +133,6 @@ fun ArticlesScreen(
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var articleOptionsMenuOpen by remember { mutableStateOf(false) }
-    var showMarkAllRead by remember { mutableStateOf(false) }
     var showRemoveReadArticles by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var selectedArticleIndex by remember { mutableStateOf<Int?>(null) }
@@ -248,10 +230,10 @@ fun ArticlesScreen(
     }
 
     val viewTitle = when {
-        selectedTagId != null -> tags.firstOrNull { it.id == selectedTagId }?.name ?: "タグ"
-        readingListOnly -> "リーディングリスト"
-        bookmarkedOnly -> "ブックマーク"
-        else -> "全ての記事"
+        selectedTagId != null -> tags.firstOrNull { it.id == selectedTagId }?.name ?: tr("タグ")
+        readingListOnly -> tr("リーディングリスト")
+        bookmarkedOnly -> tr("ブックマーク")
+        else -> tr("全ての記事")
     }
     val hasFetchingSubscriptionInScope = if (readingListOnly || bookmarkedOnly || readFilter != null) {
         false
@@ -278,7 +260,7 @@ fun ArticlesScreen(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
                 if (event.isShiftPressed && event.key == Key.A && !hasModifier) {
-                    if (!bookmarkedOnly && !readingListOnly) showMarkAllRead = true
+                    if (!bookmarkedOnly && !readingListOnly) scope.launch { vm.markAllRead() }
                     true
                 } else if (hasModifier) {
                     false
@@ -321,8 +303,14 @@ fun ArticlesScreen(
                             true
                         }
                         Key.Enter, Key.O -> {
-                            selectedArticleOrFirst()?.canonicalUrl?.let { url ->
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            selectedArticleOrFirst()?.let { article ->
+                                if (vm.openInBrowserByDefault) {
+                                    article.canonicalUrl?.let { url ->
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                    }
+                                } else {
+                                    onOpenArticle(article)
+                                }
                             }
                             true
                         }
@@ -435,46 +423,47 @@ fun ArticlesScreen(
                                         scope.launch { drawerState.open() }
                                     }
                                 }) {
-                                    Icon(
-                                        Icons.Default.Menu,
-                                        contentDescription = "フィードメニュー",
-                                    )
+                                    FiloIcon(FiloIconName.Menu, contentDescription = tr("フィードメニュー"))
                                 }
                             }
                         },
                         actions = {
                             if (readingListOnly) {
                                 IconButton(onClick = { showRemoveReadArticles = true }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "既読記事を削除", modifier = Modifier.size(20.dp))
+                                    FiloIcon(FiloIconName.Trash, size = 20.dp, contentDescription = tr("既読記事を削除"))
+                                }
+                                TextButton(onClick = { onStartReading(false) }) {
+                                    FiloIcon(FiloIconName.Play, size = 16.dp)
+                                    Text(tr("閲覧開始"))
                                 }
                             }
                             if (!bookmarkedOnly && !readingListOnly) {
-                                IconButton(onClick = { showMarkAllRead = true }) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = "すべて既読にする", modifier = Modifier.size(20.dp))
+                                IconButton(onClick = { scope.launch { vm.markAllRead() } }) {
+                                    FiloIcon(FiloIconName.CheckCircle, size = 20.dp, contentDescription = tr("すべて既読にする"))
                                 }
                             }
                             Box {
                                 IconButton(onClick = { articleOptionsMenuOpen = true }) {
-                                    Icon(Icons.Default.Tune, contentDescription = "表示設定", modifier = Modifier.size(20.dp))
+                                    FiloIcon(FiloIconName.Gear, size = 20.dp, contentDescription = tr("表示設定"))
                                 }
                                 DropdownMenu(expanded = articleOptionsMenuOpen, onDismissRequest = { articleOptionsMenuOpen = false }) {
                                     if (translations.isSupported) {
                                         DropdownMenuItem(
-                                            text = { Text(if (translations.isEnabled) "タイトルを翻訳（オン）" else "タイトルを翻訳（オフ）") },
+                                            text = { Text(tr(if (translations.isEnabled) "タイトルを翻訳（オン）" else "タイトルを翻訳（オフ）")) },
                                             onClick = { translations.toggle(); articleOptionsMenuOpen = false },
                                         )
                                     }
-                                    DropdownMenuItem(enabled = false, text = { Text("既読状態") }, onClick = {})
-                                    DropdownMenuItem(text = { Text("全ての記事") }, onClick = { readFilter = null; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text("未読") }, onClick = { readFilter = false; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text("既読") }, onClick = { readFilter = true; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(enabled = false, text = { Text("並び順") }, onClick = {})
-                                    DropdownMenuItem(text = { Text("公開日時が新しい順") }, onClick = { sort = "published_at_desc"; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text("取得日時が新しい順") }, onClick = { sort = "fetched_at_desc"; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(enabled = false, text = { Text("既読の扱い") }, onClick = {})
-                                    DropdownMenuItem(text = { Text("既読で並び替えない") }, onClick = { readOrder = "none"; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text("既読は下") }, onClick = { readOrder = "unread_first"; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text("既読は上") }, onClick = { readOrder = "read_first"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(enabled = false, text = { Text(tr("既読状態")) }, onClick = {})
+                                    DropdownMenuItem(text = { Text(tr("全ての記事")) }, onClick = { readFilter = null; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text(tr("未読")) }, onClick = { readFilter = false; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text(tr("既読")) }, onClick = { readFilter = true; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(enabled = false, text = { Text(tr("並び順")) }, onClick = {})
+                                    DropdownMenuItem(text = { Text(tr("公開日時が新しい順")) }, onClick = { sort = "published_at_desc"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text(tr("取得日時が新しい順")) }, onClick = { sort = "fetched_at_desc"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(enabled = false, text = { Text(tr("既読の扱い")) }, onClick = {})
+                                    DropdownMenuItem(text = { Text(tr("既読で並び替えない")) }, onClick = { readOrder = "none"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text(tr("既読は下")) }, onClick = { readOrder = "unread_first"; articleOptionsMenuOpen = false })
+                                    DropdownMenuItem(text = { Text(tr("既読は上")) }, onClick = { readOrder = "read_first"; articleOptionsMenuOpen = false })
                                 }
                             }
                         },
@@ -510,7 +499,7 @@ fun ArticlesScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     CircularProgressIndicator()
-                                    Text("記事一覧を読み込んでいます…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(tr("記事一覧を読み込んでいます…"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         } else if (errorMessage != null) {
@@ -524,23 +513,23 @@ fun ArticlesScreen(
                                 ) {
                                     when {
                                         subscriptions.isEmpty() && selectedTagId == null && readFilter == null && !readingListOnly && !bookmarkedOnly -> {
-                                            Text("まだ購読がありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            TextButton(onClick = onOpenAddFeed) { Text("フィードを追加") }
+                                            Text(tr("まだ購読がありません。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            TextButton(onClick = onOpenAddFeed) { Text(tr("フィードを追加")) }
                                         }
                                         readingListOnly -> {
-                                            Text("リーディングリストに保存した記事はありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(tr("リーディングリストに保存した記事はありません。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             TextButton(onClick = {
                                                 selectedTagId = null
                                                 readingListOnly = false
                                                 bookmarkedOnly = false
-                                            }) { Text("全ての記事") }
+                                            }) { Text(tr("全ての記事")) }
                                         }
                                         hasFetchingSubscriptionInScope -> {
                                             CircularProgressIndicator()
-                                            Text("記事を取得しています…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            TextButton(onClick = { scope.launch { vm.reload() } }) { Text("更新") }
+                                            Text(tr("記事を取得しています…"), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            TextButton(onClick = { scope.launch { vm.reload() } }) { Text(tr("更新")) }
                                         }
-                                        else -> Text("表示できる記事がありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        else -> Text(tr("表示できる記事がありません。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -555,7 +544,11 @@ fun ArticlesScreen(
                                     },
                                     onOpen = {
                                         val url = article.canonicalUrl
-                                        if (url != null) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                        if (vm.openInBrowserByDefault && url != null) {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                        } else {
+                                            onOpenArticle(article)
+                                        }
                                     },
                                     onToggleRead = { vm.patchState(article, isRead = !article.userState.isRead) },
                                     onToggleReadingList = { vm.patchState(article, inReadingList = !article.userState.inReadingList) },
@@ -576,7 +569,7 @@ fun ArticlesScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         CircularProgressIndicator(modifier = Modifier.width(16.dp), strokeWidth = 2.dp)
-                                        Text("次の記事を読み込んでいます…", modifier = Modifier.padding(start = 8.dp))
+                                        Text(tr("次の記事を読み込んでいます…"), modifier = Modifier.padding(start = 8.dp))
                                     }
                                 }
                             }
@@ -627,46 +620,41 @@ fun ArticlesScreen(
         }
     }
 
-    if (showMarkAllRead) {
-        val scopeLabel = selectedTagId
-            ?.let { id -> tags.firstOrNull { it.id == id } }
-            ?.let { "タグ「${it.name}」のフィード" }
-            ?: "すべての購読"
-        AlertDialog(
-            onDismissRequest = { showMarkAllRead = false },
-            title = { Text("${scopeLabel}の記事をすべて既読にしますか？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showMarkAllRead = false
-                    scope.launch { vm.markAllRead() }
-                }) { Text("すべて既読にする") }
-            },
-            dismissButton = { TextButton(onClick = { showMarkAllRead = false }) { Text("キャンセル") } },
-        )
-    }
-
     if (showRemoveReadArticles) {
         AlertDialog(
             onDismissRequest = { showRemoveReadArticles = false },
-            title = { Text("既読の記事をリーディングリストから削除しますか？") },
+            title = { Text(tr("既読の記事をリーディングリストから削除しますか？")) },
             confirmButton = {
                 TextButton(onClick = {
                     showRemoveReadArticles = false
                     scope.launch { vm.removeReadArticlesFromReadingList() }
-                }) { Text("既読記事を削除", color = MaterialTheme.colorScheme.error) }
+                }) { Text(tr("既読記事を削除"), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { showRemoveReadArticles = false }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = { showRemoveReadArticles = false }) { Text(tr("キャンセル")) } },
         )
     }
 
     if (showShortcutHelp) {
         AlertDialog(
             onDismissRequest = { showShortcutHelp = false },
-            title = { Text("ショートカット") },
+            title = { Text(tr("ショートカット")) },
             text = {
-                Text("J / ↓  次の記事\nK / ↑  前の記事\nEnter / O  記事を開く\nV  元記事を開く\nM  既読／未読\nS  リーディングリスト\nB  ブックマーク\nR  更新\nShift+A  すべて既読\n?  この一覧")
+                Text(
+                    listOf(
+                        "J / ↓  次の記事",
+                        "K / ↑  前の記事",
+                        "Enter / O  記事を開く",
+                        "V  元記事を開く",
+                        "M  既読／未読",
+                        "S  リーディングリスト",
+                        "B  ブックマーク",
+                        "R  更新",
+                        "Shift+A  すべて既読",
+                        "?  この一覧",
+                    ).joinToString("\n", transform = AppStrings::get),
+                )
             },
-            confirmButton = { TextButton(onClick = { showShortcutHelp = false }) { Text("閉じる") } },
+            confirmButton = { TextButton(onClick = { showShortcutHelp = false }) { Text(tr("閉じる")) } },
         )
     }
 }
@@ -707,7 +695,7 @@ fun RssSourcesDrawerContent(
                 horizontalArrangement = Arrangement.End,
             ) {
                 IconButton(onClick = onCloseDrawer) {
-                    Icon(Icons.Default.Close, contentDescription = "閉じる")
+                    FiloIcon(FiloIconName.Close, contentDescription = tr("閉じる"))
                 }
             }
         }
@@ -721,39 +709,39 @@ fun RssSourcesDrawerContent(
             onClick = onOpenAddFeed,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(Icons.Default.Add, contentDescription = null)
+            FiloIcon(FiloIconName.Plus)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("フィードを追加")
+            Text(tr("フィードを追加"))
         }
         OutlinedButton(
             onClick = onOpenAddArticle,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 0.dp),
         ) {
-            Icon(Icons.Default.Add, contentDescription = null)
+            FiloIcon(FiloIconName.Plus)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("記事を追加")
+            Text(tr("記事を追加"))
         }
         DrawerNavigationRow(
-            label = "全ての記事",
+            label = tr("全ての記事"),
             selected = noViewFilter,
             onClick = { onSelectView(null, false, false) },
-            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+            icon = { FiloIcon(FiloIconName.List) },
         )
         DrawerNavigationRow(
-            label = "リーディングリスト",
+            label = tr("リーディングリスト"),
             selected = readingListOnly && selectedTagId == null,
             onClick = { onSelectView(null, true, false) },
-            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+            icon = { FiloIcon(FiloIconName.QueueAdd) },
         )
         DrawerNavigationRow(
-            label = "ブックマーク",
+            label = tr("ブックマーク"),
             selected = bookmarkedOnly && selectedTagId == null,
             onClick = { onSelectView(null, false, true) },
-            icon = { Icon(Icons.Default.BookmarkBorder, contentDescription = null) },
+            icon = { FiloIcon(FiloIconName.Bookmark) },
         )
 
         Text(
-            "フィード",
+            tr("フィード"),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -761,6 +749,7 @@ fun RssSourcesDrawerContent(
         )
         tags.forEach { tag ->
             val items = subscriptions.filter { it.tagIds.contains(tag.id) }
+            val unreadCount = items.sumOf { it.unreadCount }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -768,14 +757,14 @@ fun RssSourcesDrawerContent(
                 IconButton(onClick = {
                     expandedTags = if (expandedTags.contains(tag.id)) expandedTags - tag.id else expandedTags + tag.id
                 }) {
-                    Icon(
-                        if (expandedTags.contains(tag.id)) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = if (expandedTags.contains(tag.id)) "折りたたむ" else "展開",
+                    FiloIcon(
+                        if (expandedTags.contains(tag.id)) FiloIconName.ChevronDown else FiloIconName.ChevronRight,
+                        contentDescription = if (expandedTags.contains(tag.id)) tr("折りたたむ") else tr("展開"),
                     )
                 }
                 DrawerNavigationRow(
                     label = tag.name,
-                    count = items.sumOf { it.unreadCount },
+                    count = unreadCount.takeIf { it > 0 },
                     selected = selectedTagId == tag.id,
                     onClick = { onSelectView(tag.id, false, false) },
                     modifier = Modifier.weight(1f),
@@ -793,22 +782,25 @@ fun RssSourcesDrawerContent(
         }
         val untagged = subscriptions.filter { it.tagIds.isEmpty() }
         if (untagged.isNotEmpty()) {
+            val unreadCount = untagged.sumOf { it.unreadCount }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = { untaggedExpanded = !untaggedExpanded }) {
-                    Icon(
-                        if (untaggedExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = if (untaggedExpanded) "折りたたむ" else "展開",
+                    FiloIcon(
+                        if (untaggedExpanded) FiloIconName.ChevronDown else FiloIconName.ChevronRight,
+                        contentDescription = if (untaggedExpanded) tr("折りたたむ") else tr("展開"),
                     )
                 }
-                Text("タグなし", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                Text(
-                    "${untagged.sumOf { it.unreadCount }}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(tr("タグなし"), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                if (unreadCount > 0) {
+                    Text(
+                        "$unreadCount",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (untaggedExpanded) {
                 untagged.forEach { subscription ->
@@ -823,28 +815,28 @@ fun RssSourcesDrawerContent(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         DrawerNavigationRow(
-            label = "購読管理",
+            label = tr("購読管理"),
             selected = activeRoute == "subscriptions",
             onClick = onOpenSubscriptions,
-            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+            icon = { FiloIcon(FiloIconName.List) },
         )
         DrawerNavigationRow(
-            label = "タグ管理",
+            label = tr("タグ管理"),
             selected = activeRoute == "tags",
             onClick = onOpenTags,
-            icon = { Icon(Icons.Default.Sell, contentDescription = null) },
+            icon = { FiloIcon(FiloIconName.Tag) },
         )
         DrawerNavigationRow(
-            label = "処理ステータス",
+            label = tr("処理ステータス"),
             selected = activeRoute == "status",
             onClick = onOpenStatus,
-            icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+            icon = { FiloIcon(FiloIconName.Refresh) },
         )
         DrawerNavigationRow(
-            label = "設定",
+            label = tr("設定"),
             selected = activeRoute == "settings",
             onClick = onOpenSettings,
-            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+            icon = { FiloIcon(FiloIconName.Gear) },
         )
     }
 }

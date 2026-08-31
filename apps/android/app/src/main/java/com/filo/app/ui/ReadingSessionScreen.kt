@@ -29,6 +29,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -185,7 +186,7 @@ class ReadingPlayerController(
                             title = temporaryUrl,
                             sourceLanguage = null,
                             canonicalUrl = temporaryUrl,
-                            feedTitle = "共有ページ",
+                            feedTitle = AppStrings.get("共有ページ"),
                         ),
                     ),
                 )
@@ -196,10 +197,10 @@ class ReadingPlayerController(
                 items = readingList
                 readingListItems = readingList
                 index = items.indexOfFirst { !it.isRead }
-                if (index < 0) errorMessage = "未読の記事がありません。"
+                if (index < 0) errorMessage = AppStrings.get("未読の記事がありません。")
             }
             resetPage()
-        }.onFailure { errorMessage = "リーディングリストを開始できませんでした。" }
+        }.onFailure { errorMessage = AppStrings.get("リーディングリストを開始できませんでした。") }
         isLoading = false
     }
 
@@ -214,7 +215,7 @@ class ReadingPlayerController(
 
     fun extractionFailed() {
         if (temporary) {
-            errorMessage = "本文を抽出できませんでした。"
+            errorMessage = AppStrings.get("本文を抽出できませんでした。")
             return
         }
         val id = currentItem?.articleId ?: return
@@ -229,7 +230,7 @@ class ReadingPlayerController(
                 }
                 if (content.status == "error") return@repeat
             }
-            errorMessage = "本文を抽出できませんでした。"
+            errorMessage = AppStrings.get("本文を抽出できませんでした。")
         }
     }
 
@@ -265,6 +266,7 @@ class ReadingPlayerController(
         val nextIndex = items.indexOfFirst { it.articleId == articleId }
         if (nextIndex >= 0) {
             if (nextIndex == index) return
+            markArticleRead(currentItem?.articleId)
             pause()
             index = nextIndex
             resetPage()
@@ -272,6 +274,7 @@ class ReadingPlayerController(
         }
         val listIndex = readingListItems.indexOfFirst { it.articleId == articleId }
         if (listIndex < 0) return
+        markArticleRead(currentItem?.articleId)
         pause()
         items = readingListItems
         index = listIndex
@@ -308,7 +311,7 @@ class ReadingPlayerController(
                         readingListItems = readingListItems + item
                     }
                 }
-                .onFailure { errorMessage = "リーディングリストに追加できませんでした。" }
+                .onFailure { errorMessage = AppStrings.get("リーディングリストに追加できませんでした。") }
             isAddingToReadingList = false
         }
     }
@@ -319,7 +322,7 @@ class ReadingPlayerController(
         scope.launch {
             runCatching { ApiClient.setReadingListMembership(articleId, false) }
                 .onSuccess { removedReadingListArticleIds += articleId }
-                .onFailure { errorMessage = "リーディングリストから削除できませんでした。" }
+                .onFailure { errorMessage = AppStrings.get("リーディングリストから削除できませんでした。") }
             removingReadingListArticleIds -= articleId
         }
     }
@@ -391,8 +394,19 @@ class ReadingPlayerController(
         isPlaying = false
         notifyMedia()
         if (!playbackTemporary) {
-            playbackArticleId?.let { runCatching { ApiClient.setArticleRead(it, true) } }
+            markArticleRead(playbackArticleId)
         }
+    }
+
+    private fun markArticleRead(articleId: Int?) {
+        if (articleId == null || articleId <= 0) return
+        val knownRead = (items + readingListItems)
+            .firstOrNull { it.articleId == articleId }
+            ?.isRead == true
+        if (knownRead) return
+        items = items.map { if (it.articleId == articleId) it.copy(isRead = true) else it }
+        readingListItems = readingListItems.map { if (it.articleId == articleId) it.copy(isRead = true) else it }
+        scope.launch { runCatching { ApiClient.setArticleRead(articleId, true) } }
     }
 
     private suspend fun translateBestEffort(text: String, sourceLanguage: String?): Pair<String, String?> {
@@ -539,8 +553,12 @@ fun ReadingSessionScreen(
         },
         topBar = {
             TopAppBar(
-                title = { Text(player.currentItem?.article?.title ?: "リーディングリスト", maxLines = 1) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("戻る") } },
+                title = { Text(player.currentItem?.article?.title ?: tr("リーディングリスト"), maxLines = 1) },
+                navigationIcon = {
+                    androidx.compose.material3.IconButton(onClick = onBack) {
+                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
+                    }
+                },
             )
         },
         bottomBar = { ReadingSettingsPanel(player) { showReadingList = true } },
@@ -568,7 +586,7 @@ fun ReadingSessionScreen(
                 Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
-            ) { Text(player.errorMessage ?: "未読の記事がありません。") }
+            ) { Text(player.errorMessage ?: tr("未読の記事がありません。")) }
         }
     }
     if (showReadingList) {
@@ -585,9 +603,9 @@ fun ReadingSessionScreen(
     if (showShortcutHelp) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showShortcutHelp = false },
-            title = { Text("ショートカット") },
-            text = { Text("J / ↓  次の記事\nK / ↑  前の記事\nSpace  読み上げ開始／停止\nS  リーディングリストに追加\nV  元記事を開く\nEsc  戻る") },
-            confirmButton = { TextButton(onClick = { showShortcutHelp = false }) { Text("閉じる") } },
+            title = { Text(tr("ショートカット")) },
+            text = { Text(tr("J / ↓  次の記事") + "\n" + tr("K / ↑  前の記事") + "\n" + tr("Space  読み上げ開始／停止") + "\n" + tr("S  リーディングリストに追加") + "\n" + tr("V  元記事を開く") + "\n" + tr("Esc  戻る")) },
+            confirmButton = { TextButton(onClick = { showShortcutHelp = false }) { Text(tr("閉じる")) } },
         )
     }
 }
@@ -605,29 +623,41 @@ private fun ReadingSettingsPanel(
         Button(
             onClick = if (player.isPlaying) player::pause else player::play,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (player.isPlaying) "停止" else "このページを読み上げ") }
+        ) {
+            FiloIcon(
+                if (player.isPlaying) FiloIconName.Pause else FiloIconName.Play,
+                tint = MaterialTheme.colorScheme.onPrimary,
+            )
+            Text(tr(if (player.isPlaying) "停止" else "このページを読み上げ"))
+        }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = onShowReadingList,
                     enabled = !player.isTemporary,
                     modifier = Modifier.weight(1f),
-                ) { Text("リスト") }
+                ) {
+                    FiloIcon(FiloIconName.List)
+                    Text(tr("リスト"))
+                }
                 OutlinedButton(
                     onClick = player::addCurrentPageToReadingList,
                     enabled = !player.isAddingToReadingList,
                     modifier = Modifier.weight(1f),
-                ) { Text("リストに追加") }
+                ) {
+                    FiloIcon(FiloIconName.QueueAdd)
+                    Text(tr("リストに追加"))
+                }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { voiceOpen = true }) { Text(player.voiceName ?: "声: 自動") }
+            TextButton(onClick = { voiceOpen = true }) { Text(player.voiceName ?: "${tr("声")}: ${tr("自動")}") }
             DropdownMenu(expanded = voiceOpen, onDismissRequest = { voiceOpen = false }) {
-                DropdownMenuItem(text = { Text("自動") }, onClick = { player.setVoice(null); voiceOpen = false })
+                DropdownMenuItem(text = { Text(tr("自動")) }, onClick = { player.setVoice(null); voiceOpen = false })
                 player.voices.forEach { voice -> DropdownMenuItem(text = { Text(voice) }, onClick = { player.setVoice(voice); voiceOpen = false }) }
             }
-            TextButton(onClick = { languageOpen = true }) { Text("言語: ${player.targetLanguage}") }
+            TextButton(onClick = { languageOpen = true }) { Text("${tr("言語")}: ${AppStrings.languageName(player.targetLanguage)}") }
             DropdownMenu(expanded = languageOpen, onDismissRequest = { languageOpen = false }) {
                 listOf("ja", "en", "zh", "ko", "es").forEach { language ->
-                    DropdownMenuItem(text = { Text(language) }, onClick = { player.setLanguage(language); languageOpen = false })
+                    DropdownMenuItem(text = { Text(AppStrings.languageName(language)) }, onClick = { player.setLanguage(language); languageOpen = false })
                 }
             }
             TextButton(onClick = { rateOpen = true }) { Text("${player.rate}x") }
@@ -649,11 +679,14 @@ fun ReadingMiniPlayer(player: ReadingPlayerController) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = player.currentPlaybackTitle ?: player.currentItem?.article?.title ?: "読み上げ中",
+                text = player.currentPlaybackTitle ?: player.currentItem?.article?.title ?: tr("読み上げ中"),
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = player::pause) { Text("停止") }
+            TextButton(onClick = player::pause) {
+                FiloIcon(FiloIconName.Close, size = 16.dp)
+                Text(tr("停止"))
+            }
         }
     }
 }
@@ -668,10 +701,10 @@ private fun ReadingListSheet(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Text("リーディングリスト", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+        Text(tr("リーディングリスト"), style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
         if (player.visibleReadingListItems.isEmpty()) {
             Text(
-                "リーディングリストに記事がありません。",
+                tr("リーディングリストに記事がありません。"),
                 color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 24.dp),
             )
@@ -693,9 +726,15 @@ private fun ReadingListSheet(
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = if (item.articleId == player.currentItem?.articleId) "●" else "○",
-                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                        FiloIcon(
+                            FiloIconName.CheckCircle,
+                            size = 14.dp,
+                            tint = if (item.articleId == player.currentItem?.articleId) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            filled = item.articleId == player.currentItem?.articleId,
                         )
                         Text(
                             text = item.article.title,
@@ -707,7 +746,10 @@ private fun ReadingListSheet(
                     TextButton(
                         onClick = { player.removeFromReadingList(item.articleId) },
                         enabled = item.articleId !in player.removingReadingListArticleIds,
-                    ) { Text("削除") }
+                    ) {
+                        FiloIcon(FiloIconName.Trash, size = 16.dp)
+                        Text(tr("削除"))
+                    }
                 }
                 }
             }

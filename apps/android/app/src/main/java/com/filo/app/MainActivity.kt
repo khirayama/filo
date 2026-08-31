@@ -64,9 +64,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.rememberDrawerState
@@ -83,6 +80,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
+import com.filo.app.ui.FiloIcon
+import com.filo.app.ui.FiloIconName
+import com.filo.app.ui.tr
 
 class MainActivity : ComponentActivity() {
     private var sharedUrl by mutableStateOf<String?>(null)
@@ -161,8 +161,8 @@ private fun AuthRoot(
 
     if (!uiState.isConfigured) {
         CenteredMessage(
-            title = "認証が設定されていません",
-            body = "APIの設定を確認してください。",
+            title = tr("認証が設定されていません"),
+            body = tr("APIの設定を確認してください。"),
         )
         return
     }
@@ -170,9 +170,9 @@ private fun AuthRoot(
     if (!uiState.isInitialized) {
         if (uiState.initializationError) {
             CenteredMessage(
-                title = "Unable to connect",
-                body = "Check your internet connection and try again.",
-                actionLabel = "Retry",
+                title = tr("Unable to connect"),
+                body = tr("Check your internet connection and try again."),
+                actionLabel = tr("Retry"),
                 onAction = mainViewModel::retryInitialization,
             )
         } else {
@@ -357,11 +357,11 @@ private fun AuthScreen(
                 Text(
                     text =
                         when (uiState.mode) {
-                            AuthMode.SignIn -> "サインイン"
-                            AuthMode.SignUp -> "アカウント作成"
-                            AuthMode.ResetPasswordRequest -> "パスワードをリセット"
-                            AuthMode.ResetPasswordVerify -> "リセットコードを入力"
-                            AuthMode.ResetPasswordNewPassword -> "新しいパスワードを設定"
+                            AuthMode.SignIn -> tr("サインイン")
+                            AuthMode.SignUp -> tr("アカウント作成")
+                            AuthMode.ResetPasswordRequest -> tr("パスワードをリセット")
+                            AuthMode.ResetPasswordVerify -> tr("リセットコードを入力")
+                            AuthMode.ResetPasswordNewPassword -> tr("新しいパスワードを設定")
                         },
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold,
@@ -369,11 +369,11 @@ private fun AuthScreen(
                 Text(
                     text =
                         when (uiState.mode) {
-                            AuthMode.SignIn -> "メールアドレスとパスワードでサインインします。"
-                            AuthMode.SignUp -> "メールアドレスとパスワードでアカウントを作成します。"
-                            AuthMode.ResetPasswordRequest -> "登録済みのメールアドレスにリセット用のリンクを送信します。"
-                            AuthMode.ResetPasswordVerify -> "メールに記載されたリセットコードを入力してください。"
-                            AuthMode.ResetPasswordNewPassword -> "新しいパスワードを入力してください。"
+                            AuthMode.SignIn -> tr("メールアドレスとパスワードでサインインします。")
+                            AuthMode.SignUp -> tr("メールアドレスとパスワードでアカウントを作成します。")
+                            AuthMode.ResetPasswordRequest -> tr("登録済みのメールアドレスにリセット用のリンクを送信します。")
+                            AuthMode.ResetPasswordVerify -> tr("メールに記載されたリセットコードを入力してください。")
+                            AuthMode.ResetPasswordNewPassword -> tr("新しいパスワードを入力してください。")
                         },
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -381,42 +381,42 @@ private fun AuthScreen(
                 when (uiState.mode) {
                     AuthMode.SignIn -> {
                         EmailField(uiState.email, onEmailChanged)
-                        PasswordField("パスワード", uiState.password, onPasswordChanged)
+                        PasswordField(tr("パスワード"), uiState.password, onPasswordChanged)
                         SubmitButton(
-                            text = "サインイン",
+                            text = tr("サインイン"),
                             isLoading = uiState.isSubmitting,
                             onClick = onSignIn,
                         )
                         TextButton(onClick = { onModeChanged(AuthMode.ResetPasswordRequest) }) {
-                            Text("パスワードをお忘れですか？")
+                            Text(tr("パスワードをお忘れですか？"))
                         }
                         TextButton(onClick = { onModeChanged(AuthMode.SignUp) }) {
-                            Text("アカウントを作成")
+                            Text(tr("アカウントを作成"))
                         }
                     }
 
                     AuthMode.SignUp -> {
                         EmailField(uiState.email, onEmailChanged)
-                        PasswordField("パスワード", uiState.password, onPasswordChanged)
+                        PasswordField(tr("パスワード"), uiState.password, onPasswordChanged)
                         SubmitButton(
-                            text = "アカウント作成",
+                            text = tr("アカウント作成"),
                             isLoading = uiState.isSubmitting,
                             onClick = onSignUp,
                         )
                         TextButton(onClick = { onModeChanged(AuthMode.SignIn) }) {
-                            Text("サインインへ戻る")
+                            Text(tr("サインインへ戻る"))
                         }
                     }
 
                     AuthMode.ResetPasswordRequest -> {
                         EmailField(uiState.email, onEmailChanged)
                         SubmitButton(
-                            text = "リセットメールを送信",
+                            text = tr("リセットメールを送信"),
                             isLoading = uiState.isSubmitting,
                             onClick = onSendResetCode,
                         )
                         OutlinedButton(onClick = onBackToSignIn) {
-                            Text("サインインへ戻る")
+                            Text(tr("サインインへ戻る"))
                         }
                     }
 
@@ -424,20 +424,20 @@ private fun AuthScreen(
                         EmailField(uiState.email, onEmailChanged, enabled = false)
                         CodeField(uiState.code, onCodeChanged)
                         SubmitButton(
-                            text = "コードを確認",
+                            text = tr("コードを確認"),
                             isLoading = uiState.isSubmitting,
                             onClick = onVerifyResetCode,
                         )
                         OutlinedButton(onClick = onBackToSignIn) {
-                            Text("サインインへ戻る")
+                            Text(tr("サインインへ戻る"))
                         }
                     }
 
                     AuthMode.ResetPasswordNewPassword -> {
-                        PasswordField("新しいパスワード", uiState.password, onPasswordChanged)
-                        PasswordField("新しいパスワード（確認）", uiState.confirmPassword, onConfirmPasswordChanged)
+                        PasswordField(tr("新しいパスワード"), uiState.password, onPasswordChanged)
+                        PasswordField(tr("新しいパスワード（確認）"), uiState.confirmPassword, onConfirmPasswordChanged)
                         SubmitButton(
-                            text = "パスワードを変更",
+                            text = tr("パスワードを変更"),
                             isLoading = uiState.isSubmitting,
                             onClick = onResetPassword,
                         )
@@ -613,6 +613,9 @@ private fun RssNavigation(
                 onOpenAddArticle = {
                     navController.navigate("addArticle")
                 },
+                onStartReading = { autoplay ->
+                    navController.navigate("reading/$autoplay")
+                },
                 onOpenArticle = { article ->
                     Analytics.track("select_item", mapOf("article_id" to article.id))
                     article.canonicalUrl?.let { url ->
@@ -660,7 +663,7 @@ private fun RssNavigation(
                 title = entry.arguments?.getString("title").orEmpty(),
                 sourceLanguage = entry.arguments?.getString("language")?.takeIf { it.isNotBlank() },
                 canonicalUrl = entry.arguments?.getString("url"),
-                feedTitle = "記事",
+                feedTitle = com.filo.app.ui.AppStrings.get("記事"),
             )
             com.filo.app.ui.ReadingSessionScreen(
                 player = readingPlayer,
@@ -773,7 +776,7 @@ private fun RssNavigation(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                    Icon(Icons.Default.Menu, contentDescription = "メニュー")
+                                    FiloIcon(FiloIconName.Menu, contentDescription = tr("メニュー"))
                                 }
                                 Text("Filo", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                             }
@@ -794,7 +797,7 @@ private fun RssNavigation(
 private fun EmailField(value: String, onValueChange: (String) -> Unit, enabled: Boolean = true) {
     OutlinedTextField(
         enabled = enabled,
-        label = { Text("メールアドレス") },
+        label = { Text(tr("メールアドレス")) },
         modifier = Modifier.fillMaxWidth(),
         onValueChange = onValueChange,
         singleLine = true,
@@ -815,7 +818,7 @@ private fun PasswordField(label: String, value: String, onValueChange: (String) 
 @Composable
 private fun CodeField(value: String, onValueChange: (String) -> Unit) {
     OutlinedTextField(
-        label = { Text("リセットコード") },
+        label = { Text(tr("リセットコード")) },
         modifier = Modifier.fillMaxWidth(),
         onValueChange = onValueChange,
         singleLine = true,

@@ -19,13 +19,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -34,7 +27,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -68,9 +60,9 @@ fun SubscriptionHealthBadge(subscription: Subscription) {
     when {
         subscription.initialFetchStatus == "failed" ->
             StatusBadge(ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode), BadgeTone.Danger)
-        subscription.initialFetchStatus == "fetching" -> StatusBadge("記事取得中")
-        subscription.feedHealthStatus == "paused" -> StatusBadge("更新停止中", BadgeTone.Danger)
-        subscription.feedHealthStatus == "stale" -> StatusBadge("しばらく更新なし", BadgeTone.Warn)
+        subscription.initialFetchStatus == "fetching" -> StatusBadge(tr("記事取得中"))
+        subscription.feedHealthStatus == "paused" -> StatusBadge(tr("更新停止中"), BadgeTone.Danger)
+        subscription.feedHealthStatus == "stale" -> StatusBadge(tr("しばらく更新なし"), BadgeTone.Warn)
     }
 }
 
@@ -166,15 +158,15 @@ fun SubscriptionsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("購読管理") },
+                title = { Text(tr("購読管理")) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
                     }
                 },
                 actions = {
-                    IconButton(onClick = onOpenAddFeed) { Icon(Icons.Default.Add, contentDescription = "フィード追加") }
-                    TextButton(onClick = onOpenTags) { Text("タグ") }
+                    IconButton(onClick = onOpenAddFeed) { FiloIcon(FiloIconName.Plus, contentDescription = tr("フィード追加")) }
+                    TextButton(onClick = onOpenTags) { Text(tr("タグ")) }
                 },
             )
         },
@@ -201,8 +193,8 @@ fun SubscriptionsScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text("まだ購読がありません。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Button(onClick = onOpenAddFeed) { Text("フィードを追加") }
+                        Text(tr("まだ購読がありません。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Button(onClick = onOpenAddFeed) { Text(tr("フィードを追加")) }
                     }
                 }
             } else {
@@ -219,9 +211,8 @@ fun SubscriptionsScreen(
                             IconButton(onClick = {
                                 collapsed = if (collapsed.contains(key)) collapsed - key else collapsed + key
                             }) {
-                                Icon(
-                                    if (collapsed.contains(key)) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = null,
+                                FiloIcon(
+                                    if (collapsed.contains(key)) FiloIconName.ChevronRight else FiloIconName.ChevronDown,
                                 )
                             }
                             // タグ名タップでタグ絞り込み済み記事一覧へ遷移する (SCREENS.md)
@@ -231,20 +222,20 @@ fun SubscriptionsScreen(
                                 modifier = Modifier.weight(1f).clickable { onSelectTag(tag.id) },
                             )
                             Text(
-                                "${items.size}件",
+                                trf("%d件", items.size),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             IconButton(onClick = { moveTag(tag.id, -1) }) {
-                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "タグを上へ")
+                                FiloIcon(FiloIconName.ChevronUp, contentDescription = tr("タグを上へ"))
                             }
                             IconButton(onClick = { moveTag(tag.id, 1) }) {
-                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "タグを下へ")
+                                FiloIcon(FiloIconName.ChevronDown, contentDescription = tr("タグを下へ"))
                             }
                             TextButton(onClick = {
                                 renameText = tag.name
                                 renamingTag = tag
-                            }) { Text("名前変更") }
+                            }) { Text(tr("名前変更")) }
                         }
                     }
                     if (!collapsed.contains(key)) {
@@ -271,14 +262,14 @@ fun SubscriptionsScreen(
                             IconButton(onClick = {
                                 collapsed = if (collapsed.contains(-1)) collapsed - (-1) else collapsed + (-1)
                             }) {
-                                Icon(
-                                    if (collapsed.contains(-1)) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = if (collapsed.contains(-1)) "展開" else "折りたたむ",
+                                FiloIcon(
+                                    if (collapsed.contains(-1)) FiloIconName.ChevronRight else FiloIconName.ChevronDown,
+                                    contentDescription = if (collapsed.contains(-1)) tr("展開") else tr("折りたたむ"),
                                 )
                             }
-                            Text("タグなし", fontWeight = FontWeight.SemiBold)
+                            Text(tr("タグなし"), fontWeight = FontWeight.SemiBold)
                             Text(
-                                "${untagged.size}件",
+                                trf("%d件", untagged.size),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 8.dp),
@@ -306,7 +297,7 @@ fun SubscriptionsScreen(
     renamingTag?.let { tag ->
         AlertDialog(
             onDismissRequest = { renamingTag = null },
-            title = { Text("タグ名を変更") },
+            title = { Text(tr("タグ名を変更")) },
             text = {
                 OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true)
             },
@@ -321,9 +312,9 @@ fun SubscriptionsScreen(
                         }
                     }
                     renamingTag = null
-                }) { Text("変更") }
+                }) { Text(tr("変更")) }
             },
-            dismissButton = { TextButton(onClick = { renamingTag = null }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = { renamingTag = null }) { Text(tr("キャンセル")) } },
         )
     }
 }
@@ -348,7 +339,7 @@ private fun SubscriptionListRow(
             Column(modifier = Modifier.weight(1f).padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(subscription.displayTitle, fontWeight = FontWeight.Medium, modifier = Modifier.clickable(onClick = onOpen))
                 Text(
-                    "最終公開 ${subscription.feed.latestPublishedAt?.let(::relativeTime).takeUnless { it.isNullOrEmpty() } ?: "—"}",
+                    trf("最終公開 %s", subscription.feed.latestPublishedAt?.let(::relativeTime).takeUnless { it.isNullOrEmpty() } ?: "—"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -357,7 +348,7 @@ private fun SubscriptionListRow(
             if (allTags.isNotEmpty()) {
                 Box {
                     IconButton(onClick = { tagMenuOpen = true }) {
-                        Icon(Icons.Default.Sell, contentDescription = "タグを編集", modifier = Modifier.size(18.dp))
+                        FiloIcon(FiloIconName.Tag, size = 18.dp, contentDescription = tr("タグを編集"))
                     }
                     DropdownMenu(expanded = tagMenuOpen, onDismissRequest = { tagMenuOpen = false }) {
                         allTags.forEach { tag ->
@@ -392,10 +383,10 @@ private fun SubscriptionListRow(
                 }
             }
             IconButton(enabled = moveEnabled, onClick = { onMove(subscription.id, -1) }) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上へ")
+                FiloIcon(FiloIconName.ChevronUp, contentDescription = tr("上へ"))
             }
             IconButton(enabled = moveEnabled, onClick = { onMove(subscription.id, 1) }) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下へ")
+                FiloIcon(FiloIconName.ChevronDown, contentDescription = tr("下へ"))
             }
         }
     }
@@ -425,10 +416,10 @@ fun AddFeedScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("フィードを追加") },
+                title = { Text(tr("フィードを追加")) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
                     }
                 },
             )
@@ -445,7 +436,7 @@ fun AddFeedScreen(
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
-                    label = { Text("RSS/Atom URL または サイトURL") },
+                    label = { Text(tr("RSS/Atom URL または サイトURL")) },
                     placeholder = { Text("https://example.com/feed.xml") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -454,7 +445,7 @@ fun AddFeedScreen(
             if (tags.isNotEmpty()) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("タグ", style = MaterialTheme.typography.labelLarge)
+                        Text(tr("タグ"), style = MaterialTheme.typography.labelLarge)
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -476,7 +467,7 @@ fun AddFeedScreen(
                 OutlinedTextField(
                     value = newTagNames,
                     onValueChange = { newTagNames = it },
-                    label = { Text("新規タグ（カンマ区切り）") },
+                    label = { Text(tr("新規タグ（カンマ区切り）")) },
                     placeholder = { Text("AI, Engineering") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -511,7 +502,7 @@ fun AddFeedScreen(
                             isSubmitting = false
                         }
                     },
-                ) { Text(if (isSubmitting) "フィードを確認中…" else "追加") }
+                ) { Text(if (isSubmitting) tr("フィードを確認中…") else tr("追加")) }
             }
             errorMessage?.let { message ->
                 item { ErrorBanner(message) }
@@ -531,16 +522,16 @@ fun AddFeedScreen(
                             Text(subscription.displayTitle, fontWeight = FontWeight.SemiBold)
                             when (subscription.initialFetchStatus) {
                                 "ready" -> {
-                                    StatusBadge("追加完了", BadgeTone.Ok)
-                                    Text("記事の取得が完了しています。")
+                                    StatusBadge(tr("追加完了"), BadgeTone.Ok)
+                                    Text(tr("記事の取得が完了しています。"))
                                 }
                                 "fetching" -> {
-                                    StatusBadge("記事取得中")
-                                    Text("購読の追加は完了しました。記事を取得しています。")
+                                    StatusBadge(tr("記事取得中"))
+                                    Text(tr("購読の追加は完了しました。記事を取得しています。"))
                                 }
                                 else -> {
-                                    StatusBadge("初回取得失敗", BadgeTone.Danger)
-                                    Text("購読は作成されましたが、${ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode)}")
+                                    StatusBadge(tr("初回取得失敗"), BadgeTone.Danger)
+                                    Text(trf("購読は作成されましたが、%s", ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode)))
                                     Button(
                                         enabled = !isRetrying,
                                         onClick = {
@@ -555,10 +546,10 @@ fun AddFeedScreen(
                                                 isRetrying = false
                                             }
                                         },
-                                    ) { Text(if (isRetrying) "再試行中…" else "再試行") }
+                                    ) { Text(if (isRetrying) tr("再試行中…") else tr("再試行")) }
                                 }
                             }
-                            TextButton(onClick = onOpenArticles) { Text("記事一覧へ") }
+                            TextButton(onClick = onOpenArticles) { Text(tr("記事一覧へ")) }
                         }
                     }
                 }
@@ -616,10 +607,10 @@ fun TagsScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("タグ管理") },
+                title = { Text(tr("タグ管理")) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
                     }
                 },
             )
@@ -637,7 +628,7 @@ fun TagsScreen(onBack: () -> Unit) {
                     OutlinedTextField(
                         value = newName,
                         onValueChange = { newName = it },
-                        label = { Text("新しいタグ名") },
+                        label = { Text(tr("新しいタグ名")) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -654,7 +645,7 @@ fun TagsScreen(onBack: () -> Unit) {
                                 }
                             }
                         },
-                    ) { Text("追加") }
+                    ) { Text(tr("追加")) }
                 }
             }
             errorMessage?.let { message ->
@@ -670,7 +661,7 @@ fun TagsScreen(onBack: () -> Unit) {
             } else if (tags.isEmpty()) {
                 item {
                     Text(
-                        "タグがありません。上の入力欄から作成できます。",
+                        tr("タグがありません。上の入力欄から作成できます。"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 40.dp),
                     )
@@ -685,7 +676,7 @@ fun TagsScreen(onBack: () -> Unit) {
                             OutlinedTextField(
                                 value = editName,
                                 onValueChange = { editName = it },
-                                label = { Text("タグ名") },
+                                label = { Text(tr("タグ名")) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -693,7 +684,7 @@ fun TagsScreen(onBack: () -> Unit) {
                                 OutlinedTextField(
                                     value = editColor,
                                     onValueChange = { editColor = it },
-                                    label = { Text("色 (#hex)") },
+                                    label = { Text(tr("色 (#hex)")) },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                 )
@@ -706,7 +697,7 @@ fun TagsScreen(onBack: () -> Unit) {
                                                 .background(Color(parsed), CircleShape),
                                         )
                                     }
-                                    TextButton(onClick = { editColor = "" }) { Text("解除") }
+                                    TextButton(onClick = { editColor = "" }) { Text(tr("解除")) }
                                 }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -726,8 +717,8 @@ fun TagsScreen(onBack: () -> Unit) {
                                             errorMessage = ErrorMessages.forError(e)
                                         }
                                     }
-                                }) { Text("保存") }
-                                OutlinedButton(onClick = { editingTagId = null }) { Text("キャンセル") }
+                                }) { Text(tr("保存")) }
+                                OutlinedButton(onClick = { editingTagId = null }) { Text(tr("キャンセル")) }
                             }
                         }
                     } else {
@@ -748,24 +739,24 @@ fun TagsScreen(onBack: () -> Unit) {
                             Column(modifier = Modifier.weight(1f).padding(start = if (tag.color != null) 8.dp else 0.dp)) {
                                 Text(tag.name)
                                 Text(
-                                    "${tag.subscriptionCount}件の購読",
+                                    trf("%d件の購読", tag.subscriptionCount),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             IconButton(onClick = { move(tag.id, -1) }) {
-                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上へ")
+                                FiloIcon(FiloIconName.ChevronUp, contentDescription = tr("上へ"))
                             }
                             IconButton(onClick = { move(tag.id, 1) }) {
-                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下へ")
+                                FiloIcon(FiloIconName.ChevronDown, contentDescription = tr("下へ"))
                             }
                             TextButton(onClick = {
                                 editingTagId = tag.id
                                 editName = tag.name
                                 editColor = tag.color ?: ""
-                            }) { Text("編集") }
+                            }) { Text(tr("編集")) }
                             TextButton(onClick = { deletingTag = tag }) {
-                                Text("削除", color = MaterialTheme.colorScheme.error)
+                                Text(tr("削除"), color = MaterialTheme.colorScheme.error)
                             }
                         }
                     }
@@ -778,7 +769,7 @@ fun TagsScreen(onBack: () -> Unit) {
     renamingTag?.let { tag ->
         AlertDialog(
             onDismissRequest = { renamingTag = null },
-            title = { Text("タグ名を変更") },
+            title = { Text(tr("タグ名を変更")) },
             text = { OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true) },
             confirmButton = {
                 TextButton(onClick = {
@@ -791,17 +782,17 @@ fun TagsScreen(onBack: () -> Unit) {
                         }
                     }
                     renamingTag = null
-                }) { Text("変更") }
+                }) { Text(tr("変更")) }
             },
-            dismissButton = { TextButton(onClick = { renamingTag = null }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = { renamingTag = null }) { Text(tr("キャンセル")) } },
         )
     }
 
     deletingTag?.let { tag ->
         AlertDialog(
             onDismissRequest = { deletingTag = null },
-            title = { Text("タグ「${tag.name}」を削除しますか？") },
-            text = { Text("購読は削除されません。") },
+            title = { Text(trf("タグ「%s」を削除しますか？", tag.name)) },
+            text = { Text(tr("購読は削除されません。")) },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
@@ -813,9 +804,9 @@ fun TagsScreen(onBack: () -> Unit) {
                         }
                     }
                     deletingTag = null
-                }) { Text("削除", color = MaterialTheme.colorScheme.error) }
+                }) { Text(tr("削除"), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { deletingTag = null }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = { deletingTag = null }) { Text(tr("キャンセル")) } },
         )
     }
 }

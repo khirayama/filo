@@ -1,5 +1,7 @@
 package com.filo.app.api
 
+import com.filo.app.ui.AppStrings
+
 object ErrorMessages {
     private val messages = mapOf(
         "network_error" to "ネットワークに接続できません。時間をおいて再試行してください。",
@@ -25,11 +27,11 @@ object ErrorMessages {
     )
 
     fun forError(error: Throwable): String =
-        messages[(error as? ApiException)?.code] ?: messages.getValue("internal_error")
+        AppStrings.get(messages[(error as? ApiException)?.code] ?: messages.getValue("internal_error"))
 
     fun initialFetchMessage(code: String?): String = when (code) {
-        "feed_unreachable" -> "フィードに接続できませんでした。"
-        "feed_discovery_failed" -> "フィードを見つけられませんでした。"
-        else -> "初回の記事取得に失敗しました。"
+        "feed_unreachable" -> AppStrings.get("フィードに接続できませんでした。")
+        "feed_discovery_failed" -> AppStrings.get("フィードを見つけられませんでした。")
+        else -> AppStrings.get("初回の記事取得に失敗しました。")
     }
 }

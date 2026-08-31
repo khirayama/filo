@@ -19,13 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
@@ -102,7 +96,7 @@ fun ErrorBanner(message: String, onRetry: (() -> Unit)? = null) {
                 modifier = Modifier.weight(1f),
             )
             if (onRetry != null) {
-                TextButton(onClick = onRetry) { Text("再試行") }
+                TextButton(onClick = onRetry) { Text(tr("再試行")) }
             }
         }
     }
@@ -317,7 +311,7 @@ private fun translationButton(isTranslated: Boolean, showOriginal: Boolean, onCl
             color = Color.Transparent,
         ) {
             Text(
-                if (showOriginal) "翻訳" else "原文",
+                tr(if (showOriginal) "翻訳" else "原文"),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
@@ -365,9 +359,9 @@ private fun ArticleActions(
                 color = Color.Transparent,
                 modifier = Modifier.size(32.dp),
             ) {
-                Icon(
-                    Icons.Outlined.CheckCircle,
-                    contentDescription = if (article.userState.isRead) "未読にする" else "既読にする",
+                FiloIcon(
+                    FiloIconName.CheckCircle,
+                    contentDescription = tr(if (article.userState.isRead) "未読にする" else "既読にする"),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(7.dp),
                 )
@@ -379,9 +373,9 @@ private fun ArticleActions(
                 color = Color.Transparent,
                 modifier = Modifier.size(32.dp),
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.PlaylistAdd,
-                    contentDescription = if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加",
+                FiloIcon(
+                    FiloIconName.QueueAdd,
+                    contentDescription = tr(if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加"),
                     tint = if (article.userState.inReadingList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(7.dp),
                 )
@@ -393,11 +387,12 @@ private fun ArticleActions(
                 color = Color.Transparent,
                 modifier = Modifier.size(32.dp),
             ) {
-                Icon(
-                    if (article.userState.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                    contentDescription = if (article.userState.isBookmarked) "ブックマークを解除" else "ブックマーク",
+                FiloIcon(
+                    FiloIconName.Bookmark,
+                    contentDescription = tr(if (article.userState.isBookmarked) "ブックマークを解除" else "ブックマーク"),
                     tint = if (article.userState.isBookmarked) WirePalette.Star else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(7.dp),
+                    filled = article.userState.isBookmarked,
                 )
             }
         }
@@ -410,10 +405,10 @@ fun relativeTime(iso: String?): String {
         val instant = Instant.from(DateTimeFormatter.ISO_DATE_TIME.parse(iso))
         val minutes = (System.currentTimeMillis() - instant.toEpochMilli()) / 60_000
         when {
-            minutes < 1 -> "たった今"
-            minutes < 60 -> "${minutes}分前"
-            minutes < 60 * 24 -> "${minutes / 60}時間前"
-            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}日前"
+            minutes < 1 -> AppStrings.get("たった今")
+            minutes < 60 -> "$minutes${AppStrings.get("分前")}"
+            minutes < 60 * 24 -> "${minutes / 60}${AppStrings.get("時間前")}"
+            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}${AppStrings.get("日前")}"
             else -> DateTimeFormatter.ofPattern("yyyy/M/d", Locale.getDefault())
                 .format(instant.atZone(java.time.ZoneId.systemDefault()))
         }
@@ -429,9 +424,9 @@ fun compactRelativeTime(iso: String?): String {
         val minutes = (System.currentTimeMillis() - instant.toEpochMilli()) / 60_000
         when {
             minutes < 1 -> "now"
-            minutes < 60 -> "${minutes}m"
-            minutes < 60 * 24 -> "${minutes / 60}h"
-            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}d"
+            minutes < 60 -> "${minutes}${AppStrings.get("分")}"
+            minutes < 60 * 24 -> "${minutes / 60}${AppStrings.get("時間")}"
+            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}${AppStrings.get("日")}"
             else -> DateTimeFormatter.ofPattern("M/d", Locale.getDefault())
                 .format(instant.atZone(java.time.ZoneId.systemDefault()))
         }

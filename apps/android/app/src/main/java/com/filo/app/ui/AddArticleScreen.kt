@@ -5,11 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -40,10 +37,10 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onSaved: (() -> Uni
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("記事を追加") },
+                title = { Text(tr("記事を追加")) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
                     }
                 },
             )
@@ -53,11 +50,11 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onSaved: (() -> Uni
             modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("URLをリーディングリストに保存します。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("URLをリーディングリストに保存します。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it; error = null },
-                label = { Text("記事URL") },
+                label = { Text(tr("記事URL")) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -81,7 +78,7 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onSaved: (() -> Uni
                         }
                     }
                 },
-            ) { Text(if (isSubmitting) "保存中…" else "追加") }
+            ) { Text(tr(if (isSubmitting) "保存中…" else "追加")) }
             error?.let { ErrorBanner(it) }
         }
     }

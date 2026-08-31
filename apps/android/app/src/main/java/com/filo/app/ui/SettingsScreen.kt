@@ -10,15 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -153,7 +150,7 @@ fun SettingsScreen(
                 title = { Text(stringResource(com.filo.app.R.string.settings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(com.filo.app.R.string.back))
+                        FiloIcon(FiloIconName.Back, contentDescription = stringResource(com.filo.app.R.string.back))
                     }
                 },
             )
@@ -183,7 +180,7 @@ fun SettingsScreen(
                 ) { update(theme = it) }
                 ChoiceRow(
                     label = stringResource(com.filo.app.R.string.language),
-                    options = listOf("ja" to "日本語", "en" to "English", "zh" to "简体中文", "ko" to "한국어", "es" to "Español"),
+                    options = listOf("ja" to tr("日本語"), "en" to tr("English"), "zh" to tr("简体中文"), "ko" to tr("한국어"), "es" to tr("Español")),
                     selected = current.language,
                 ) { update(language = it) }
                 Text(
@@ -195,7 +192,7 @@ fun SettingsScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(stringResource(com.filo.app.R.string.prepare_translation), fontWeight = FontWeight.SemiBold)
                         TextButton(onClick = { translations.isShowingSetup = true }) {
-                            Text("言語を確認")
+                            Text(tr("言語を確認"))
                         }
                     }
                 }
@@ -208,7 +205,7 @@ fun SettingsScreen(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("ja" to "日本語", "en" to "English", "zh" to "简体中文", "ko" to "한국어", "es" to "Español").forEach { (code, name) ->
-                            FilterChipButton(name, current.readableLanguages.contains(code)) {
+                            FilterChipButton(tr(name), current.readableLanguages.contains(code)) {
                                 val next = if (current.readableLanguages.contains(code)) {
                                     current.readableLanguages - code
                                 } else {
@@ -262,9 +259,9 @@ fun SettingsScreen(
                             Text(stringResource(com.filo.app.R.string.importing))
                         }
                         "completed" -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            StatusBadge("インポート完了", BadgeTone.Ok)
+                            StatusBadge(tr("インポート完了"), BadgeTone.Ok)
                             Text(
-                                "追加 ${job.created ?: 0} / スキップ ${job.skipped ?: 0} / 失敗 ${job.failed ?: 0}",
+                                trf("追加 %d / スキップ %d / 失敗 %d", job.created ?: 0, job.skipped ?: 0, job.failed ?: 0),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -277,14 +274,14 @@ fun SettingsScreen(
                                 )
                             }
                         }
-                        else -> StatusBadge("インポート失敗", BadgeTone.Danger)
+                        else -> StatusBadge(tr("インポート失敗"), BadgeTone.Danger)
                     }
                 }
                 HorizontalDivider()
 
                 Text(stringResource(com.filo.app.R.string.read_history), fontWeight = FontWeight.SemiBold)
                 Text(
-                    "閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。",
+                    tr("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -296,7 +293,7 @@ fun SettingsScreen(
 
                 Text(stringResource(com.filo.app.R.string.dangerous_actions), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
                 Text(
-                    "アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。",
+                    tr("アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -374,7 +371,7 @@ fun AccountDeletionScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("アカウント削除") }) },
+        topBar = { TopAppBar(title = { Text(tr("アカウント削除")) }) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -386,30 +383,30 @@ fun AccountDeletionScreen(
             when (status) {
                 null -> {
                     CircularProgressIndicator()
-                    Text("状態を確認しています…")
+                    Text(tr("状態を確認しています…"))
                 }
                 "completed" -> {
-                    StatusBadge("削除完了", BadgeTone.Ok)
-                    Text("アカウントの削除が完了しました。ご利用ありがとうございました。")
+                    StatusBadge(tr("削除完了"), BadgeTone.Ok)
+                    Text(tr("アカウントの削除が完了しました。ご利用ありがとうございました。"))
                     Text(
-                        "再ログインしてもデータは復元されません。",
+                        tr("再ログインしてもデータは復元されません。"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 "failed" -> {
-                    StatusBadge("削除処理に失敗しました", BadgeTone.Danger)
-                    Text("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。")
+                    StatusBadge(tr("削除処理に失敗しました"), BadgeTone.Danger)
+                    Text(tr("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。"))
                 }
                 "none" -> {
-                    Text("進行中の削除処理はありません。")
-                    TextButton(onClick = onBackToSettings) { Text("設定へ戻る") }
+                    Text(tr("進行中の削除処理はありません。"))
+                    TextButton(onClick = onBackToSettings) { Text(tr("設定へ戻る")) }
                 }
                 else -> {
                     CircularProgressIndicator()
-                    Text("削除処理中…")
+                    Text(tr("削除処理中…"))
                     Text(
-                        "この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。",
+                        tr("この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

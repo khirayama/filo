@@ -13,6 +13,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
+import com.filo.app.ui.AppStrings
 
 class TtsMediaService : Service() {
     companion object {
@@ -92,8 +93,8 @@ class TtsMediaService : Service() {
         compactIndices.add(actions.size)
         actions.add(
             makeAction(
-                if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
-                if (isPlaying) "一時停止" else "再生",
+                if (isPlaying) R.drawable.ic_action_pause else R.drawable.ic_action_play,
+                if (isPlaying) AppStrings.get("一時停止") else AppStrings.get("再生"),
                 "PLAY_PAUSE",
             ),
         )
@@ -119,8 +120,8 @@ class TtsMediaService : Service() {
         }
         val notification = builder
             .setContentTitle(title.ifEmpty { "Filo" })
-            .setContentText(if (isPlaying) "再生中 ${chunk + 1}/$total" else "一時停止中")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentText(if (isPlaying) AppStrings.format("再生中 %d/%d", chunk + 1, total) else AppStrings.get("一時停止中"))
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentIntent(openAppIntent)
             .setDeleteIntent(dismissIntent)
             .setStyle(
@@ -156,9 +157,9 @@ class TtsMediaService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
-            CHANNEL_ID, "読み上げ", NotificationManager.IMPORTANCE_LOW,
+            CHANNEL_ID, AppStrings.get("読み上げ"), NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "記事の読み上げ再生中に表示されます"
+            description = AppStrings.get("記事の読み上げ再生中に表示されます")
             setShowBadge(false)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)

@@ -159,10 +159,10 @@ class ArticlesViewModel : ViewModel() {
         try {
             val result = if (feedId != null) ApiClient.refreshFeed(feedId) else ApiClient.refreshFeeds(force = false)
             if (result.enqueued == 0 && result.skipped > 0) {
-                refreshNotice = "最近取得済みのため、今回の取得対象はありませんでした。"
+                refreshNotice = AppStrings.get("最近取得済みのため、今回の取得対象はありませんでした。")
             } else if (result.enqueued > 0) {
                 val done = awaitRefreshCompletion(result.queuedAt, feedId)
-                if (!done) refreshNotice = "取得に時間がかかっています。あとで再度更新してください。"
+                if (!done) refreshNotice = AppStrings.get("取得に時間がかかっています。あとで再度更新してください。")
             }
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forError(e)
