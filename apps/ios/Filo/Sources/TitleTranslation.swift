@@ -242,7 +242,8 @@ final class TitleTranslationStore: ObservableObject {
         )
         guard batch?.token == current.token else { return }
         guard availability == .installed else {
-            lastError = "\(Locale.current.localizedString(forLanguageCode: Self.baseCode(current.source)) ?? current.source)は準備できていません。設定の「翻訳の準備」からダウンロードしてください。"
+            let sourceName = LanguageManager.shared.locale.localizedString(forLanguageCode: Self.baseCode(current.source)) ?? current.source
+            lastError = L10n.format("%@は準備できていません。設定の「翻訳の準備」からダウンロードしてください。", sourceName)
             requested.subtract(items.map(\.id))
             if availability == .supported {
                 waitingForPreparation[current.source, default: []].append(contentsOf: items)
@@ -382,11 +383,9 @@ struct TitleTranslationToggle: View {
             Button {
                 store.toggle()
             } label: {
-                Label(
-                    store.isEnabled ? "原文タイトルに戻す" : "タイトルを翻訳",
-                    systemImage: store.isEnabled ? "character.book.closed" : "translate",
-                )
+                FiloIcon(.translate, size: 18)
             }
+            .accessibilityLabel(L10n.string(store.isEnabled ? "原文タイトルに戻す" : "タイトルを翻訳"))
         }
     }
 }
@@ -473,8 +472,10 @@ struct TitleTranslationSetupView: View {
             Spacer()
             switch language.status {
             case .installed:
-                Label("準備済み", systemImage: "checkmark.circle.fill")
-                    .labelStyle(.titleAndIcon)
+                HStack(spacing: 6) {
+                    FiloIcon(.checkCircle, size: 16, color: .green, filled: true)
+                    Text("準備済み")
+                }
                     .font(.footnote)
                     .foregroundStyle(.green)
             case .downloadable:

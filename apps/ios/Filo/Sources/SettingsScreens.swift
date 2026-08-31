@@ -120,7 +120,7 @@ struct SettingsScreen: View {
             Button("エクスポート") { Task { await exportOpml() } }
             if let exportedFileURL {
                 ShareLink(item: exportedFileURL) {
-                    Label("エクスポートしたファイルを共有", systemImage: "square.and.arrow.up")
+                    Text("エクスポートしたファイルを共有")
                 }
             }
             if let importJob {
@@ -133,7 +133,7 @@ struct SettingsScreen: View {
                 case "completed":
                     VStack(alignment: .leading, spacing: 4) {
                         StatusBadge(label: "インポート完了", tone: .ok)
-                        Text("追加 \(importJob.created ?? 0) / スキップ \(importJob.skipped ?? 0) / 失敗 \(importJob.failed ?? 0)")
+                        Text(L10n.format("追加 %ld / スキップ %ld / 失敗 %ld", importJob.created ?? 0, importJob.skipped ?? 0, importJob.failed ?? 0))
                             .font(.caption)
                             .foregroundStyle(FiloPalette.muted)
                         if let failures = importJob.failures, !failures.isEmpty {

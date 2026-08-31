@@ -89,7 +89,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                     sourceLanguage: nil,
                     canonicalUrl: temporaryUrl,
                     publishedAt: nil,
-                    feed: .init(id: 0, title: "共有ページ", faviconUrl: nil),
+                    feed: .init(id: 0, title: L10n.string("共有ページ"), faviconUrl: nil),
                 )
                 items = [ReadingSessionItem(articleId: 0, sortOrder: 0, article: article, createdAt: nil, isRead: false)]
                 index = 0
@@ -99,7 +99,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 items = readingList
                 readingListItems = readingList
                 index = items.firstIndex(where: { !$0.isRead }) ?? -1
-                if index < 0 { errorMessage = "未読の記事がありません。" }
+                if index < 0 { errorMessage = L10n.string("未読の記事がありません。") }
             }
             resetExtractedContent()
         } catch {
@@ -119,7 +119,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
 
     func extractionFailed() {
         if temporary {
-            errorMessage = "本文を抽出できませんでした。"
+            errorMessage = L10n.string("本文を抽出できませんでした。")
             return
         }
         guard let articleId = currentItem?.articleId else { return }
@@ -134,7 +134,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 }
                 if content.status == "error" { break }
             }
-            errorMessage = "本文を抽出できませんでした。"
+            errorMessage = L10n.string("本文を抽出できませんでした。")
         }
     }
 
@@ -207,12 +207,14 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     func select(articleId: Int) {
         if let nextIndex = items.firstIndex(where: { $0.articleId == articleId }) {
             guard nextIndex != index else { return }
+            markArticleRead(currentItem?.articleId)
             pause()
             index = nextIndex
             resetExtractedContent()
             return
         }
         guard let nextIndex = readingListItems.firstIndex(where: { $0.articleId == articleId }) else { return }
+        markArticleRead(currentItem?.articleId)
         pause()
         items = readingListItems
         index = nextIndex
@@ -323,11 +325,36 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             return
         }
         isPlaying = false
-        Task {
-            if !playbackTemporary, let playbackArticleId {
-                _ = try? await APIClient.shared.setArticleRead(playbackArticleId, isRead: true)
-            }
+        if !playbackTemporary {
+            markArticleRead(playbackArticleId)
         }
+    }
+
+    private func markArticleRead(_ articleId: Int?) {
+        guard let articleId, articleId > 0 else { return }
+        let knownRead = (items + readingListItems).first { $0.articleId == articleId }?.isRead == true
+        guard !knownRead else { return }
+        items = items.map { item in
+            guard item.articleId == articleId else { return item }
+            return ReadingSessionItem(
+                articleId: item.articleId,
+                sortOrder: item.sortOrder,
+                article: item.article,
+                createdAt: item.createdAt,
+                isRead: true,
+            )
+        }
+        readingListItems = readingListItems.map { item in
+            guard item.articleId == articleId else { return item }
+            return ReadingSessionItem(
+                articleId: item.articleId,
+                sortOrder: item.sortOrder,
+                article: item.article,
+                createdAt: item.createdAt,
+                isRead: true,
+            )
+        }
+        Task { _ = try? await APIClient.shared.setArticleRead(articleId, isRead: true) }
     }
 
     private func clean(_ value: String) -> String {
@@ -388,10 +415,10 @@ struct ReadingSessionScreen: View {
                 .id(item.articleId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                EmptyStateView { Text(player.errorMessage ?? "未読の記事がありません。") }
+                EmptyStateView { Text(player.errorMessage ?? L10n.string("未読の記事がありません。")) }
             }
         }
-        .navigationTitle(player.currentItem?.article.title ?? "リーディングリスト")
+        .navigationTitle(player.currentItem?.article.title ?? L10n.string("リーディングリスト"))
         .navigationBarTitleDisplayMode(.inline)
         .focusable()
         .focused($isKeyboardFocused)
@@ -487,18 +514,33 @@ private struct ReadingSettingsPanel: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Button(player.isPlaying ? "停止" : "このページを読み上げ") {
+            Button {
                 if player.isPlaying { player.pause() } else { player.play() }
+            } label: {
+                HStack(spacing: 6) {
+                    FiloIcon(player.isPlaying ? .pause : .play, size: 18, color: FiloPalette.onAccent)
+                    Text(L10n.string(player.isPlaying ? "停止" : "このページを読み上げ"))
+                }
             }
             .buttonStyle(.borderedProminent)
             HStack {
                 Button {
                     onShowReadingList()
                 } label: {
-                    Label("リスト", systemImage: "list.bullet")
+                    HStack(spacing: 6) {
+                        FiloIcon(.list, size: 18)
+                        Text("リスト")
+                    }
                 }
                 .disabled(player.isTemporary)
-                Button("リストに追加") { player.addCurrentPageToReadingList() }
+                Button {
+                    player.addCurrentPageToReadingList()
+                } label: {
+                    HStack(spacing: 6) {
+                        FiloIcon(.queueAdd, size: 18)
+                        Text("リストに追加")
+                    }
+                }
                     .disabled(player.isAddingToReadingList)
             }
             HStack {
@@ -528,10 +570,17 @@ struct ReadingMiniPlayer: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(player.currentPlaybackTitle ?? player.currentItem?.article.title ?? "読み上げ中")
+            Text(player.currentPlaybackTitle ?? player.currentItem?.article.title ?? L10n.string("読み上げ中"))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button("停止") { player.pause() }
+            Button {
+                player.pause()
+            } label: {
+                HStack(spacing: 6) {
+                    FiloIcon(.close, size: 16)
+                    Text("停止")
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -561,9 +610,12 @@ private struct ReadingListView: View {
                                     onSelect(item.articleId)
                                 } label: {
                                     HStack(spacing: 8) {
-                                        Image(systemName: item.articleId == currentArticleId ? "circle.fill" : "circle")
-                                            .font(.system(size: 7))
-                                            .foregroundStyle(item.articleId == currentArticleId ? FiloPalette.accent : FiloPalette.muted)
+                                        FiloIcon(
+                                            .checkCircle,
+                                            size: 14,
+                                            color: item.articleId == currentArticleId ? FiloPalette.accent : FiloPalette.muted,
+                                            filled: item.articleId == currentArticleId,
+                                        )
                                         Text(item.article.title)
                                             .font(.body)
                                             .lineLimit(2)
@@ -575,8 +627,7 @@ private struct ReadingListView: View {
                                 Button {
                                     onRemove(item.articleId)
                                 } label: {
-                                    Label("削除", systemImage: "trash")
-                                        .labelStyle(.iconOnly)
+                                    FiloIcon(.trash, size: 18)
                                 }
                                 .buttonStyle(.borderless)
                                 .foregroundStyle(FiloPalette.muted)

@@ -73,7 +73,7 @@ struct TagsScreen: View {
                                 }
                                 VStack(alignment: .leading) {
                                     Text(tag.name)
-                                    Text("\(tag.subscriptionCount)件の購読")
+                                    Text(L10n.format("%ld件の購読", tag.subscriptionCount))
                                         .font(.caption)
                                         .foregroundStyle(FiloPalette.muted)
                                 }
@@ -119,7 +119,7 @@ struct TagsScreen: View {
 
     private var deleteConfirmTitle: String {
         let names = pendingDelete.map { "「\($0.name)」" }.joined()
-        return "タグ\(names)を削除しますか？購読は削除されません。"
+        return L10n.format("タグ%@を削除しますか？購読は削除されません。", names)
     }
 
     private func deleteTags(_ removed: [Tag]) async {

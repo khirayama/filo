@@ -196,7 +196,7 @@ struct ArticleRowView: View {
                 Button {
                     showOriginal.toggle()
                 } label: {
-                    Text(showOriginal ? "翻訳" : "原文")
+                    Text(L10n.string(showOriginal ? "翻訳" : "原文"))
                         .font(.system(size: 10))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -221,31 +221,31 @@ struct ArticleRowView: View {
     private var actions: some View {
         HStack(spacing: 2) {
             actionButton(
-                systemName: "checkmark.circle",
+                icon: .checkCircle,
                 active: article.userState.isRead,
                 activeColor: FiloPalette.muted,
                 action: onToggleRead,
-                label: article.userState.isRead ? "未読にする" : "既読にする",
+                label: L10n.string(article.userState.isRead ? "未読にする" : "既読にする"),
             )
             actionButton(
-                systemName: article.userState.inReadingList ? "text.badge.minus" : "text.badge.plus",
+                icon: .queueAdd,
                 active: article.userState.inReadingList,
                 action: onToggleReadingList,
-                label: article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
+                label: L10n.string(article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加"),
             )
             actionButton(
-                systemName: article.userState.isBookmarked ? "bookmark.fill" : "bookmark",
+                icon: .bookmark,
                 active: article.userState.isBookmarked,
                 activeColor: FiloPalette.star,
                 action: onToggleBookmark,
-                label: article.userState.isBookmarked ? "ブックマークを解除" : "ブックマーク",
+                label: L10n.string(article.userState.isBookmarked ? "ブックマークを解除" : "ブックマーク"),
             )
         }
     }
 
     @ViewBuilder
     private func actionButton(
-        systemName: String,
+        icon: FiloIconName,
         active: Bool,
         activeColor: Color = FiloPalette.accent,
         action: (() -> Void)?,
@@ -253,9 +253,7 @@ struct ArticleRowView: View {
     ) -> some View {
         if let action {
             Button(action: action) {
-                Image(systemName: systemName)
-                    .font(.system(size: 18))
-                    .foregroundStyle(active ? activeColor : FiloPalette.muted)
+                FiloIcon(icon, size: 18, color: active ? activeColor : FiloPalette.muted, filled: active && icon == .bookmark)
                     .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
             }

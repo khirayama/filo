@@ -184,7 +184,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
             let result = try await APIClient.shared.refreshFeed(feedId)
             FiloAnalytics.track("refresh_feed", parameters: ["feed_id": feedId])
             let done = await ArticlesViewModel.awaitRefreshCompletion(queuedAtIso: result.queuedAt, feedId: feedId)
-            if !done { refreshNotice = "取得に時間がかかっています。あとで再度更新してください。" }
+            if !done { refreshNotice = L10n.string("取得に時間がかかっています。あとで再度更新してください。") }
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
         }
@@ -202,7 +202,6 @@ struct SubscriptionDetailScreen: View {
     @State private var showRename = false
     @State private var renameText = ""
     @State private var showUnsubscribeConfirm = false
-    @State private var showMarkAllReadConfirm = false
     @State private var showFeedUrl = false
 
     init(subscriptionId: Int, onOpenArticle: @escaping (ArticleListItem) -> Void = { _ in }) {
@@ -223,7 +222,7 @@ struct SubscriptionDetailScreen: View {
         }
         .scrollContentBackground(.hidden)
         .background(FiloPalette.background)
-        .navigationTitle(model.subscription?.displayTitle ?? "購読詳細")
+        .navigationTitle(model.subscription?.displayTitle ?? L10n.string("購読詳細"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -231,7 +230,7 @@ struct SubscriptionDetailScreen: View {
                     if let faviconUrl = model.subscription?.feed.faviconUrl {
                         FaviconView(url: faviconUrl)
                     }
-                    Text(model.subscription?.displayTitle ?? "購読詳細")
+                    Text(model.subscription?.displayTitle ?? L10n.string("購読詳細"))
                         .lineLimit(1)
                 }
             }
@@ -240,14 +239,16 @@ struct SubscriptionDetailScreen: View {
                     Button {
                         Task { await model.refreshFeedAndReload() }
                     } label: {
-                        Label("このフィードを更新", systemImage: "arrow.clockwise")
+                        FiloIcon(.refresh, size: 18)
                     }
+                    .accessibilityLabel("このフィードを更新")
                     .disabled(model.isRefreshingFeed)
                     Button {
-                        showMarkAllReadConfirm = true
+                        Task { await model.markAllRead() }
                     } label: {
-                        Label("すべて既読にする", systemImage: "checkmark.circle")
+                        FiloIcon(.checkCircle, size: 18)
                     }
+                    .accessibilityLabel("すべて既読にする")
                     subscriptionActionsMenu
                     articleFiltersMenu
                 }
@@ -300,7 +301,11 @@ struct SubscriptionDetailScreen: View {
                             onOpen: {
                                 if let urlString = article.canonicalUrl,
                                    let url = URL(string: urlString) {
-                                    openURL(url)
+                                    if model.openInBrowserByDefault {
+                                        openURL(url)
+                                    } else {
+                                        onOpenArticle(article)
+                                    }
                                 }
                             },
                             onToggleRead: {
@@ -338,9 +343,6 @@ struct SubscriptionDetailScreen: View {
         } message: {
             Text(model.subscription?.feed.feedUrl ?? "")
         }
-        .confirmationDialog("このフィードの記事をすべて既読にしますか？", isPresented: $showMarkAllReadConfirm, titleVisibility: .visible) {
-            Button("すべて既読にする") { Task { await model.markAllRead() } }
-        }
         .confirmationDialog("この購読を解除しますか？ブックマークした記事は残ります。", isPresented: $showUnsubscribeConfirm, titleVisibility: .visible) {
             Button("購読解除", role: .destructive) {
                 Task {
@@ -376,8 +378,9 @@ struct SubscriptionDetailScreen: View {
                 Text("取得日時が新しい順").tag("fetched_at_desc")
             }
         } label: {
-            Label("表示設定", systemImage: "slider.horizontal.3")
+            FiloIcon(.gear, size: 18)
         }
+        .accessibilityLabel("表示設定")
     }
 
     private var subscriptionActionsMenu: some View {
@@ -394,8 +397,9 @@ struct SubscriptionDetailScreen: View {
             }
             Button("購読解除", role: .destructive) { showUnsubscribeConfirm = true }
         } label: {
-            Label("購読の操作", systemImage: "ellipsis")
+            FiloIcon(.more, size: 18)
         }
+        .accessibilityLabel("購読の操作")
     }
 
     @ViewBuilder

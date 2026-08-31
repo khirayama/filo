@@ -18,9 +18,9 @@ import Security
         guard url.path.localizedCaseInsensitiveContains("reset") else { return }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let value = items.first(where: { $0.name == "token" || $0.name == "code" })?.value
-        guard let value, !value.isEmpty else { errorMessage = "リセットリンクが無効です"; return }
+        guard let value, !value.isEmpty else { errorMessage = L10n.string("リセットリンクが無効です"); return }
         resetToken = value
-        statusMessage = "新しいパスワードを入力してください"
+        statusMessage = L10n.string("新しいパスワードを入力してください")
     }
     func resetPassword(token: String, password: String) async throws {
         var request = URLRequest(url: endpoint("api/auth/reset-password")); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONSerialization.data(withJSONObject: ["token": token, "newPassword": password]); let (_, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }; resetToken = nil
@@ -57,9 +57,13 @@ struct BetterAuthView: View {
             if let message = auth.statusMessage { Text(message).foregroundStyle(.green) }
             if let error { Text(error).foregroundStyle(.red) }
             if let message = auth.errorMessage { Text(message).foregroundStyle(.red) }
-            Button(signUp ? "アカウント作成" : "サインイン") { Task { do { try await auth.authenticate(email: email, password: password, signUp: signUp) } catch { self.error = "認証に失敗しました" } } }.buttonStyle(.borderedProminent)
-            if !signUp { Button("パスワードを忘れた場合") { Task { do { try await auth.sendPasswordReset(email: email); self.error = "パスワードリセットメールを送信しました" } catch { self.error = "メールを送信できませんでした" } } } }
-            Button(signUp ? "サインインへ" : "アカウントを作成") { signUp.toggle() }
+            Button { Task { do { try await auth.authenticate(email: email, password: password, signUp: signUp) } catch { self.error = L10n.string("認証に失敗しました") } } } label: {
+                Text(L10n.string(signUp ? "アカウント作成" : "サインイン"))
+            }.buttonStyle(.borderedProminent)
+            if !signUp { Button("パスワードを忘れた場合") { Task { do { try await auth.sendPasswordReset(email: email); self.error = L10n.string("パスワードリセットメールを送信しました") } catch { self.error = L10n.string("メールを送信できませんでした") } } } }
+            Button { signUp.toggle() } label: {
+                Text(L10n.string(signUp ? "サインインへ" : "アカウントを作成"))
+            }
         }.padding(24)
     }
 }
@@ -67,5 +71,5 @@ struct BetterAuthView: View {
 struct BetterAuthResetPasswordView: View {
     @EnvironmentObject private var auth: BetterAuth
     @State private var password = ""; @State private var confirmation = ""; @State private var message: String?
-    var body: some View { VStack(spacing: 16) { Text("パスワードを再設定").font(.title.bold()); SecureField("新しいパスワード", text: $password).textFieldStyle(.roundedBorder); SecureField("確認", text: $confirmation).textFieldStyle(.roundedBorder); if let message { Text(message) }; Button("変更する") { guard password.count >= 8, password == confirmation, let token = auth.resetToken else { message = "8文字以上で同じパスワードを入力してください"; return }; Task { do { try await auth.resetPassword(token: token, password: password); message = "パスワードを変更しました" } catch { message = "変更に失敗しました" } } }.buttonStyle(.borderedProminent) }.padding(24) }
+    var body: some View { VStack(spacing: 16) { Text("パスワードを再設定").font(.title.bold()); SecureField("新しいパスワード", text: $password).textFieldStyle(.roundedBorder); SecureField("確認", text: $confirmation).textFieldStyle(.roundedBorder); if let message { Text(message) }; Button("変更する") { guard password.count >= 8, password == confirmation, let token = auth.resetToken else { message = L10n.string("8文字以上で同じパスワードを入力してください"); return }; Task { do { try await auth.resetPassword(token: token, password: password); message = L10n.string("パスワードを変更しました") } catch { message = L10n.string("変更に失敗しました") } } }.buttonStyle(.borderedProminent) }.padding(24) }
 }

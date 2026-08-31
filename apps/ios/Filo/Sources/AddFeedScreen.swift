@@ -49,8 +49,8 @@ struct AddFeedScreen: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
-                Button(isSubmitting ? "フィードを確認中…" : "追加") {
-                    Task { await submit() }
+                Button { Task { await submit() } } label: {
+                    Text(L10n.string(isSubmitting ? "フィードを確認中…" : "追加"))
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isSubmitting || url.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -105,9 +105,9 @@ struct AddFeedScreen: View {
                 Text("購読の追加は完了しました。記事を取得しています。")
             default:
                 StatusBadge(label: "初回取得失敗", tone: .danger)
-                Text("購読は作成されましたが、\(ErrorMessages.initialFetchMessage(for: subscription.initialFetchErrorCode))")
-                Button(isRetrying ? "再試行中…" : "再試行") {
-                    Task { await retry() }
+                Text(L10n.format("購読は作成されましたが、%@", ErrorMessages.initialFetchMessage(for: subscription.initialFetchErrorCode)))
+                Button { Task { await retry() } } label: {
+                    Text(L10n.string(isRetrying ? "再試行中…" : "再試行"))
                 }
                 .disabled(isRetrying)
             }

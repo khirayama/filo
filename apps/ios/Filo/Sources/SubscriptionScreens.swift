@@ -117,12 +117,11 @@ struct SubscriptionsScreen: View {
                             Button {
                                 if collapsed.contains(-1) { collapsed.remove(-1) } else { collapsed.insert(-1) }
                             } label: {
-                                Image(systemName: collapsed.contains(-1) ? "chevron.right" : "chevron.down")
-                                    .font(.caption)
+                                FiloIcon(collapsed.contains(-1) ? .chevronRight : .chevronDown, size: 14)
                             }
                             .buttonStyle(.plain)
                             Text("タグなし")
-                            Text("\(untagged.count)件")
+                            Text(L10n.format("%ld件", untagged.count))
                                 .foregroundStyle(FiloPalette.muted)
                             Spacer()
                         }
@@ -136,11 +135,13 @@ struct SubscriptionsScreen: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 NavigationLink(value: AppRoute.addFeed) {
-                    Label("フィード追加", systemImage: "plus")
+                    FiloIcon(.plus, size: 18)
                 }
+                .accessibilityLabel("フィード追加")
                 NavigationLink(value: AppRoute.tags) {
-                    Label("タグ管理", systemImage: "tag")
+                    FiloIcon(.tag, size: 18)
                 }
+                .accessibilityLabel("タグ管理")
             }
         }
         .refreshable { await model.load() }
@@ -170,8 +171,7 @@ struct SubscriptionsScreen: View {
                 Button {
                     if collapsed.contains(tag.id) { collapsed.remove(tag.id) } else { collapsed.insert(tag.id) }
                 } label: {
-                    Image(systemName: collapsed.contains(tag.id) ? "chevron.right" : "chevron.down")
-                        .font(.caption)
+                    FiloIcon(collapsed.contains(tag.id) ? .chevronRight : .chevronDown, size: 14)
                 }
                 .buttonStyle(.plain)
                 // タグ名タップでタグ絞り込み済み記事一覧へ遷移する (SCREENS.md)
@@ -181,21 +181,21 @@ struct SubscriptionsScreen: View {
                     Text(tag.name)
                 }
                 .buttonStyle(.plain)
-                Text("\(items.count)件")
+                Text(L10n.format("%ld件", items.count))
                     .font(.caption)
                     .foregroundStyle(FiloPalette.muted)
                 Spacer()
                 Button {
                     Task { await model.moveTag(tag.id, direction: -1) }
                 } label: {
-                    Image(systemName: "chevron.up")
+                    FiloIcon(.chevronUp, size: 14)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("タグを上へ")
                 Button {
                     Task { await model.moveTag(tag.id, direction: 1) }
                 } label: {
-                    Image(systemName: "chevron.down")
+                    FiloIcon(.chevronDown, size: 14)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("タグを下へ")
@@ -217,7 +217,7 @@ struct SubscriptionsScreen: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(subscription.displayTitle)
                             .font(.body.weight(.medium))
-                        Text("最終公開 \(DateFormatting.relative(subscription.feed.latestPublishedAt).isEmpty ? "—" : DateFormatting.relative(subscription.feed.latestPublishedAt))")
+                        Text(L10n.format("最終公開 %@", DateFormatting.relative(subscription.feed.latestPublishedAt).isEmpty ? "—" : DateFormatting.relative(subscription.feed.latestPublishedAt)))
                             .font(.caption)
                             .foregroundStyle(FiloPalette.muted)
                         healthBadge(subscription)
@@ -236,11 +236,11 @@ struct SubscriptionsScreen: View {
                                 await model.setTags(subscription.id, tagIds: next)
                             }
                         } label: {
-                            Label(tag.name, systemImage: subscription.tagIds.contains(tag.id) ? "checkmark.circle.fill" : "circle")
+                            Text(tag.name)
                         }
                     }
                 } label: {
-                    Image(systemName: "tag")
+                    FiloIcon(.tag, size: 18)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("タグを編集")
@@ -248,7 +248,7 @@ struct SubscriptionsScreen: View {
             Button {
                 Task { await model.move(subscription.id, direction: -1, within: groupIds) }
             } label: {
-                Image(systemName: "chevron.up")
+                FiloIcon(.chevronUp, size: 14)
             }
             .buttonStyle(.plain)
             .disabled(model.isBusy)
@@ -256,7 +256,7 @@ struct SubscriptionsScreen: View {
             Button {
                 Task { await model.move(subscription.id, direction: 1, within: groupIds) }
             } label: {
-                Image(systemName: "chevron.down")
+                FiloIcon(.chevronDown, size: 14)
             }
             .buttonStyle(.plain)
             .disabled(model.isBusy)
@@ -275,7 +275,7 @@ struct SubscriptionsScreen: View {
                                 await model.setTags(subscription.id, tagIds: next)
                             }
                         } label: {
-                            Label(tag.name, systemImage: subscription.tagIds.contains(tag.id) ? "checkmark.circle.fill" : "circle")
+                            Text(tag.name)
                         }
                     }
                 }

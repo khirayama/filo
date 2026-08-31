@@ -34,7 +34,7 @@ struct StatusScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { Task { await load() } } label: {
-                    Image(systemName: "arrow.clockwise")
+                    FiloIcon(.refresh, size: 18)
                 }
             }
         }
@@ -50,8 +50,8 @@ struct StatusScreen: View {
     @ViewBuilder
     private func actionsSection(_ s: StatusOverview) -> some View {
         Section("操作") {
-            Button(isRefreshing ? "取得中…" : "すべて取得") {
-                Task { await refreshAll() }
+            Button { Task { await refreshAll() } } label: {
+                Text(L10n.string(isRefreshing ? "取得中…" : "すべて取得"))
             }
             .disabled(isRefreshing)
 
@@ -69,7 +69,7 @@ struct StatusScreen: View {
 
     @ViewBuilder
     private func subscriptionStatusesSection(_ s: StatusOverview) -> some View {
-        Section("購読一覧（\(s.subscriptionStatuses.count)件）") {
+        Section(L10n.format("購読一覧（%ld件）", s.subscriptionStatuses.count)) {
             if s.subscriptionStatuses.isEmpty {
                 Text("購読がありません。")
                     .foregroundStyle(FiloPalette.muted)
@@ -103,7 +103,10 @@ struct StatusScreen: View {
                 Button("取得") { toggleSort(.fetchStatus) }
                 Button("最終取得") { toggleSort(.lastFetchedAt) }
             } label: {
-                Label("並び替え: \(sortLabel)", systemImage: sortAscending ? "arrow.up" : "arrow.down")
+                HStack(spacing: 6) {
+                    FiloIcon(sortAscending ? .chevronUp : .chevronDown, size: 14)
+                    Text(L10n.format("並び替え: %@", sortLabel))
+                }
             }
             if let status {
                 Text("\(visibleSubscriptions(status).count)/\(status.subscriptionStatuses.count)")
@@ -117,10 +120,10 @@ struct StatusScreen: View {
 
     private var sortLabel: String {
         switch sortKey {
-        case .status: return "状態"
-        case .feedTitle: return "購読"
-        case .fetchStatus: return "取得"
-        case .lastFetchedAt: return "最終取得"
+        case .status: return L10n.string("状態")
+        case .feedTitle: return L10n.string("購読")
+        case .fetchStatus: return L10n.string("取得")
+        case .lastFetchedAt: return L10n.string("最終取得")
         }
     }
 
@@ -184,7 +187,7 @@ struct StatusScreen: View {
                 if sub.feedStatus == "paused" {
                     StatusBadge(label: "停止", tone: .muted)
                 }
-                jobBadge("取得", job: sub.fetchJob, fallbackDanger: sub.lastResult == "error")
+                jobBadge(L10n.string("取得"), job: sub.fetchJob, fallbackDanger: sub.lastResult == "error")
                 Text(sub.lastFetchedAt.map { DateFormatting.relative($0) } ?? "—")
                     .font(.caption)
                     .foregroundStyle(FiloPalette.muted)
@@ -196,8 +199,8 @@ struct StatusScreen: View {
                     .lineLimit(1)
             }
             HStack(spacing: 12) {
-                Button(fetchBusy ? "取得中…" : "取得") {
-                    Task { await refreshFeed(sub.feedId) }
+                Button { Task { await refreshFeed(sub.feedId) } } label: {
+                    Text(L10n.string(fetchBusy ? "取得中…" : "取得"))
                 }
                 .disabled(isRefreshing || fetchBusy)
             }
@@ -207,9 +210,9 @@ struct StatusScreen: View {
     }
 
     private func summaryLine(_ s: StatusOverview) -> String {
-        var line = "購読 \(s.feeds.total)件・記事 \(s.articles.total)件"
-        if let fetchedAt = s.feeds.lastFetchedAt { line += "・最終取得 \(DateFormatting.relative(fetchedAt))" }
-        line += "・約\(Int(pollInterval))秒ごとに自動更新"
+        var line = L10n.format("購読 %ld件・記事 %ld件", s.feeds.total, s.articles.total)
+        if let fetchedAt = s.feeds.lastFetchedAt { line += L10n.format("・最終取得 %@", DateFormatting.relative(fetchedAt)) }
+        line += L10n.format("・約%ld秒ごとに自動更新", Int(pollInterval))
         return line
     }
 
@@ -217,16 +220,16 @@ struct StatusScreen: View {
     private func jobBadge(_ label: String, job: FeedJob?, fallbackDanger: Bool) -> some View {
         if let job, job.status != "completed" {
             if job.stalled {
-                StatusBadge(label: "\(label)中断", tone: .danger)
+                StatusBadge(label: L10n.format("%@中断", label), tone: .danger)
             } else if job.status == "failed" {
-                StatusBadge(label: "\(label)失敗", tone: .danger)
+                StatusBadge(label: L10n.format("%@失敗", label), tone: .danger)
             } else if job.status == "running" {
-                StatusBadge(label: "\(label)中", tone: .warn)
+                StatusBadge(label: L10n.format("%@中", label), tone: .warn)
             } else {
-                StatusBadge(label: "\(label)待ち", tone: .warn)
+                StatusBadge(label: L10n.format("%@待ち", label), tone: .warn)
             }
         } else if fallbackDanger {
-            StatusBadge(label: "\(label)失敗", tone: .danger)
+            StatusBadge(label: L10n.format("%@失敗", label), tone: .danger)
         }
     }
 
@@ -269,8 +272,8 @@ struct StatusScreen: View {
             let result = try await APIClient.shared.refreshFeeds(force: true)
             FiloAnalytics.track("refresh_feeds", parameters: ["source": "status", "enqueued": result.enqueued])
             notice = result.enqueued > 0
-                ? "\(result.enqueued)件のフィードの取得を開始しました。"
-                : "取得対象のフィードがありません。"
+                ? L10n.format("%ld件のフィードの取得を開始しました。", result.enqueued)
+                : L10n.string("取得対象のフィードがありません。")
             await load()
         } catch {
             errorMessage = ErrorMessages.message(for: error)

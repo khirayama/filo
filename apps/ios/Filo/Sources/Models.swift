@@ -250,7 +250,8 @@ enum DateFormatting {
     static func relative(_ value: String?) -> String {
         guard let date = parse(value) else { return "" }
         let formatter = RelativeDateTimeFormatter()
-        formatter.locale = .current
+        let language = UserDefaults.standard.string(forKey: "filo:language") ?? "ja"
+        formatter.locale = Locale(identifier: language == "zh" ? "zh-Hans" : language)
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
     }
@@ -258,14 +259,15 @@ enum DateFormatting {
     static func compact(_ value: String?) -> String {
         guard let date = parse(value) else { return "" }
         let minutes = Int(Date().timeIntervalSince(date) / 60)
-        if minutes < 1 { return "now" }
-        if minutes < 60 { return "\(minutes)m" }
+        if minutes < 1 { return L10n.string("今") }
+        if minutes < 60 { return "\(minutes)\(L10n.string("分"))" }
         let hours = minutes / 60
-        if hours < 24 { return "\(hours)h" }
+        if hours < 24 { return "\(hours)\(L10n.string("時間"))" }
         let days = hours / 24
-        if days < 7 { return "\(days)d" }
+        if days < 7 { return "\(days)\(L10n.string("日"))" }
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP_POSIX")
+        let language = UserDefaults.standard.string(forKey: "filo:language") ?? "ja"
+        formatter.locale = Locale(identifier: language == "zh" ? "zh-Hans" : language)
         formatter.dateFormat = "M/d"
         return formatter.string(from: date)
     }

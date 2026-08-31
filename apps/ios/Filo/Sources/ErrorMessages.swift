@@ -25,21 +25,21 @@ enum ErrorMessages {
     ]
 
     static func message(for code: String) -> String {
-        messages[code] ?? messages["internal_error"]!
+        L10n.string(messages[code] ?? messages["internal_error"]!)
     }
 
     static func message(for error: Error) -> String {
         if let apiError = error as? APIError {
             return message(for: apiError.code)
         }
-        return messages["internal_error"]!
+        return L10n.string(messages["internal_error"]!)
     }
 
     static func initialFetchMessage(for code: String?) -> String {
         switch code {
-        case "feed_unreachable": return "フィードに接続できませんでした。"
-        case "feed_discovery_failed": return "フィードを見つけられませんでした。"
-        default: return "初回の記事取得に失敗しました。"
+        case "feed_unreachable": return L10n.string("フィードに接続できませんでした。")
+        case "feed_discovery_failed": return L10n.string("フィードを見つけられませんでした。")
+        default: return L10n.string("初回の記事取得に失敗しました。")
         }
     }
 }

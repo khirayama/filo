@@ -286,7 +286,7 @@ struct AppNavigationView: View {
             Button {
                 openMobileDrawer()
             } label: {
-                Image(systemName: "line.3.horizontal")
+                FiloIcon(.menu, size: 18)
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)

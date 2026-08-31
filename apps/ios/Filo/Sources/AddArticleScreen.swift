@@ -22,8 +22,8 @@ struct AddArticleScreen: View {
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Button(isSubmitting ? "保存中…" : "追加") {
-                    Task { await submit() }
+                Button { Task { await submit() } } label: {
+                    Text(L10n.string(isSubmitting ? "保存中…" : "追加"))
                 }
                 .disabled(isSubmitting || url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } footer: {
