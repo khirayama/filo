@@ -1,7 +1,11 @@
+import { createExtensionApi } from "./api";
+import { getToken } from "./auth";
+
 type ExtractionMode = "article" | "display";
 
 interface ReaderSession {
   tabId: number;
+  articleId?: number;
   autoplay: boolean;
   targetLanguage: string;
   rate: number;
@@ -19,6 +23,7 @@ const DEFAULT_SETTINGS = {
   extractionMode: "article" as ExtractionMode,
 };
 let playToken = 0;
+const readerApi = createExtensionApi(getToken);
 
 interface ExtractedPage {
   text: string;
@@ -145,6 +150,9 @@ async function playCurrentImpl(): Promise<void> {
             if (!latest) return;
             latest.playing = false;
             await saveState(latest);
+            if (event.type === "end" && latest.articleId !== undefined) {
+              await readerApi.setArticleRead(latest.articleId, true).catch(() => undefined);
+            }
           });
         },
       }, () => {
@@ -216,6 +224,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await saveState(state);
       await playCurrent();
       sendResponse({ ok: true, data: await loadSettings() });
+    })().catch((error: unknown) => sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return true;
+  }
+
+  if (message?.type === "filoStartArticleFromWeb") {
+    void (async () => {
+      const url = typeof message.url === "string" ? message.url : "";
+      if (!/^https?:\/\//i.test(url)) throw new Error("読み上げできるページがありません。");
+      const tab = await chrome.tabs.create({ url, active: true });
+      if (typeof tab.id !== "number") throw new Error("読み上げできるページがありません。");
+
+      const previous = await loadState();
+      const settings = await loadSettings();
+      const state: ReaderSession = {
+        tabId: tab.id,
+        articleId: typeof message.articleId === "number" && Number.isInteger(message.articleId)
+          ? message.articleId
+          : undefined,
+        autoplay: message.autoplay === true,
+        targetLanguage: typeof message.targetLanguage === "string" && message.targetLanguage
+          ? message.targetLanguage
+          : settings.targetLanguage,
+        rate: previous?.rate ?? settings.rate,
+        voiceName: previous?.voiceName ?? settings.voiceName,
+        extractionMode: previous?.extractionMode ?? settings.extractionMode,
+        playing: false,
+      };
+      await saveSettings({
+        targetLanguage: state.targetLanguage,
+        rate: state.rate,
+        voiceName: state.voiceName,
+        extractionMode: state.extractionMode,
+      });
+      await saveState(state);
+      sendResponse({ ok: true, data: { tabId: tab.id } });
     })().catch((error: unknown) => sendResponse({
       ok: false,
       error: error instanceof Error ? error.message : String(error),

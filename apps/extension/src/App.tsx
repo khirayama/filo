@@ -26,6 +26,7 @@ interface CurrentPage {
 
 interface ReaderSession {
   tabId: number;
+  articleId?: number;
   autoplay: boolean;
   targetLanguage: string;
   rate: number;
