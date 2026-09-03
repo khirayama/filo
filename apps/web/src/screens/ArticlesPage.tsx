@@ -7,6 +7,7 @@ import { ArticleRows, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
 import { Button, EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, palette, useDialogFocus } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
+import { detectReadingExtension, launchReadingExtension } from "../lib/extensionBridge";
 import { errorMessage } from "../lib/messages";
 import { refreshFeedsAndWait } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
@@ -38,6 +39,8 @@ function ArticlesListPage() {
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [removingReadArticles, setRemovingReadArticles] = useState(false);
   const [activeArticleIndex, setActiveArticleIndex] = useState<number | null>(null);
+  const [extensionReady, setExtensionReady] = useState(false);
+  const [startingReading, setStartingReading] = useState(false);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const articleHeaderRef = useRef<HTMLElement | null>(null);
   const [articleHeaderHeight, setArticleHeaderHeight] = useState(0);
@@ -70,6 +73,11 @@ function ArticlesListPage() {
   );
 
   const list = useArticleList(api, apiFilters);
+
+  // Native apps also start a reading session at the first unread item. Keep
+  // the Web entry point independent from the keyboard-selected row.
+  const readingArticle = list.articles.find((article) => !article.userState.isRead && article.canonicalUrl)
+    ?? list.articles.find((article) => article.canonicalUrl);
 
   const hasSubscriptions = subscriptions.length > 0;
   const hasArticleFilter = tagId !== undefined || read !== undefined || readingListOnly || bookmarkedOnly;
@@ -155,11 +163,47 @@ function ArticlesListPage() {
     }
   };
 
+  const startReading = async (autoplay: boolean) => {
+    if (!readingArticle?.canonicalUrl || startingReading) return;
+    setStartingReading(true);
+    setMarkAllError(null);
+    try {
+      await launchReadingExtension(
+        { id: readingArticle.id, url: readingArticle.canonicalUrl, title: readingArticle.title },
+        { autoplay, targetLanguage: settings?.language ?? language },
+      );
+      trackEvent(autoplay ? "start_reading_aloud" : "start_reading", { source: "web_extension" });
+    } catch (error) {
+      setMarkAllError(error instanceof Error ? t(error.message) : errorMessage(error, language));
+    } finally {
+      setStartingReading(false);
+    }
+  };
+
   const title = selectedTag?.name ?? (readingListOnly ? t("リーディングリスト") : bookmarkedOnly ? t("ブックマーク") : t("全ての記事"));
 
   useEffect(() => {
     setActiveArticleIndex((current) => current == null ? null : Math.min(current, Math.max(list.articles.length - 1, 0)));
   }, [list.articles.length]);
+
+  useEffect(() => {
+    if (!readingListOnly) {
+      setExtensionReady(false);
+      return;
+    }
+    let active = true;
+    const check = () => {
+      void detectReadingExtension().then((available) => {
+        if (active) setExtensionReady(available);
+      });
+    };
+    check();
+    const interval = window.setInterval(check, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [readingListOnly]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -243,12 +287,26 @@ function ArticlesListPage() {
         {title}
       </h1>
       {readingListOnly ? (
-        <IconButton
-          icon="trash"
-          label={t("既読記事を削除")}
-          disabled={removingReadArticles}
-          onClick={() => void removeReadArticles()}
-        />
+        <>
+          <InlineButton
+            disabled={!extensionReady || startingReading || !readingArticle}
+            onClick={() => void startReading(false)}
+          >
+            {t("閲覧開始")}
+          </InlineButton>
+          <InlineButton
+            disabled={!extensionReady || startingReading || !readingArticle}
+            onClick={() => void startReading(true)}
+          >
+            {t("読み上げ開始")}
+          </InlineButton>
+          <IconButton
+            icon="trash"
+            label={t("既読記事を削除")}
+            disabled={removingReadArticles}
+            onClick={() => void removeReadArticles()}
+          />
+        </>
       ) : null}
       {!bookmarkedOnly && !readingListOnly ? (
         <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />

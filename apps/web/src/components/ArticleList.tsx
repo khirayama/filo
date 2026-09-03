@@ -405,7 +405,7 @@ function ArticleRow({
           <div style={{ fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: 1.4, marginTop: 0 }}>
             {titleEl}
           </div>
-          {isDesktop && article.previewText ? (
+          {article.previewText ? (
             <div
               style={{
                 color: palette.muted,
