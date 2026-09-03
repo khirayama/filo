@@ -92,7 +92,7 @@ struct SettingsScreen: View {
         } footer: {
             Text("選択した言語の記事は翻訳せず原文で表示します。")
         }
-        if titleTranslations.isDeviceSupported {
+        if titleTranslations.isSupported {
             Section {
                 Button("言語を確認") { titleTranslations.isShowingSetup = true }
             } header: {

@@ -487,7 +487,7 @@ struct ArticlesScreen: View {
 
     private var articleFiltersMenu: some View {
         Menu {
-            if translations.isDeviceSupported {
+            if translations.isSupported {
                 Picker("タイトルを翻訳", selection: Binding(
                     get: { translations.isEnabled },
                     set: { if $0 != translations.isEnabled { translations.toggle() } }

@@ -80,6 +80,12 @@ final class TitleTranslationStore: ObservableObject {
     @Published private(set) var isDeviceSupported = true
     @Published private(set) var hasCheckedLanguages = false
 
+    // 候補がないときは、端末が対応していても翻訳操作を表示しない。
+    // Android / Web と同じく、候補の再計算中は確認前として表示する。
+    var isSupported: Bool {
+        !candidates.isEmpty && (!hasCheckedLanguages || isDeviceSupported)
+    }
+
     // 原文言語 -> 未翻訳のタイトル
     private var pending: [String: [(id: Int, title: String)]] = [:]
     // 対応しているが未ダウンロードの言語ペア。準備完了後に pending へ戻す。
@@ -126,13 +132,21 @@ final class TitleTranslationStore: ObservableObject {
     // 準備画面の候補を購読の言語から作る。訳す必要がない言語は除く。
     // Web は対応言語を列挙できないため、3 プラットフォームで同じ出所にしてある。
     func setCandidates(_ subscriptions: [Subscription]) {
-        subscriptionLanguages = subscriptions
+        let next = subscriptions
             .compactMap { $0.feed.language }
             .reduce(into: [String]()) { unique, code in
                 if !unique.contains(code) { unique.append(code) }
             }
             .sorted()
+        let changed = subscriptionLanguages != next
+        subscriptionLanguages = next
         updateCandidates()
+        if changed {
+            languages = []
+            installedLanguages = []
+            hasCheckedLanguages = false
+            isDeviceSupported = true
+        }
     }
 
     // 候補の言語ごとに、表示言語へ翻訳できるかを OS へ問い合わせる
@@ -292,6 +306,9 @@ final class TitleTranslationStore: ObservableObject {
         requested.removeAll()
         // 表示言語が変われば言語ペアの可否も変わるので、確認からやり直す
         hasCheckedLanguages = false
+        languages = []
+        installedLanguages = []
+        isDeviceSupported = true
         batch = nil
         runningToken = nil
         lastError = nil
@@ -379,7 +396,7 @@ struct TitleTranslationToggle: View {
     @ObservedObject var store: TitleTranslationStore
 
     var body: some View {
-        if store.isDeviceSupported {
+        if store.isSupported {
             Button {
                 store.toggle()
             } label: {
@@ -446,7 +463,7 @@ struct TitleTranslationSetupView: View {
                     }
                 }
 
-                if store.isDeviceSupported {
+                if store.isSupported {
                     Section {
                         Text("ここに無い言語の記事は、翻訳せず原文のまま表示します。")
                             .font(.footnote)

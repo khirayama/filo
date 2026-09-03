@@ -168,6 +168,7 @@ struct ArticleRowView: View {
             .font(.system(size: 12))
             .foregroundStyle(FiloPalette.muted)
             title
+            mobilePreview
         }
     }
 
@@ -216,6 +217,17 @@ struct ArticleRowView: View {
             .foregroundStyle(FiloPalette.text)
             .contentShape(Rectangle())
             .onTapGesture { onOpen?() }
+    }
+
+    @ViewBuilder
+    private var mobilePreview: some View {
+        if let previewText = article.previewText, !previewText.isEmpty {
+            Text(previewText)
+                .font(.system(size: 13))
+                .foregroundStyle(FiloPalette.muted)
+                .lineLimit(2)
+                .truncationMode(.tail)
+        }
     }
 
     private var actions: some View {
