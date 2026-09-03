@@ -283,6 +283,15 @@ fun ArticleRow(
                     singleLine = false,
                     onOpen = onOpen,
                 )
+                if (!article.previewText.isNullOrEmpty()) {
+                    Text(
+                        article.previewText.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

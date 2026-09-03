@@ -101,19 +101,25 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
     // 候補は「購読に実在する言語」。訳す必要がない言語は除く
     private val candidates = mutableStateOf<List<String>>(emptyList())
 
+    private fun baseLanguage(code: String): String = code.substringBefore('-')
+
     fun titleFor(articleId: Int): String? = titles[articleId]
 
     // MARK: 準備（オンボーディング）
 
     fun setCandidates(subscriptions: List<Subscription>) {
-        candidates.value = subscriptions
+        val next = subscriptions
             .mapNotNull { it.feed.language }
             .distinct()
             .filter { code ->
-                val base = code.substringBefore('-')
-                base != target.substringBefore('-') && !readableLanguages.contains(base)
+                val base = baseLanguage(code)
+                base != baseLanguage(target) && readableLanguages.none { baseLanguage(it) == base }
             }
             .sorted()
+        if (next == candidates.value) return
+        candidates.value = next
+        languages = emptyList()
+        hasCheckedLanguages = false
     }
 
     // 取得済みモデルを OS へ問い合わせる。ML Kit は言語ごとにモデルを持ち、
@@ -229,8 +235,8 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
             // 原文言語はサーバーが決めている。不明な記事は原文のまま出す
             val source = article.sourceLanguage ?: continue
             // 読める言語の記事は原文のまま出す(SPEC/DATABASE.md の表示規則と同じ)
-            val base = source.substringBefore('-')
-            if (base == target.substringBefore('-') || readableLanguages.contains(base)) continue
+            val base = baseLanguage(source)
+            if (base == baseLanguage(target) || readableLanguages.any { baseLanguage(it) == base }) continue
             bySource.getOrPut(source) { mutableListOf() }.add(article)
         }
 
@@ -268,6 +274,8 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
         titles.clear()
         requested.clear()
         isTranslating = false
+        languages = emptyList()
+        hasCheckedLanguages = false
     }
 
     private fun prefs() = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
