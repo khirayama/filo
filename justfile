@@ -46,6 +46,10 @@ api:
 api-deploy:
   cd apps/api && npm run deploy:production
 
+deploy-all:
+  just api-deploy
+  just web-deploy
+
 reextract:
   cd apps/api && npx wrangler d1 execute filo-db --local --command "DELETE FROM article_contents"
 
