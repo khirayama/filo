@@ -40,6 +40,11 @@ struct RemoveReadArticlesResult: Codable, Hashable {
     var removedCount: Int
 }
 
+struct UnreadCounts: Codable, Hashable {
+    var allArticles: Int
+    var readingList: Int
+}
+
 struct Tag: Codable, Identifiable, Hashable {
     let id: Int
     var name: String

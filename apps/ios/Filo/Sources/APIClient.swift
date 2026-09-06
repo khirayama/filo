@@ -221,6 +221,10 @@ final class APIClient: Sendable {
         return (envelope.data, envelope.meta?.nextCursor)
     }
 
+    func getUnreadCounts() async throws -> UnreadCounts {
+        try await get("/api/v1/articles/unread-counts")
+    }
+
     func importArticle(url: String, title: String? = nil) async throws -> SavedArticleResult {
         try await send("POST", "/api/v1/articles/import", json: ["url": url, "title": title])
     }

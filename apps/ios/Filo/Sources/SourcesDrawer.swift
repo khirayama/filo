@@ -60,10 +60,10 @@ struct SourcesDrawer: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
 
-                drawerItem("全ての記事", icon: .list, isActive: model.selectedTagId == nil && !model.readingListOnly && !model.bookmarkedOnly) {
+                drawerItem("全ての記事", icon: .list, isActive: model.selectedTagId == nil && !model.readingListOnly && !model.bookmarkedOnly, count: model.unreadCounts.allArticles) {
                     model.selectView()
                 }
-                drawerItem("リーディングリスト", icon: .queueAdd, isActive: model.readingListOnly && model.selectedTagId == nil) {
+                drawerItem("リーディングリスト", icon: .queueAdd, isActive: model.readingListOnly && model.selectedTagId == nil, count: model.unreadCounts.readingList) {
                     model.selectView(readingList: true)
                 }
                 drawerItem("ブックマーク", icon: .bookmark, isActive: model.bookmarkedOnly && model.selectedTagId == nil) {
@@ -114,7 +114,7 @@ struct SourcesDrawer: View {
         }
     }
 
-    private func drawerLabel(_ title: String, icon: FiloIconName) -> some View {
+    private func drawerLabel(_ title: String, icon: FiloIconName, count: Int? = nil) -> some View {
         HStack(spacing: 10) {
             FiloIcon(icon, size: 18)
                 .frame(width: 20)
@@ -122,18 +122,23 @@ struct SourcesDrawer: View {
                 .font(.callout)
                 .lineLimit(1)
             Spacer(minLength: 0)
+            if let count, count > 0 {
+                Text("\(count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
     }
 
-    private func drawerItem(_ title: String, icon: FiloIconName, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func drawerItem(_ title: String, icon: FiloIconName, isActive: Bool, action: @escaping () -> Void, count: Int? = nil) -> some View {
         Button {
             action()
             onSelect()
         } label: {
-            drawerLabel(title, icon: icon)
+            drawerLabel(title, icon: icon, count: count)
                 .background(isActive ? FiloPalette.mutedBorder : Color.clear)
         }
         .buttonStyle(.plain)

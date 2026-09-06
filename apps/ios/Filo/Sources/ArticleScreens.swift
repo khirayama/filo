@@ -11,6 +11,7 @@ final class ArticlesViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var tags: [Tag] = []
     @Published var subscriptions: [Subscription] = []
+    @Published var unreadCounts = UnreadCounts(allArticles: 0, readingList: 0)
 
     @Published var selectedTagId: Int? {
         didSet { if selectedTagId != oldValue { invalidateArticleRequests() } }
@@ -67,6 +68,7 @@ final class ArticlesViewModel: ObservableObject {
             async let articlesTask = APIClient.shared.listArticles(filters: filters)
             async let tagsTask = APIClient.shared.listTags()
             async let subscriptionsTask = APIClient.shared.listSubscriptions()
+            async let unreadCountsTask = APIClient.shared.getUnreadCounts()
             async let settingsTask = APIClient.shared.getSettings()
             let result = try await articlesTask
             if articleGeneration == currentArticleGeneration {
@@ -79,6 +81,7 @@ final class ArticlesViewModel: ObservableObject {
             guard loadGeneration == currentLoadGeneration else { return }
             tags = loadedTags ?? tags
             subscriptions = loadedSubscriptions ?? subscriptions
+            unreadCounts = (try? await unreadCountsTask) ?? unreadCounts
             settings = loadedSettings ?? settings
             if let loadedSettings {
                 if sort != loadedSettings.articleSortOrder { sort = loadedSettings.articleSortOrder }
@@ -131,6 +134,7 @@ final class ArticlesViewModel: ObservableObject {
             refreshNotice = ErrorMessages.message(for: error)
         }
         await reloadArticles()
+        await refreshUnreadCounts()
         isRefreshingFeeds = false
     }
 
@@ -186,6 +190,7 @@ final class ArticlesViewModel: ObservableObject {
             _ = try await APIClient.shared.markAllArticlesRead(tagId: selectedTagId)
             await reloadArticles()
             subscriptions = (try? await APIClient.shared.listSubscriptions()) ?? subscriptions
+            await refreshUnreadCounts()
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
@@ -196,6 +201,7 @@ final class ArticlesViewModel: ObservableObject {
         do {
             _ = try await APIClient.shared.removeReadArticlesFromReadingList()
             await reloadArticles()
+            await refreshUnreadCounts()
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
@@ -230,9 +236,14 @@ final class ArticlesViewModel: ObservableObject {
                     articles[index].userState = state
                 }
             }
+            await refreshUnreadCounts()
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
+    }
+
+    func refreshUnreadCounts() async {
+        unreadCounts = (try? await APIClient.shared.getUnreadCounts()) ?? unreadCounts
     }
 
 }
@@ -346,7 +357,10 @@ struct ArticlesScreen: View {
             Button("既読記事を削除", role: .destructive) { Task { await model.removeReadArticlesFromReadingList() } }
         }
         .refreshable { await model.refreshFeedsAndReload() }
-        .onAppear { isKeyboardFocused = true }
+        .onAppear {
+            isKeyboardFocused = true
+            Task { await model.refreshUnreadCounts() }
+        }
         .task {
             await model.load()
             registerTitlesForTranslation()

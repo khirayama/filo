@@ -266,6 +266,7 @@ struct AppNavigationView: View {
                         initialUrl: url,
                         onDone: { if !path.isEmpty { path.removeLast() } },
                         onSaved: {
+                            Task { await articlesModel.refreshUnreadCounts() }
                             articlesModel.selectView(readingList: true)
                             if !path.isEmpty { path.removeLast() }
                         },
