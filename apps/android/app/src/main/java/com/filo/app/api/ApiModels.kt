@@ -42,6 +42,11 @@ data class MarkAllReadResult(
     val updatedAt: String?,
 )
 
+data class UnreadCounts(
+    val allArticles: Int,
+    val readingList: Int,
+)
+
 data class ArticleUserState(
     val isRead: Boolean,
     val inReadingList: Boolean,
@@ -202,6 +207,12 @@ internal fun parseMarkAllReadResult(json: JSONObject): MarkAllReadResult =
         lastReadArticleId = if (json.isNull("lastReadArticleId")) null else json.optInt("lastReadArticleId"),
         unreadCount = json.optInt("unreadCount", 0),
         updatedAt = json.optStringOrNull("updatedAt"),
+    )
+
+internal fun parseUnreadCounts(json: JSONObject): UnreadCounts =
+    UnreadCounts(
+        allArticles = json.optInt("allArticles", 0),
+        readingList = json.optInt("readingList", 0),
     )
 
 internal fun parseTag(json: JSONObject): Tag =

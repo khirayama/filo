@@ -11,6 +11,7 @@ import com.filo.app.api.ArticleListItem
 import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
+import com.filo.app.api.UnreadCounts
 import kotlinx.coroutines.launch
 
 class ArticlesViewModel : ViewModel() {
@@ -18,6 +19,7 @@ class ArticlesViewModel : ViewModel() {
     var nextCursor by mutableStateOf<String?>(null)
     var tags by mutableStateOf<List<Tag>>(emptyList())
     var subscriptions by mutableStateOf<List<Subscription>>(emptyList())
+    var unreadCounts by mutableStateOf(UnreadCounts(allArticles = 0, readingList = 0))
     var isLoading by mutableStateOf(true)
     var isLoadingMore by mutableStateOf(false)
     var errorMessage by mutableStateOf<String?>(null)
@@ -102,6 +104,9 @@ class ArticlesViewModel : ViewModel() {
             }
             runCatching { ApiClient.listSubscriptions() }.getOrNull()?.let {
                 if (requestGeneration == articleGeneration) subscriptions = it
+            }
+            runCatching { ApiClient.getUnreadCounts() }.getOrNull()?.let {
+                if (requestGeneration == articleGeneration) unreadCounts = it
             }
             runCatching {
                 ApiClient.getSettings()
@@ -219,9 +224,14 @@ class ArticlesViewModel : ViewModel() {
                     ) null
                     else it.copy(userState = state)
                 }
+                runCatching { ApiClient.getUnreadCounts() }.getOrNull()?.let { unreadCounts = it }
             } catch (e: Exception) {
                 errorMessage = ErrorMessages.forError(e)
             }
         }
+    }
+
+    suspend fun refreshUnreadCounts() {
+        runCatching { ApiClient.getUnreadCounts() }.getOrNull()?.let { unreadCounts = it }
     }
 }

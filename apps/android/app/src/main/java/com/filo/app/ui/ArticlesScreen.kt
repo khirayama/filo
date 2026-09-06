@@ -82,6 +82,7 @@ import com.filo.app.ThemePreference
 import com.filo.app.api.ArticleListItem
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
+import com.filo.app.api.UnreadCounts
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import androidx.compose.material3.AlertDialog
@@ -362,6 +363,7 @@ fun ArticlesScreen(
             RssSourcesDrawerContent(
                     tags = tags,
                     subscriptions = subscriptions,
+                    unreadCounts = vm.unreadCounts,
                     selectedTagId = selectedTagId,
                     readingListOnly = readingListOnly,
                     bookmarkedOnly = bookmarkedOnly,
@@ -663,6 +665,7 @@ fun ArticlesScreen(
 fun RssSourcesDrawerContent(
     tags: List<Tag>,
     subscriptions: List<Subscription>,
+    unreadCounts: UnreadCounts,
     selectedTagId: Int?,
     readingListOnly: Boolean,
     bookmarkedOnly: Boolean,
@@ -723,12 +726,14 @@ fun RssSourcesDrawerContent(
         }
         DrawerNavigationRow(
             label = tr("全ての記事"),
+            count = unreadCounts.allArticles.takeIf { it > 0 },
             selected = noViewFilter,
             onClick = { onSelectView(null, false, false) },
             icon = { FiloIcon(FiloIconName.List) },
         )
         DrawerNavigationRow(
             label = tr("リーディングリスト"),
+            count = unreadCounts.readingList.takeIf { it > 0 },
             selected = readingListOnly && selectedTagId == null,
             onClick = { onSelectView(null, true, false) },
             icon = { FiloIcon(FiloIconName.QueueAdd) },

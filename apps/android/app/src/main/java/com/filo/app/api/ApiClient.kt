@@ -213,6 +213,8 @@ object ApiClient {
         )
     }
 
+    suspend fun getUnreadCounts(): UnreadCounts = parseUnreadCounts(getData("/api/v1/articles/unread-counts"))
+
     suspend fun importArticle(url: String, title: String? = null): SavedArticle {
         val body = JSONObject().put("url", url)
         title?.takeIf { it.isNotBlank() }?.let { body.put("title", it) }

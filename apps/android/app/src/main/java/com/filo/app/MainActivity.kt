@@ -478,6 +478,7 @@ private fun RssNavigation(
     LaunchedEffect(currentBackStackEntry?.destination?.route) {
         currentBackStackEntry?.destination?.route?.let { route ->
             Analytics.screen(route.substringBefore('/').substringBefore('?'))
+            if (route == "articles") articlesModel.refreshUnreadCounts()
         }
     }
 
@@ -506,6 +507,7 @@ private fun RssNavigation(
                 com.filo.app.ui.RssSourcesDrawerContent(
                     tags = articlesModel.tags,
                     subscriptions = articlesModel.subscriptions,
+                    unreadCounts = articlesModel.unreadCounts,
                     selectedTagId = articlesModel.selectedTagId,
                     readingListOnly = articlesModel.readingListOnly,
                     bookmarkedOnly = articlesModel.bookmarkedOnly,
@@ -700,6 +702,7 @@ private fun RssNavigation(
                 },
                 onSaved = {
                     onSharedUrlConsumed()
+                    scope.launch { articlesModel.reload() }
                     navController.previousBackStackEntry?.savedStateHandle?.set("readingList", true)
                     navController.popBackStack("articles", false)
                 },
