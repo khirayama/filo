@@ -94,6 +94,11 @@ export interface MarkAllReadResult {
   updatedAt: string | null;
 }
 
+export interface UnreadCounts {
+  allArticles: number;
+  readingList: number;
+}
+
 export interface RefreshResult {
   accepted: boolean;
   enqueued: number;

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authClient } from "../auth-client";
 import { useApi } from "../api/useApi";
-import type { Settings, Subscription, Tag } from "../api/types";
+import type { Settings, Subscription, Tag, UnreadCounts } from "../api/types";
 import { errorMessage, normalizeLanguage, translate, type SupportedLanguage } from "../lib/messages";
 import { applyTheme } from "../lib/theme";
 
@@ -12,9 +12,11 @@ interface AppData {
   tags: Tag[];
   subscriptions: Subscription[];
   settings: Settings | null;
+  unreadCounts: UnreadCounts;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  refreshUnreadCounts: () => Promise<void>;
   setSettings: (settings: Settings) => void;
   language: SupportedLanguage;
   t: (source: string, values?: Record<string, string | number>) => string;
@@ -29,6 +31,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [tags, setTags] = useState<Tag[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [settings, setSettingsState] = useState<Settings | null>(null);
+  const [unreadCounts, setUnreadCounts] = useState<UnreadCounts>({ allArticles: 0, readingList: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
@@ -39,15 +42,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const refreshUserId = userId;
     const gen = ++generation.current;
     try {
-      const [tagList, subscriptionList, userSettings] = await Promise.all([
+      const [tagList, subscriptionList, userSettings, nextUnreadCounts] = await Promise.all([
         api.listTags(),
         api.listSubscriptions(),
         api.getSettings(),
+        api.getUnreadCounts(),
       ]);
       if (generation.current !== gen || activeUserId.current !== refreshUserId) return;
       setTags(tagList);
       setSubscriptions(subscriptionList);
       setSettingsState(userSettings);
+      setUnreadCounts(nextUnreadCounts);
       applyTheme(userSettings.theme);
       setError(null);
     } catch (e) {
@@ -58,6 +63,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   }, [api, userId]);
 
+  const refreshUnreadCounts = useCallback(async () => {
+    if (!userId || activeUserId.current !== userId) return;
+    const nextUnreadCounts = await api.getUnreadCounts();
+    if (activeUserId.current === userId) setUnreadCounts(nextUnreadCounts);
+  }, [api, userId]);
+
   useEffect(() => {
     const userChanged = activeUserId.current !== userId;
     if (!userId || userChanged) {
@@ -66,6 +77,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setTags([]);
       setSubscriptions([]);
       setSettingsState(null);
+      setUnreadCounts({ allArticles: 0, readingList: 0 });
       setError(null);
       setLoading(Boolean(userId));
     }
@@ -83,6 +95,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const visibleTags = hasCurrentUserData ? tags : [];
   const visibleSubscriptions = hasCurrentUserData ? subscriptions : [];
   const visibleSettings = hasCurrentUserData ? settings : null;
+  const visibleUnreadCounts = hasCurrentUserData ? unreadCounts : { allArticles: 0, readingList: 0 };
   const visibleError = hasCurrentUserData ? error : null;
   const visibleLoading = Boolean(userId) && (!hasCurrentUserData || loading);
   const language = normalizeLanguage(visibleSettings?.language ?? navigator.language);
@@ -96,14 +109,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       tags: visibleTags,
       subscriptions: visibleSubscriptions,
       settings: visibleSettings,
+      unreadCounts: visibleUnreadCounts,
       loading: visibleLoading,
       error: visibleError,
       refresh,
+      refreshUnreadCounts,
       setSettings,
       language,
       t,
     }),
-    [visibleTags, visibleSubscriptions, visibleSettings, visibleLoading, visibleError, refresh, setSettings, language, t],
+    [visibleTags, visibleSubscriptions, visibleSettings, visibleUnreadCounts, visibleLoading, visibleError, refresh, refreshUnreadCounts, setSettings, language, t],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

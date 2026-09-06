@@ -32,7 +32,7 @@ export function ArticlesPage() {
 function ArticlesListPage() {
   const isDesktop = useIsDesktop();
   const api = useApi();
-  const { tags, subscriptions, settings, error: sideError, refresh: refreshAppData, language, t } = useAppData();
+  const { tags, subscriptions, settings, error: sideError, refresh: refreshAppData, refreshUnreadCounts, language, t } = useAppData();
   const { tagId, bookmarkedOnly, readingListOnly, read, sort, readOrder, setRead, setSort, setReadOrder, clearTag } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -156,6 +156,7 @@ function ArticlesListPage() {
       await api.removeReadArticlesFromReadingList();
       trackEvent("remove_read_articles_from_reading_list");
       await list.reload();
+      void refreshUnreadCounts().catch(() => undefined);
     } catch (e) {
       setMarkAllError(errorMessage(e, language));
     } finally {

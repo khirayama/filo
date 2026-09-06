@@ -205,7 +205,7 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
 
 function SidebarNav() {
   const navigate = useNavigate();
-  const { tags, subscriptions, t } = useAppData();
+  const { tags, subscriptions, unreadCounts, t } = useAppData();
   const [expandedTags, setExpandedTags] = useState<Set<number | "untagged">>(new Set());
 
   const toggleExpand = (key: number | "untagged") => {
@@ -270,8 +270,8 @@ function SidebarNav() {
         <Icon name="plus" size={16} />
         {t("記事を追加")}
       </button>
-      <SidebarLink to="/articles" icon="list" label={t("全ての記事")} />
-      <SidebarLink to="/articles?readingList=1" icon="queueAdd" label={t("リーディングリスト")} />
+      <SidebarLink to="/articles" icon="list" label={t("全ての記事")} count={unreadCounts.allArticles > 0 ? unreadCounts.allArticles : undefined} />
+      <SidebarLink to="/articles?readingList=1" icon="queueAdd" label={t("リーディングリスト")} count={unreadCounts.readingList > 0 ? unreadCounts.readingList : undefined} />
       <SidebarLink to="/articles?bookmarked=1" icon="bookmark" label={t("ブックマーク")} />
 
       <p
@@ -374,7 +374,7 @@ function useIsActive(to: string): boolean {
   return keys.every((key) => (target.get(key) ?? null) === (searchParams.get(key) ?? null));
 }
 
-function SidebarLink({ to, icon, label }: { to: string; icon: Parameters<typeof Icon>[0]["name"]; label: string }) {
+function SidebarLink({ to, icon, label, count }: { to: string; icon: Parameters<typeof Icon>[0]["name"]; label: string; count?: number }) {
   const active = useIsActive(to);
   return (
     <Link
@@ -388,6 +388,7 @@ function SidebarLink({ to, icon, label }: { to: string; icon: Parameters<typeof 
     >
       <Icon name={icon} size={16} />
       <span style={ellipsisStyle}>{label}</span>
+      {count !== undefined ? <span style={countStyle}>{count}</span> : null}
     </Link>
   );
 }

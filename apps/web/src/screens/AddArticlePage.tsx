@@ -10,7 +10,7 @@ export function AddArticlePage() {
   const api = useApi();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { t } = useAppData();
+  const { refreshUnreadCounts, t } = useAppData();
   const [url, setUrl] = useState(() => searchParams.get("url") ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +28,7 @@ export function AddArticlePage() {
     try {
       await api.importArticle({ url: url.trim() });
       trackEvent("add_to_reading_list", { source: "manual_url" });
+      await refreshUnreadCounts();
       navigate("/articles?readingList=1", { replace: true });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
