@@ -426,6 +426,23 @@ current user のリーディングリストから、実効既読状態のすべ�
 }
 ```
 
+### GET /api/v1/articles/unread-counts
+
+Returns unread counts for the top-level article navigation. Both values use
+the same effective read-state rules as `GET /api/v1/articles?read=false`.
+
+- `allArticles`: unread articles in the current user's subscriptions
+- `readingList`: unread articles in the current user's reading list, including retained articles
+
+```json
+{
+  "data": {
+    "allArticles": 12,
+    "readingList": 3
+  }
+}
+```
+
 ### GET /api/v1/articles/{articleId}
 
 - current user が購読しておらず、かつ retained article でもない場合は `article_not_found` を返す

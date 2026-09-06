@@ -6,7 +6,7 @@ import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { errors } from "../lib/errors";
 import { normalizeSourceLanguage } from "../lib/languages";
 import { canonicalizeUrl } from "../lib/net";
-import { EFFECTIVE_IS_READ } from "../lib/readCursor";
+import { EFFECTIVE_IS_READ, unreadCountsForUser } from "../lib/readCursor";
 import { serializeUserState } from "../lib/serialize";
 import { htmlToText, nowIso, parseId, parseLimit, previewFrom, sanitizeHtml, toIso } from "../lib/util";
 
@@ -130,6 +130,16 @@ async function saveArticleFromUrl(
 }
 
 export const articleRoutes = new Hono<AppContext>()
+  .get("/unread-counts", async (c) => {
+    const user = c.get("user");
+    const counts = await unreadCountsForUser(c.env.DB, user.id);
+    return c.json({
+      data: {
+        allArticles: counts.all_articles,
+        readingList: counts.reading_list,
+      },
+    });
+  })
   .get("/", async (c) => {
     const cursorSecret = c.env.CURSOR_SIGNING_KEY ?? c.env.CURSOR_SECRET;
     const user = c.get("user");
