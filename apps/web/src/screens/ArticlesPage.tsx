@@ -25,6 +25,20 @@ function firstVisibleArticleIndex(articles: readonly { id: number }[]): number {
   return firstIndex >= 0 ? firstIndex : 0;
 }
 
+function scrollArticlesToTop(): void {
+  const page = document.querySelector<HTMLElement>(".articles-page");
+  let parent = page?.parentElement;
+  while (parent && parent !== document.body) {
+    const overflowY = window.getComputedStyle(parent).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
+      parent.scrollTo({ top: 0, behavior: "auto" });
+      return;
+    }
+    parent = parent.parentElement;
+  }
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
 export function ArticlesPage() {
   return <ArticlesListPage />;
 }
@@ -144,6 +158,8 @@ function ArticlesListPage() {
       setMarkAllError(null);
       await list.reload();
       void refreshAppData();
+      setActiveArticleIndex(null);
+      scrollArticlesToTop();
     } catch (e) {
       setMarkAllError(errorMessage(e, language));
     }
