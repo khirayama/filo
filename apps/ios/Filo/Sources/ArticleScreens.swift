@@ -184,15 +184,17 @@ final class ArticlesViewModel: ObservableObject {
     }
 
     // 表示中スコープ(全購読 or 選択タグ配下)の既読カーソルを一括前進させる
-    func markAllRead() async {
+    func markAllRead() async -> Bool {
         FiloAnalytics.track("mark_all_articles_read")
         do {
             _ = try await APIClient.shared.markAllArticlesRead(tagId: selectedTagId)
             await reloadArticles()
             subscriptions = (try? await APIClient.shared.listSubscriptions()) ?? subscriptions
             await refreshUnreadCounts()
+            return true
         } catch {
             errorMessage = ErrorMessages.message(for: error)
+            return false
         }
     }
 
@@ -263,6 +265,7 @@ struct ArticlesScreen: View {
     @State private var showRemoveReadConfirm = false
     @State private var selectedArticleIndex: Int? = nil
     @State private var listScrollPosition: Int? = nil
+    @State private var scrollToTopToken = 0
     @State private var visibleArticleIds: Set<Int> = []
     @State private var viewedArticleIds = ""
     @State private var showShortcutHelp = false
@@ -343,7 +346,7 @@ struct ArticlesScreen: View {
                     }
                     if !model.bookmarkedOnly && !model.readingListOnly {
                         Button {
-                            Task { await model.markAllRead() }
+                            Task { await markAllReadAndResetList() }
                         } label: {
                             FiloIcon(.checkCircle, size: 18)
                         }
@@ -434,7 +437,7 @@ struct ArticlesScreen: View {
             }
             if !model.bookmarkedOnly && !model.readingListOnly {
                 Button {
-                    Task { await model.markAllRead() }
+                    Task { await markAllReadAndResetList() }
                 } label: {
                     FiloIcon(.checkCircle, size: 18)
                         .frame(width: 32, height: 32)
@@ -495,6 +498,10 @@ struct ArticlesScreen: View {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     proxy.scrollTo(model.articles[index].id, anchor: .center)
                 }
+            }
+            .onChange(of: scrollToTopToken) { _, _ in
+                guard let firstArticle = model.articles.first else { return }
+                proxy.scrollTo(firstArticle.id, anchor: .top)
             }
         }
     }
@@ -633,7 +640,7 @@ struct ArticlesScreen: View {
                 Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
             }).keyboardShortcut("b", modifiers: [])
             Button("", action: { Task { await model.refreshFeedsAndReload() } }).keyboardShortcut("r", modifiers: [])
-            Button("", action: { if !model.bookmarkedOnly && !model.readingListOnly { Task { await model.markAllRead() } } })
+            Button("", action: { if !model.bookmarkedOnly && !model.readingListOnly { Task { await markAllReadAndResetList() } } })
                 .keyboardShortcut("a", modifiers: [.shift])
             Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
             Button("", action: {
@@ -645,6 +652,13 @@ struct ArticlesScreen: View {
         .frame(width: 1, height: 1)
         .opacity(0)
         .accessibilityHidden(true)
+    }
+
+    private func markAllReadAndResetList() async {
+        guard await model.markAllRead() else { return }
+        selectedArticleIndex = nil
+        listScrollPosition = nil
+        scrollToTopToken += 1
     }
 
     @ViewBuilder
