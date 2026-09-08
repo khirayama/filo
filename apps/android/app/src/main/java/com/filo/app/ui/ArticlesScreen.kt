@@ -197,6 +197,13 @@ fun ArticlesScreen(
     fun isCurrentSelectionVisible(): Boolean {
         return selectedArticleIndex?.let { isArticleVisible(it) } == true
     }
+    suspend fun markAllReadAndResetList() {
+        if (vm.markAllRead()) {
+            selectedArticleIndex = null
+            listState.scrollToItem(0)
+            vm.saveListPosition(0, 0)
+        }
+    }
     LaunchedEffect(articles.size) {
         selectedArticleIndex?.let { index ->
             selectedArticleIndex = index.coerceIn(0, (articles.size - 1).coerceAtLeast(0))
@@ -261,7 +268,7 @@ fun ArticlesScreen(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
                 if (event.isShiftPressed && event.key == Key.A && !hasModifier) {
-                    if (!bookmarkedOnly && !readingListOnly) scope.launch { vm.markAllRead() }
+                    if (!bookmarkedOnly && !readingListOnly) scope.launch { markAllReadAndResetList() }
                     true
                 } else if (hasModifier) {
                     false
@@ -440,7 +447,7 @@ fun ArticlesScreen(
                                 }
                             }
                             if (!bookmarkedOnly && !readingListOnly) {
-                                IconButton(onClick = { scope.launch { vm.markAllRead() } }) {
+                                IconButton(onClick = { scope.launch { markAllReadAndResetList() } }) {
                                     FiloIcon(FiloIconName.CheckCircle, size = 20.dp, contentDescription = tr("すべて既読にする"))
                                 }
                             }

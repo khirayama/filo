@@ -177,13 +177,15 @@ class ArticlesViewModel : ViewModel() {
     }
 
     // 表示中スコープ(全購読 or 選択タグ配下)の既読カーソルを一括前進させる
-    suspend fun markAllRead() {
+    suspend fun markAllRead(): Boolean {
         com.filo.app.Analytics.track("mark_all_articles_read")
         try {
             ApiClient.markAllArticlesRead(selectedTagId)
             reload()
+            return true
         } catch (e: Exception) {
             errorMessage = ErrorMessages.forError(e)
+            return false
         }
     }
 
