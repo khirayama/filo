@@ -138,6 +138,7 @@ fun ArticlesScreen(
     var isPullRefreshing by remember { mutableStateOf(false) }
     var selectedArticleIndex by remember { mutableStateOf<Int?>(null) }
     var showShortcutHelp by remember { mutableStateOf(false) }
+    var articleToOpenInBrowser by remember { mutableStateOf<ArticleListItem?>(null) }
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
     var viewedArticleIds by remember { mutableStateOf("") }
@@ -559,6 +560,9 @@ fun ArticlesScreen(
                                             onOpenArticle(article)
                                         }
                                     },
+                                    onLongPress = if (article.canonicalUrl != null) {
+                                        { articleToOpenInBrowser = article }
+                                    } else null,
                                     onToggleRead = { vm.patchState(article, isRead = !article.userState.isRead) },
                                     onToggleReadingList = { vm.patchState(article, inReadingList = !article.userState.inReadingList) },
                                     onToggleBookmark = { vm.patchState(article, isBookmarked = !article.userState.isBookmarked) },
@@ -640,6 +644,25 @@ fun ArticlesScreen(
                 }) { Text(tr("既読記事を削除"), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { showRemoveReadArticles = false }) { Text(tr("キャンセル")) } },
+        )
+    }
+
+    articleToOpenInBrowser?.let { article ->
+        AlertDialog(
+            onDismissRequest = { articleToOpenInBrowser = null },
+            title = { Text(tr("ブラウザで開く")) },
+            text = { Text(article.title) },
+            confirmButton = {
+                TextButton(onClick = {
+                    article.canonicalUrl?.let { url ->
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    }
+                    articleToOpenInBrowser = null
+                }) { Text(tr("開く")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { articleToOpenInBrowser = null }) { Text(tr("キャンセル")) }
+            },
         )
     }
 

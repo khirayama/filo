@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -173,6 +174,7 @@ fun ArticleRow(
     selected: Boolean = false,
     onOpenFeed: (() -> Unit)? = null,
     onOpen: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
     onToggleRead: (() -> Unit)? = null,
     onToggleReadingList: (() -> Unit)? = null,
     onToggleBookmark: (() -> Unit)? = null,
@@ -224,6 +226,7 @@ fun ArticleRow(
                     Modifier.weight(1f).padding(start = 16.dp),
                     singleLine = true,
                     onOpen = onOpen,
+                    onLongPress = onLongPress,
                 )
                 if (!article.previewText.isNullOrEmpty()) {
                     Text(
@@ -282,6 +285,7 @@ fun ArticleRow(
                     Modifier.fillMaxWidth(),
                     singleLine = false,
                     onOpen = onOpen,
+                    onLongPress = onLongPress,
                 )
                 if (!article.previewText.isNullOrEmpty()) {
                     Text(
@@ -337,6 +341,7 @@ private fun articleTitle(
     modifier: Modifier,
     singleLine: Boolean,
     onOpen: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
 ) {
     Text(
         title,
@@ -345,7 +350,7 @@ private fun articleTitle(
         color = MaterialTheme.colorScheme.onSurface,
         maxLines = if (singleLine) 1 else Int.MAX_VALUE,
         overflow = if (singleLine) TextOverflow.Ellipsis else TextOverflow.Clip,
-        modifier = modifier.clickable(onClick = onOpen),
+        modifier = modifier.combinedClickable(onClick = onOpen, onLongClick = onLongPress),
     )
 }
 

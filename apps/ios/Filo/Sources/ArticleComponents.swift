@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private struct FiloIsDesktopKey: EnvironmentKey {
     static let defaultValue = false
@@ -121,6 +122,15 @@ struct ArticleRowView: View {
             }
         }
         .onHover { hovered = $0 }
+        .contextMenu {
+            if !isDesktop, let urlString = article.canonicalUrl, let url = URL(string: urlString) {
+                Button {
+                    UIApplication.shared.open(url)
+                } label: {
+                    Label(L10n.string("ブラウザで開く"), systemImage: "safari")
+                }
+            }
+        }
     }
 
     private var desktopRow: some View {
