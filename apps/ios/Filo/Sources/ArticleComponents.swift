@@ -146,14 +146,6 @@ struct ArticleRowView: View {
                 .lineLimit(1)
                 .padding(.leading, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if let previewText = article.previewText, !previewText.isEmpty {
-                Text(previewText)
-                    .font(.system(size: 13))
-                    .foregroundStyle(FiloPalette.muted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
             Text(DateFormatting.compact(article.publishedAt ?? article.fetchedAt))
                 .font(.system(size: 12))
                 .foregroundStyle(FiloPalette.muted)
@@ -178,7 +170,6 @@ struct ArticleRowView: View {
             .font(.system(size: 12))
             .foregroundStyle(FiloPalette.muted)
             title
-            mobilePreview
         }
     }
 
@@ -227,17 +218,6 @@ struct ArticleRowView: View {
             .foregroundStyle(FiloPalette.text)
             .contentShape(Rectangle())
             .onTapGesture { onOpen?() }
-    }
-
-    @ViewBuilder
-    private var mobilePreview: some View {
-        if let previewText = article.previewText, !previewText.isEmpty {
-            Text(previewText)
-                .font(.system(size: 13))
-                .foregroundStyle(FiloPalette.muted)
-                .lineLimit(2)
-                .truncationMode(.tail)
-        }
     }
 
     private var actions: some View {

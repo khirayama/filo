@@ -228,16 +228,6 @@ fun ArticleRow(
                     onOpen = onOpen,
                     onLongPress = onLongPress,
                 )
-                if (!article.previewText.isNullOrEmpty()) {
-                    Text(
-                        article.previewText.orEmpty(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
                 Text(
                     compactRelativeTime(article.publishedAt ?: article.fetchedAt),
                     style = MaterialTheme.typography.labelMedium,
@@ -287,15 +277,6 @@ fun ArticleRow(
                     onOpen = onOpen,
                     onLongPress = onLongPress,
                 )
-                if (!article.previewText.isNullOrEmpty()) {
-                    Text(
-                        article.previewText.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
         }
     }
