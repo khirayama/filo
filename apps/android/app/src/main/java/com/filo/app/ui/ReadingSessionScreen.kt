@@ -13,7 +13,6 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,8 +45,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -490,13 +487,9 @@ fun ReadingSessionScreen(
     var showReadingList by remember { mutableStateOf(false) }
     var showShortcutHelp by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
     LaunchedEffect(autoplay, temporaryUrl, directArticle) { player.start(autoplay, temporaryUrl, directArticle) }
     Scaffold(
         modifier = Modifier
-            .focusRequester(focusRequester)
-            .focusable()
             .onPreviewKeyEvent { event ->
             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
@@ -508,9 +501,7 @@ fun ReadingSessionScreen(
             } else if (
                 event.nativeKeyEvent.repeatCount > 0
                 && event.key != Key.J
-                && event.key != Key.DirectionDown
                 && event.key != Key.K
-                && event.key != Key.DirectionUp
             ) {
                 false
             } else {
@@ -519,14 +510,14 @@ fun ReadingSessionScreen(
                         if (player.isPlaying) player.pause() else player.play()
                         true
                     }
-                    event.key == Key.J || event.key == Key.DirectionDown -> {
+                    event.key == Key.J -> {
                         player.currentItem?.let { current ->
                             val index = player.items.indexOfFirst { it.articleId == current.articleId }
                             player.items.getOrNull(index + 1)?.let { player.select(it.articleId) }
                         }
                         true
                     }
-                    event.key == Key.K || event.key == Key.DirectionUp -> {
+                    event.key == Key.K -> {
                         player.currentItem?.let { current ->
                             val index = player.items.indexOfFirst { it.articleId == current.articleId }
                             player.items.getOrNull(index - 1)?.let { player.select(it.articleId) }
@@ -604,7 +595,14 @@ fun ReadingSessionScreen(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showShortcutHelp = false },
             title = { Text(tr("ショートカット")) },
-            text = { Text(tr("J / ↓  次の記事") + "\n" + tr("K / ↑  前の記事") + "\n" + tr("Space  読み上げ開始／停止") + "\n" + tr("S  リーディングリストに追加") + "\n" + tr("V  元記事を開く") + "\n" + tr("Esc  戻る")) },
+            text = { Text(
+                tr("J / ↓  次の記事").replace(" / ↓", "") + "\n" +
+                    tr("K / ↑  前の記事").replace(" / ↑", "") + "\n" +
+                    tr("Space  読み上げ開始／停止") + "\n" +
+                    tr("S  リーディングリストに追加") + "\n" +
+                    tr("V  元記事を開く") + "\n" +
+                    tr("Esc  戻る")
+            ) },
             confirmButton = { TextButton(onClick = { showShortcutHelp = false }) { Text(tr("閉じる")) } },
         )
     }
