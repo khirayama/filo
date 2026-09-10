@@ -394,7 +394,6 @@ struct ReadingSessionScreen: View {
     @Environment(\.openURL) private var openURL
     @State private var isReadingListPresented = false
     @State private var showShortcutHelp = false
-    @FocusState private var isKeyboardFocused: Bool
 
     init(autoplay: Bool, temporaryUrl: String? = nil, article: ReadingSessionArticle? = nil) {
         self.autoplay = autoplay
@@ -420,22 +419,6 @@ struct ReadingSessionScreen: View {
         }
         .navigationTitle(player.currentItem?.article.title ?? L10n.string("リーディングリスト"))
         .navigationBarTitleDisplayMode(.inline)
-        .focusable()
-        .focused($isKeyboardFocused)
-        .onKeyPress(
-            keys: [KeyEquivalent("j"), .downArrow, KeyEquivalent("k"), .upArrow],
-            phases: [.down, .repeat]
-        ) { press in
-            guard press.modifiers.isEmpty else { return .ignored }
-            if press.key == .downArrow || press.key == KeyEquivalent("j") {
-                player.selectNext()
-            } else if press.key == .upArrow || press.key == KeyEquivalent("k") {
-                player.selectPrevious()
-            } else {
-                return .ignored
-            }
-            return .handled
-        }
         .sheet(isPresented: $isReadingListPresented) {
             NavigationStack {
                 ReadingListView(
@@ -465,13 +448,14 @@ struct ReadingSessionScreen: View {
         .task { await player.start(autoplay: autoplay, temporaryUrl: temporaryUrl, article: article) }
         .onAppear {
             player.isReadingBrowserVisible = true
-            isKeyboardFocused = true
         }
         .onDisappear { player.isReadingBrowserVisible = false }
         .modifier(ReadingTranslationTask(player: player))
         .background(
             VStack(spacing: 0) {
                 Button("", action: { if player.isPlaying { player.pause() } else { player.play() } }).keyboardShortcut(.space, modifiers: [])
+                Button("", action: player.selectNext).keyboardShortcut("j", modifiers: [])
+                Button("", action: player.selectPrevious).keyboardShortcut("k", modifiers: [])
                 Button("", action: player.addCurrentPageToReadingList).keyboardShortcut("s", modifiers: [])
                 Button("", action: {
                     if let urlString = player.currentItem?.article.canonicalUrl, let url = URL(string: urlString) { openURL(url) }
