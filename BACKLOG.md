@@ -1,3 +1,3 @@
-言語切り替えはアプリ内で行うようにして、即時反映
-extensionの公開
+言語設定で切り替わらない箇所が残っているかも。web/ios/android/extension、すべてのUIの多言語対応の漏れをなくして。
 extensionで選択範囲の読み上げに対応
+extensionの公開
