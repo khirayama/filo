@@ -40,6 +40,66 @@ object AppStrings {
         ),
     )
 
+    // Keep every literal used by the Compose UI translated before falling
+    // back to the shared English catalog.
+    private val completionTranslations = mapOf(
+        "en" to mapOf(
+            "今" to "now",
+            "閲覧開始" to "Start reading",
+            "ブラウザで開く" to "Open in browser",
+            "開く" to "Open",
+            "OPML" to "OPML",
+        ),
+        "zh" to mapOf(
+            "今" to "现在",
+            "閲覧開始" to "开始阅读",
+            "ブラウザで開く" to "在浏览器中打开",
+            "開く" to "打开",
+            "原文のまま読む言語" to "按原文阅读的语言",
+            "リンクを常にブラウザで開く" to "始终在浏览器中打开链接",
+            "OPML" to "OPML",
+            "インポート" to "导入",
+            "エクスポート" to "导出",
+            "インポート処理中…" to "导入中…",
+            "セッション" to "会话",
+            "サインアウト" to "退出登录",
+            "危険な操作" to "危险操作",
+            "この操作は取り消せません。" to "此操作无法撤销。",
+        ),
+        "ko" to mapOf(
+            "今" to "지금",
+            "閲覧開始" to "읽기 시작",
+            "ブラウザで開く" to "브라우저에서 열기",
+            "開く" to "열기",
+            "原文のまま読む言語" to "원문으로 읽을 언어",
+            "リンクを常にブラウザで開く" to "항상 브라우저에서 링크 열기",
+            "OPML" to "OPML",
+            "インポート" to "가져오기",
+            "エクスポート" to "내보내기",
+            "インポート処理中…" to "가져오는 중…",
+            "セッション" to "세션",
+            "サインアウト" to "로그아웃",
+            "危険な操作" to "위험한 작업",
+            "この操作は取り消せません。" to "되돌릴 수 없습니다.",
+        ),
+        "es" to mapOf(
+            "今" to "ahora",
+            "閲覧開始" to "Empezar a leer",
+            "ブラウザで開く" to "Abrir en el navegador",
+            "開く" to "Abrir",
+            "原文のまま読む言語" to "Idiomas para leer en original",
+            "リンクを常にブラウザで開く" to "Abrir siempre los enlaces en el navegador",
+            "OPML" to "OPML",
+            "インポート" to "Importar",
+            "エクスポート" to "Exportar",
+            "インポート処理中…" to "Importando…",
+            "セッション" to "Sesión",
+            "サインアウト" to "Cerrar sesión",
+            "危険な操作" to "Acciones peligrosas",
+            "この操作は取り消せません。" to "Esta acción no se puede deshacer.",
+        ),
+    )
+
     // Reuse the complete iOS catalog for Compose-only strings until each
     // platform resource catalog is split into Android string resources.
     private val resourceTranslations = mapOf(
@@ -470,6 +530,7 @@ object AppStrings {
             ?: resourceTranslations[language]?.get(source)
             ?: remainingTranslations[language]?.get(source)
             ?: settingsTranslations[language]?.get(source)
+            ?: completionTranslations[language]?.get(source)
             ?: commonEnglish[source]
             ?: translations["en"]?.get(source)
             ?: source

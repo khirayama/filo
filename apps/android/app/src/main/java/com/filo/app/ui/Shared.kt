@@ -418,7 +418,7 @@ fun compactRelativeTime(iso: String?): String {
         val instant = Instant.from(DateTimeFormatter.ISO_DATE_TIME.parse(iso))
         val minutes = (System.currentTimeMillis() - instant.toEpochMilli()) / 60_000
         when {
-            minutes < 1 -> "now"
+            minutes < 1 -> AppStrings.get("今")
             minutes < 60 -> "${minutes}${AppStrings.get("分")}"
             minutes < 60 * 24 -> "${minutes / 60}${AppStrings.get("時間")}"
             minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}${AppStrings.get("日")}"
