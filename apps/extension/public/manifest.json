@@ -9,7 +9,7 @@
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "permissions": ["cookies", "scripting", "storage", "tabs", "tts"],
+  "permissions": ["contextMenus", "cookies", "scripting", "storage", "tabs", "tts"],
   "host_permissions": ["http://*/*", "https://*/*", "https://www.google-analytics.com/*"],
   "background": {
     "service_worker": "background.js",

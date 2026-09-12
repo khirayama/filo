@@ -18,6 +18,11 @@ interface Voice {
   lang?: string;
 }
 
+interface PageSelection {
+  text: string;
+  lang: string | null;
+}
+
 interface CurrentPage {
   tabId: number;
   url: string;
@@ -31,7 +36,9 @@ interface ReaderSession {
   targetLanguage: string;
   rate: number;
   voiceName: string | null;
-  extractionMode: "article" | "display";
+  extractionMode: "article" | "display" | "selection";
+  selectionText?: string;
+  selectionLang?: string | null;
   playing: boolean;
 }
 
@@ -92,7 +99,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [languageBusy, setLanguageBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState<{ url: string; title: string } | null>(null);
+  const [currentPage, setCurrentPage] = useState<CurrentPage | null>(null);
+  const [selection, setSelection] = useState<PageSelection | null>(null);
   const [readerState, setReaderState] = useState<ReaderSession | null>(null);
   const [selectedArticleIndex, setSelectedArticleIndex] = useState<number | null>(null);
   const viewedArticleIds = useRef("");
@@ -140,7 +148,17 @@ export function App() {
   }, []);
 
   const loadCurrentPage = useCallback(async () => {
-    setCurrentPage(await getCurrentPage());
+    const page = await getCurrentPage();
+    setCurrentPage(page);
+    if (!page) {
+      setSelection(null);
+      return;
+    }
+    try {
+      setSelection(await send<PageSelection | null>({ type: "filoGetSelection", tabId: page.tabId }));
+    } catch {
+      setSelection(null);
+    }
   }, [getCurrentPage]);
 
   useEffect(() => {
@@ -244,6 +262,32 @@ export function App() {
         autoplay: true,
         targetLanguage: settings.targetLanguage,
         extractionMode: settings.extractionMode,
+      }));
+      await loadReaderState();
+    } catch (cause) {
+      setError(cause instanceof Error ? t(cause.message) : t(String(cause)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startSelection = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const page = await getCurrentPage();
+      setCurrentPage(page);
+      if (!page) throw new Error("読み上げできるページがありません。");
+      const selected = await send<PageSelection | null>({ type: "filoGetSelection", tabId: page.tabId });
+      setSelection(selected);
+      if (!selected?.text) throw new Error("選択範囲がありません。読み上げる文章を選択してください。");
+      trackEvent("start_reading", { source: "extension_selection" });
+      setSettings(await send<ReaderSettings>({
+        type: "filoStartSelection",
+        page,
+        selectionText: selected.text,
+        selectionLang: selected.lang,
       }));
       await loadReaderState();
     } catch (cause) {
@@ -498,6 +542,14 @@ export function App() {
             <Icon name={isPlaying ? "pause" : "play"} size={16} />
             {isPlaying ? t("読み上げを停止") : currentPage ? t("このページを読み上げ") : t("読み上げできるページなし")}
           </button>
+          {selection?.text ? <button
+            className="secondary-action read-page-button"
+            disabled={busy || !currentPage || isPlaying}
+            onClick={() => void startSelection()}
+          >
+            <Icon name="play" size={16} />
+            {t("選択範囲を読み上げ")}
+          </button> : null}
           <button className="secondary-action read-page-button" disabled={busy || !currentPage} onClick={() => void addCurrentPage()}>
             <Icon name="queueAdd" size={16} />
             {t("リーディングリストに追加")}

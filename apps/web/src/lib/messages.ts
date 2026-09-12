@@ -131,6 +131,8 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "既読は下": "Read last",
     "既読は上": "Read first",
     "読み上げ": "Reading aloud",
+    "選択範囲を読み上げ": "Read selection aloud",
+    "選択範囲がありません。読み上げる文章を選択してください。": "No selection. Select some text to read aloud.",
     "Filo Reader": "Filo Reader",
   },
   zh: {
@@ -157,6 +159,8 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "この購読は削除されたか、表示できません。": "此订阅已删除或无法显示。",
     "タグがありません。上の入力欄から作成できます。": "没有标签。请使用上方输入框创建。",
     "読み上げ": "朗读",
+    "選択範囲を読み上げ": "朗读选中的文字",
+    "選択範囲がありません。読み上げる文章を選択してください。": "没有选中内容，请选择要朗读的文字。",
     "Filo Reader": "Filo Reader",
   },
   ko: {
@@ -185,6 +189,8 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "この購読は削除されたか、表示できません。": "이 구독이 삭제되었거나 표시할 수 없습니다.",
     "タグがありません。上の入力欄から作成できます。": "태그가 없습니다. 위 입력란에서 만들 수 있습니다.",
     "読み上げ": "낭독",
+    "選択範囲を読み上げ": "선택한 텍스트 낭독",
+    "選択範囲がありません。読み上げる文章を選択してください。": "선택한 내용이 없습니다. 읽을 텍스트를 선택하세요.",
     "Filo Reader": "Filo Reader",
   },
   es: {
@@ -213,6 +219,8 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "この購読は削除されたか、表示できません。": "Esta suscripción se eliminó o no se puede mostrar.",
     "タグがありません。上の入力欄から作成できます。": "No hay etiquetas. Crea una con el campo superior.",
     "読み上げ": "Lectura en voz alta",
+    "選択範囲を読み上げ": "Leer la selección en voz alta",
+    "選択範囲がありません。読み上げる文章を選択してください。": "No hay selección. Selecciona el texto que quieres leer.",
     "Filo Reader": "Filo Reader",
   },
 };

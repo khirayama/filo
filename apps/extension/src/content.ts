@@ -51,6 +51,11 @@ function displayedText(): string {
   return [title, ...lines.filter((line) => line !== title)].filter(Boolean).join("\n\n");
 }
 
+function selectedText(): { text: string; lang: string | null } | null {
+  const text = normalize(window.getSelection()?.toString() ?? "");
+  return text ? { text, lang: document.documentElement.lang || null } : null;
+}
+
 function extract(mode: ExtractionMode = "article") {
   if (mode === "display") {
     const text = displayedText();
@@ -108,6 +113,10 @@ window.addEventListener("message", (event) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "filoGetSelection") {
+    sendResponse(selectedText());
+    return false;
+  }
   if (message?.type !== "filoExtract") return false;
   sendResponse(extract(message.mode === "display" ? "display" : "article"));
   return false;
