@@ -34,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.filo.app.ThemePreference
@@ -69,7 +68,10 @@ fun SettingsScreen(
         errorMessage = null
         try {
             settings = ApiClient.getSettings()
-            settings?.let { ThemePreference.set(context, it.theme) }
+            settings?.let {
+                ThemePreference.set(context, it.theme)
+                LanguagePreference.set(context, it.language)
+            }
         } catch (e: Exception) {
             errorMessage = ErrorMessages.forError(e)
         }
@@ -86,8 +88,17 @@ fun SettingsScreen(
         openInBrowserByDefault: Boolean? = null,
     ) {
         scope.launch {
+            val previous = settings
+            settings = previous?.copy(
+                theme = theme ?: previous.theme,
+                language = language ?: previous.language,
+                readableLanguages = readableLanguages ?: previous.readableLanguages,
+                articleSortOrder = articleSortOrder ?: previous.articleSortOrder,
+                openInBrowserByDefault = openInBrowserByDefault ?: previous.openInBrowserByDefault,
+            )
+            if (language != null) LanguagePreference.set(context, language)
+            if (theme != null) ThemePreference.set(context, theme)
             try {
-                val previousLanguage = settings?.language
                 settings = ApiClient.updateSettings(
                     theme, language, readableLanguages, articleSortOrder, openInBrowserByDefault,
                 )
@@ -103,9 +114,13 @@ fun SettingsScreen(
                 settings?.let {
                     ThemePreference.set(context, it.theme)
                     LanguagePreference.set(context, it.language)
-                    if (previousLanguage != null) LanguagePreference.recreateIfNeeded(context, previousLanguage, it.language)
                 }
             } catch (e: Exception) {
+                settings = previous
+                previous?.let {
+                    ThemePreference.set(context, it.theme)
+                    LanguagePreference.set(context, it.language)
+                }
                 errorMessage = ErrorMessages.forError(e)
             }
         }
@@ -147,10 +162,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(com.filo.app.R.string.settings)) },
+                title = { Text(tr("設定")) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        FiloIcon(FiloIconName.Back, contentDescription = stringResource(com.filo.app.R.string.back))
+                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
                     }
                 },
             )
@@ -172,34 +187,34 @@ fun SettingsScreen(
                 ) { CircularProgressIndicator() }
             } else {
                 val current = settings!!
-                Text(stringResource(com.filo.app.R.string.display), fontWeight = FontWeight.SemiBold)
+                Text(tr("表示"), fontWeight = FontWeight.SemiBold)
                 ChoiceRow(
-                    label = stringResource(com.filo.app.R.string.theme),
-                    options = listOf("system" to stringResource(com.filo.app.R.string.system), "light" to stringResource(com.filo.app.R.string.light), "dark" to stringResource(com.filo.app.R.string.dark)),
+                    label = tr("テーマ"),
+                    options = listOf("system" to tr("システム"), "light" to tr("ライト"), "dark" to tr("ダーク")),
                     selected = current.theme,
                 ) { update(theme = it) }
                 ChoiceRow(
-                    label = stringResource(com.filo.app.R.string.language),
+                    label = tr("言語"),
                     options = listOf("ja" to tr("日本語"), "en" to tr("English"), "zh" to tr("简体中文"), "ko" to tr("한국어"), "es" to tr("Español")),
                     selected = current.language,
                 ) { update(language = it) }
                 Text(
-                    stringResource(com.filo.app.R.string.display_language_help),
+                    tr("一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (translations.isSupported) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(stringResource(com.filo.app.R.string.prepare_translation), fontWeight = FontWeight.SemiBold)
+                        Text(tr("翻訳の準備"), fontWeight = FontWeight.SemiBold)
                         TextButton(onClick = { translations.isShowingSetup = true }) {
                             Text(tr("言語を確認"))
                         }
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(com.filo.app.R.string.readable_languages), style = MaterialTheme.typography.labelLarge)
+                    Text(tr("原文のまま読む言語"), style = MaterialTheme.typography.labelLarge)
                     Text(
-                        stringResource(com.filo.app.R.string.original_language_help),
+                        tr("選択した言語の記事は翻訳せず原文で表示します。"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -217,8 +232,8 @@ fun SettingsScreen(
                     }
                 }
                 ChoiceRow(
-                    label = stringResource(com.filo.app.R.string.article_order),
-                    options = listOf("published_at_desc" to stringResource(com.filo.app.R.string.published_newest), "fetched_at_desc" to stringResource(com.filo.app.R.string.fetched_newest)),
+                    label = tr("並び順"),
+                    options = listOf("published_at_desc" to tr("公開日時が新しい順"), "fetched_at_desc" to tr("取得日時が新しい順")),
                     selected = current.articleSortOrder,
                 ) { update(articleSortOrder = it) }
                 Row(
@@ -226,7 +241,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(stringResource(com.filo.app.R.string.browser_links))
+                    Text(tr("リンクを常にブラウザで開く"))
                     Switch(
                         checked = current.openInBrowserByDefault,
                         onCheckedChange = { update(openInBrowserByDefault = it) },
@@ -234,9 +249,9 @@ fun SettingsScreen(
                 }
                 HorizontalDivider()
 
-                Text(stringResource(com.filo.app.R.string.opml), fontWeight = FontWeight.SemiBold)
+                Text(tr("OPML"), fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { importLauncher.launch("*/*") }) { Text(stringResource(com.filo.app.R.string.import_opml)) }
+                    OutlinedButton(onClick = { importLauncher.launch("*/*") }) { Text(tr("インポート")) }
                     OutlinedButton(onClick = {
                         scope.launch {
                             try {
@@ -247,7 +262,7 @@ fun SettingsScreen(
                                 errorMessage = ErrorMessages.forError(e)
                             }
                         }
-                    }) { Text(stringResource(com.filo.app.R.string.export_opml)) }
+                    }) { Text(tr("エクスポート")) }
                 }
                 importJob?.let { job ->
                     when (job.status) {
@@ -256,7 +271,7 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             CircularProgressIndicator(modifier = Modifier.padding(4.dp))
-                            Text(stringResource(com.filo.app.R.string.importing))
+                            Text(tr("インポート処理中…"))
                         }
                         "completed" -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             StatusBadge(tr("インポート完了"), BadgeTone.Ok)
@@ -279,7 +294,7 @@ fun SettingsScreen(
                 }
                 HorizontalDivider()
 
-                Text(stringResource(com.filo.app.R.string.read_history), fontWeight = FontWeight.SemiBold)
+                Text(tr("既読履歴について"), fontWeight = FontWeight.SemiBold)
                 Text(
                     tr("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。"),
                     style = MaterialTheme.typography.bodySmall,
@@ -287,11 +302,11 @@ fun SettingsScreen(
                 )
                 HorizontalDivider()
 
-                Text(stringResource(com.filo.app.R.string.session), fontWeight = FontWeight.SemiBold)
-                OutlinedButton(onClick = onSignOut) { Text(stringResource(com.filo.app.R.string.sign_out)) }
+                Text(tr("セッション"), fontWeight = FontWeight.SemiBold)
+                OutlinedButton(onClick = onSignOut) { Text(tr("サインアウト")) }
                 HorizontalDivider()
 
-                Text(stringResource(com.filo.app.R.string.dangerous_actions), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                Text(tr("危険な操作"), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
                 Text(
                     tr("アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。"),
                     style = MaterialTheme.typography.bodySmall,
@@ -300,7 +315,7 @@ fun SettingsScreen(
                 Button(
                     onClick = { showDeleteConfirm = true },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                ) { Text(stringResource(com.filo.app.R.string.delete_account)) }
+                ) { Text(tr("アカウント削除")) }
             }
         }
     }
@@ -308,8 +323,8 @@ fun SettingsScreen(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text(stringResource(com.filo.app.R.string.delete_account_confirm)) },
-            text = { Text(stringResource(com.filo.app.R.string.irreversible)) },
+            title = { Text(tr("アカウントを削除しますか？")) },
+            text = { Text(tr("この操作は取り消せません。")) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
@@ -321,9 +336,9 @@ fun SettingsScreen(
                             errorMessage = ErrorMessages.forError(e)
                         }
                     }
-                }) { Text(stringResource(com.filo.app.R.string.delete), color = MaterialTheme.colorScheme.error) }
+                }) { Text(tr("削除する"), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(com.filo.app.R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text(tr("キャンセル")) } },
         )
     }
 }

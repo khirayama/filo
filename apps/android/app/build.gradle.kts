@@ -120,9 +120,9 @@ android {
         }
     }
 
-    // The app switches its resource locale from the server-side setting.
-    // Keep every supported locale in the base APK so a newly selected
-    // language is available even when it was not the device locale at install.
+    // Keep every supported locale in the base APK for platform resources and
+    // previews. The app UI uses its own observable language preference so a
+    // selection is applied without recreating the Activity.
     bundle {
         language {
             enableSplit = false

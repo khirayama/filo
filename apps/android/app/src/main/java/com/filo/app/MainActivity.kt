@@ -91,7 +91,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AuthLinkStore.accept(intent?.data)
         sharedUrl = extractSharedUrl(intent)
-        LanguagePreference.apply(this)
+        LanguagePreference.load(this)
         ThemePreference.load(this)
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

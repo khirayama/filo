@@ -12,6 +12,8 @@ import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
 import com.filo.app.api.UnreadCounts
+import com.filo.app.LanguagePreference
+import com.filo.app.FiloApplication
 import kotlinx.coroutines.launch
 
 class ArticlesViewModel : ViewModel() {
@@ -115,6 +117,7 @@ class ArticlesViewModel : ViewModel() {
                     openInBrowserByDefault = settings.openInBrowserByDefault
                     theme = settings.theme
                     language = settings.language
+                    LanguagePreference.set(FiloApplication.context, settings.language)
                     readableLanguages = settings.readableLanguages
                     sort = settings.articleSortOrder
                 }

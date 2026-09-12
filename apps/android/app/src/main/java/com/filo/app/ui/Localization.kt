@@ -1,7 +1,6 @@
 package com.filo.app.ui
 
 import androidx.compose.runtime.Composable
-import com.filo.app.FiloApplication
 import com.filo.app.LanguagePreference
 import java.util.Locale
 
@@ -426,6 +425,33 @@ object AppStrings {
         "タグ「%s」を削除しますか？" to "Delete tag \"%s\"?", "タグがありません。上の入力欄から作成できます。" to "No tags. Create one using the field above.", "タグ名" to "Tag name", "新しいタグ名" to "New tag name", "フィード" to "Feeds", "色 (#hex)" to "Color (#hex)", "解除" to "Clear", "保存" to "Save", "編集" to "Edit", "購読は削除されません。" to "Subscriptions will not be deleted.", "リセットコード" to "Reset code", "J / ↓  次の記事" to "J / ↓  Next article", "K / ↑  前の記事" to "K / ↑  Previous article", "Enter / O  記事を開く" to "Enter / O  Open article", "V  元記事を開く" to "V  Open original", "M  既読／未読" to "M  Mark read / unread", "S  リーディングリスト" to "S  Reading list", "B  ブックマーク" to "B  Bookmark", "R  更新" to "R  Refresh", "Shift+A  すべて既読" to "Shift+A  Mark all as read", "?  この一覧" to "?  This list", "この操作を行う権限がありません。" to "You do not have permission to perform this action.", "サーバーエラーが発生しました。時間をおいて再試行してください。" to "A server error occurred. Please try again later.", "この購読は再試行できる状態ではありません。" to "This subscription cannot be retried in its current state.", "インポートジョブが見つかりません。" to "Import job not found.", "原文の言語を判定できませんでした。" to "Could not detect the original language.",
     )
 
+    private val settingsTranslations = mapOf(
+        "en" to mapOf(
+            "表示" to "Display", "記事の並び順" to "Article order",
+            "一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。" to "The list translation toggle translates titles into this language.",
+            "選択した言語の記事は翻訳せず原文で表示します。" to "Articles in the selected languages are shown in their original language.",
+            "既読履歴について" to "Read history", "アカウントを削除しますか？" to "Delete your account?",
+        ),
+        "zh" to mapOf(
+            "表示" to "显示", "記事の並び順" to "文章排序",
+            "一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。" to "列表中的翻译开关会将标题翻译成此语言。",
+            "選択した言語の記事は翻訳せず原文で表示します。" to "所选语言的文章将以原文显示。",
+            "既読履歴について" to "已读记录", "アカウントを削除しますか？" to "确定删除账户吗？",
+        ),
+        "ko" to mapOf(
+            "表示" to "표시", "記事の並び順" to "기사 정렬",
+            "一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。" to "목록의 번역 토글은 제목을 이 언어로 번역합니다.",
+            "選択した言語の記事は翻訳せず原文で表示します。" to "선택한 언어의 기사는 원문으로 표시합니다.",
+            "既読履歴について" to "읽은 기록", "アカウントを削除しますか？" to "계정을 삭제할까요?",
+        ),
+        "es" to mapOf(
+            "表示" to "Visualización", "記事の並び順" to "Orden de artículos",
+            "一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。" to "El conmutador de traducción traduce los títulos a este idioma.",
+            "選択した言語の記事は翻訳せず原文で表示します。" to "Los artículos en los idiomas seleccionados se muestran en original.",
+            "既読履歴について" to "Historial de lectura", "アカウントを削除しますか？" to "¿Eliminar tu cuenta?",
+        ),
+    )
+
     fun languageName(code: String): String = get(
         when (code) {
             "ja" -> "日本語"
@@ -438,18 +464,19 @@ object AppStrings {
     )
 
     fun get(source: String): String {
-        val language = LanguagePreference.load(FiloApplication.context)
+        val language = LanguagePreference.value
         return translations[language]?.get(source)
             ?: supplementalTranslations[language]?.get(source)
             ?: resourceTranslations[language]?.get(source)
             ?: remainingTranslations[language]?.get(source)
+            ?: settingsTranslations[language]?.get(source)
             ?: commonEnglish[source]
             ?: translations["en"]?.get(source)
             ?: source
     }
 
     fun format(source: String, vararg args: Any): String = runCatching {
-        String.format(Locale.forLanguageTag(LanguagePreference.load(FiloApplication.context)), get(source), *args)
+        String.format(Locale.forLanguageTag(LanguagePreference.value), get(source), *args)
     }.getOrElse { get(source) }
 }
 
