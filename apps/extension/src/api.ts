@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import type { SupportedLanguage } from "../../web/src/lib/messages";
 
 export interface ReadingArticle {
   id: number;
@@ -15,6 +16,10 @@ export interface SavedArticleResult {
   title: string;
   url: string;
   created: boolean;
+}
+
+export interface ExtensionUserSettings {
+  language: SupportedLanguage;
 }
 
 type TokenGetter = () => Promise<string | null>;
@@ -51,6 +56,9 @@ export function createExtensionApi(getToken: TokenGetter) {
     request<{ data: T }>(getToken, method, path, body);
 
   return {
+    getSettings: async () => (await get<ExtensionUserSettings>("/api/v1/settings")).data,
+    updateSettings: async (patch: { language: SupportedLanguage }) =>
+      (await send<ExtensionUserSettings>("PATCH", "/api/v1/settings", patch)).data,
     listReadingArticles: async () => {
       const articles: ReadingArticle[] = [];
       let cursor: string | null = null;

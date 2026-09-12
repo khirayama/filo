@@ -4,7 +4,7 @@ import { createExtensionApi, type ReadingArticle } from "./api";
 import { webAppPath } from "./config";
 import { trackEvent } from "./analytics";
 import { Icon } from "./icons";
-import { normalizeLanguage, translate } from "../../web/src/lib/messages";
+import { SUPPORTED_LANGUAGES, translate, type SupportedLanguage } from "../../web/src/lib/messages";
 
 interface ReaderSettings {
   targetLanguage: string;
@@ -43,6 +43,8 @@ const LANGUAGE_OPTIONS = [
   { value: "es", label: "Español" },
 ] as const;
 
+const DISPLAY_LANGUAGE_KEY = "filo:displayLanguage";
+
 async function send<T>(message: unknown): Promise<T> {
   const response = await chrome.runtime.sendMessage(message) as { ok?: boolean; error?: string; data?: T } | undefined;
   if (!response?.ok) throw new Error(response?.error ?? "拡張機能を操作できませんでした。");
@@ -72,7 +74,7 @@ function firstVisibleQueueArticleIndex(articles: readonly { id: number }[]): num
 }
 
 export function App() {
-  const language = useMemo(() => normalizeLanguage(navigator.language), []);
+  const [language, setLanguage] = useState<SupportedLanguage>("ja");
   const t = useCallback((source: string, values?: Record<string, string | number>) => translate(source, language, values), [language]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -88,6 +90,7 @@ export function App() {
   const [settings, setSettings] = useState<ReaderSettings>({ targetLanguage: "ja", rate: 1, voiceName: null, extractionMode: "article" });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [languageBusy, setLanguageBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<{ url: string; title: string } | null>(null);
   const [readerState, setReaderState] = useState<ReaderSession | null>(null);
@@ -164,6 +167,23 @@ export function App() {
     setSettings(nextSettings);
   }, []);
 
+  const loadDisplayLanguage = useCallback(async () => {
+    if (isSignedIn) {
+      try {
+        const accountSettings = await api.getSettings();
+        setLanguage(accountSettings.language);
+        await chrome.storage.local.set({ [DISPLAY_LANGUAGE_KEY]: accountSettings.language });
+        return;
+      } catch {
+        // Use the last local selection when the account settings are offline.
+      }
+    }
+    const stored = (await chrome.storage.local.get(DISPLAY_LANGUAGE_KEY))[DISPLAY_LANGUAGE_KEY];
+    if (typeof stored === "string" && (SUPPORTED_LANGUAGES as readonly string[]).includes(stored)) {
+      setLanguage(stored as SupportedLanguage);
+    }
+  }, [api, isSignedIn]);
+
   const loadReaderState = useCallback(async () => {
     setReaderState(await send<ReaderSession | null>({ type: "filoGetState" }));
   }, []);
@@ -175,6 +195,7 @@ export function App() {
       const [nextArticles] = await Promise.all([
         isSignedIn ? api.listReadingArticles() : Promise.resolve([] as ReadingArticle[]),
         loadSettings(),
+        loadDisplayLanguage(),
         loadReaderState(),
         loadCurrentPage(),
       ]);
@@ -184,7 +205,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [api, isSignedIn, loadCurrentPage, loadReaderState, loadSettings]);
+  }, [api, isSignedIn, loadCurrentPage, loadDisplayLanguage, loadReaderState, loadSettings]);
 
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : language;
@@ -329,6 +350,28 @@ export function App() {
     }
   };
 
+  const changeDisplayLanguage = async (next: SupportedLanguage) => {
+    if (next === language || languageBusy) return;
+    const previous = language;
+    setLanguage(next);
+    setLanguageBusy(true);
+    setError(null);
+    await chrome.storage.local.set({ [DISPLAY_LANGUAGE_KEY]: next });
+    try {
+      if (isSignedIn) {
+        const saved = await api.updateSettings({ language: next });
+        setLanguage(saved.language);
+        await chrome.storage.local.set({ [DISPLAY_LANGUAGE_KEY]: saved.language });
+      }
+    } catch (cause) {
+      setLanguage(previous);
+      await chrome.storage.local.set({ [DISPLAY_LANGUAGE_KEY]: previous });
+      setError(cause instanceof Error ? t(cause.message) : t(String(cause)));
+    } finally {
+      setLanguageBusy(false);
+    }
+  };
+
   const { targetLanguage, rate, voiceName, extractionMode } = settings;
   const filteredVoices = voices.filter((voice) => !targetLanguage || voice.lang?.startsWith(targetLanguage));
   const isPlaying = readerState?.playing === true;
@@ -464,6 +507,12 @@ export function App() {
         <section className="settings" aria-label={t("読み上げ設定")}>
           <p className="section-label">{t("読み上げ設定")}</p>
           <div className="setting-row">
+            <label htmlFor="display-language">{t("表示設定")} · {t("言語")}</label>
+            <select id="display-language" value={language} disabled={languageBusy} onChange={(event) => void changeDisplayLanguage(event.target.value as SupportedLanguage)}>
+              {LANGUAGE_OPTIONS.map((option) => <option value={option.value} key={option.value}>{t(option.label)}</option>)}
+            </select>
+          </div>
+          <div className="setting-row">
             <label htmlFor="extraction-mode">{t("内容")}</label>
             <select id="extraction-mode" value={extractionMode} disabled={busy} onChange={(event) => void control("settings", { extractionMode: event.target.value })}>
               <option value="article">{t("本文を抽出")}</option>
@@ -472,7 +521,7 @@ export function App() {
           </div>
           {extractionMode === "display" ? <p className="setting-hint">{t("ページ翻訳後に使うと、表示中の翻訳を読み上げます。")}</p> : null}
           <div className="setting-row">
-            <label htmlFor="language">{t("言語")}</label>
+            <label htmlFor="language">{t("読み上げ")} {t("言語")}</label>
             <select id="language" value={targetLanguage} disabled={busy} onChange={(event) => void control("settings", { targetLanguage: event.target.value })}>
               {LANGUAGE_OPTIONS.map((option) => <option value={option.value} key={option.value}>{t(option.label)}</option>)}
             </select>
