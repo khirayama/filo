@@ -209,9 +209,9 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : language;
-    document.title = "Filo Reader";
+    document.title = t("Filo Reader");
     trackEvent("screen_view", { screen_name: "extension_popup" });
-  }, [language]);
+  }, [language, t]);
 
   useEffect(() => {
     if (isLoaded) void loadAll();
