@@ -24,6 +24,24 @@ interface AppData {
 
 const AppDataContext = createContext<AppData | null>(null);
 
+const LANGUAGE_STORAGE_KEY = "filo:language";
+
+function loadStoredLanguage(): SupportedLanguage {
+  try {
+    return normalizeLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY) ?? "ja");
+  } catch {
+    return "ja";
+  }
+}
+
+function storeLanguage(language: SupportedLanguage): void {
+  try {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+  } catch {
+    // The in-memory setting is still enough for the current session.
+  }
+}
+
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const api = useApi();
   const { data: session, isPending: sessionPending } = authClient.useSession();
@@ -34,6 +52,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [unreadCounts, setUnreadCounts] = useState<UnreadCounts>({ allArticles: 0, readingList: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [localLanguage, setLocalLanguage] = useState<SupportedLanguage>(loadStoredLanguage);
   const generation = useRef(0);
   const activeUserId = useRef<string | null | undefined>(undefined);
 
@@ -52,12 +71,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setTags(tagList);
       setSubscriptions(subscriptionList);
       setSettingsState(userSettings);
+      setLocalLanguage(userSettings.language);
+      storeLanguage(userSettings.language);
       setUnreadCounts(nextUnreadCounts);
       applyTheme(userSettings.theme);
       setError(null);
     } catch (e) {
       if (generation.current !== gen || activeUserId.current !== refreshUserId) return;
-      setError(errorMessage(e, normalizeLanguage(settings?.language ?? navigator.language)));
+      setError(errorMessage(e, normalizeLanguage(settings?.language ?? "ja")));
     } finally {
       if (generation.current === gen && activeUserId.current === refreshUserId) setLoading(false);
     }
@@ -86,6 +107,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const setSettings = useCallback((next: Settings) => {
     setSettingsState(next);
+    setLocalLanguage(next.language);
+    storeLanguage(next.language);
     applyTheme(next.theme);
   }, []);
 
@@ -98,7 +121,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const visibleUnreadCounts = hasCurrentUserData ? unreadCounts : { allArticles: 0, readingList: 0 };
   const visibleError = hasCurrentUserData ? error : null;
   const visibleLoading = Boolean(userId) && (!hasCurrentUserData || loading);
-  const language = normalizeLanguage(visibleSettings?.language ?? navigator.language);
+  const language = normalizeLanguage(visibleSettings?.language ?? localLanguage);
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);

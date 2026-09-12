@@ -38,6 +38,12 @@ export function SettingsPage() {
   }, []);
 
   const update = async (patch: Parameters<typeof api.updateSettings>[0]) => {
+    const previous = settings;
+    if (previous) {
+      // Update the local view first. Language changes must not wait for the
+      // round trip to the API before the rest of the app is translated.
+      setSettings({ ...previous, ...patch });
+    }
     try {
       setSettings(await api.updateSettings(patch));
       for (const [setting, value] of Object.entries(patch)) {
@@ -47,6 +53,7 @@ export function SettingsPage() {
         });
       }
     } catch (e) {
+      if (previous) setSettings(previous);
       setError(errorMessage(e, language));
     }
   };
