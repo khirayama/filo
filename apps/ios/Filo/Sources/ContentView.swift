@@ -88,6 +88,7 @@ final class LanguageManager: ObservableObject {
 struct ContentView: View {
     @EnvironmentObject private var auth: BetterAuth
     @ObservedObject private var themeManager = ThemeManager.shared
+    @ObservedObject private var languageManager = LanguageManager.shared
 
     var body: some View {
         Group {
@@ -103,6 +104,7 @@ struct ContentView: View {
         .tint(FiloPalette.accent)
         .foregroundStyle(FiloPalette.text)
         .background(FiloPalette.background)
+        .environment(\.locale, languageManager.locale)
         .onAppear { FiloAnalytics.screen("auth") }
     }
 }
@@ -167,7 +169,6 @@ struct AppNavigationView: View {
         .sheet(isPresented: $titleTranslations.isShowingSetup) {
             TitleTranslationSetupView(store: titleTranslations)
         }
-        .environment(\.locale, languageManager.locale)
         .onAppear { openPendingShare() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { openPendingShare() }

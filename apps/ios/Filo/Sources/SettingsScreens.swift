@@ -189,6 +189,7 @@ struct SettingsScreen: View {
             settings = try await APIClient.shared.getSettings()
             if let settings {
                 ThemeManager.shared.theme = settings.theme
+                languageManager.language = settings.language
                 TitleTranslationStore.shared.configure(
                     language: settings.language,
                     readableLanguages: settings.readableLanguages
@@ -201,6 +202,22 @@ struct SettingsScreen: View {
     }
 
     private func update(theme: String? = nil, language: String? = nil, readableLanguages: [String]? = nil, articleSortOrder: String? = nil, openInBrowserByDefault: Bool? = nil) async {
+        let previous = settings
+        if let current = previous {
+            // Keep the screen and the app locale responsive while the server
+            // persists the change.
+            settings = UserSettings(
+                theme: theme ?? current.theme,
+                language: language ?? current.language,
+                readableLanguages: readableLanguages ?? current.readableLanguages,
+                articleSortOrder: articleSortOrder ?? current.articleSortOrder,
+                openInBrowserByDefault: openInBrowserByDefault ?? current.openInBrowserByDefault,
+                createdAt: current.createdAt,
+                updatedAt: current.updatedAt,
+            )
+        }
+        if let language { languageManager.language = language }
+        if let theme { ThemeManager.shared.theme = theme }
         do {
             settings = try await APIClient.shared.updateSettings(
                 theme: theme,
@@ -214,7 +231,6 @@ struct SettingsScreen: View {
             if let readableLanguages { FiloAnalytics.track("settings_change", parameters: ["setting": "readable_languages", "value": readableLanguages.count]) }
             if let articleSortOrder { FiloAnalytics.track("settings_change", parameters: ["setting": "article_sort_order", "value": articleSortOrder]) }
             if let openInBrowserByDefault { FiloAnalytics.track("settings_change", parameters: ["setting": "open_in_browser_by_default", "value": openInBrowserByDefault]) }
-            if let language { languageManager.language = language }
             if let settings {
                 ThemeManager.shared.theme = settings.theme
                 TitleTranslationStore.shared.configure(
@@ -223,6 +239,8 @@ struct SettingsScreen: View {
                 )
             }
         } catch {
+            settings = previous
+            if let previous { languageManager.language = previous.language; ThemeManager.shared.theme = previous.theme }
             errorMessage = ErrorMessages.message(for: error)
         }
     }
