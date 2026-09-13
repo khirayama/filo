@@ -3,6 +3,7 @@ package com.filo.app.ui
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.hoverable
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -298,19 +300,27 @@ private fun feedTitle(title: String, onOpenFeed: (() -> Unit)?, modifier: Modifi
 @Composable
 private fun translationButton(isTranslated: Boolean, showOriginal: Boolean, onClick: () -> Unit) {
     if (isTranslated) {
-        Surface(
-            onClick = onClick,
-            shape = MaterialTheme.shapes.extraSmall,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            color = Color.Transparent,
+        // Surface(onClick = ...) can apply Material's minimum interactive size
+        // to the label. Draw/click the compact label directly so it stays the
+        // same 18dp high as the empty slot used before translation arrives.
+        Box(
+            modifier = Modifier
+                .height(18.dp)
+                .clip(MaterialTheme.shapes.extraSmall)
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), MaterialTheme.shapes.extraSmall)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 tr(if (showOriginal) "翻訳" else "原文"),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
+    } else {
+        // Match the label's height before translation is available.
+        Spacer(modifier = Modifier.height(18.dp))
     }
 }
 
@@ -329,8 +339,8 @@ private fun articleTitle(
         style = style,
         fontWeight = if (isRead) FontWeight.Normal else FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurface,
-        maxLines = if (singleLine) 1 else Int.MAX_VALUE,
-        overflow = if (singleLine) TextOverflow.Ellipsis else TextOverflow.Clip,
+        maxLines = if (singleLine) 1 else 2,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier.combinedClickable(onClick = onOpen, onLongClick = onLongPress),
     )
 }
