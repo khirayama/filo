@@ -1,6 +1,7 @@
 package com.filo.app.api
 
 import com.filo.app.ui.AppStrings
+import com.filo.app.ui.AppText
 
 object ErrorMessages {
     private val messages = mapOf(
@@ -27,7 +28,25 @@ object ErrorMessages {
     )
 
     fun forError(error: Throwable): String =
-        AppStrings.get(messages[(error as? ApiException)?.code] ?: messages.getValue("internal_error"))
+        forErrorText(error).resolve()
+
+    fun forErrorText(error: Throwable): AppText =
+        AppText(messages[(error as? ApiException)?.code] ?: messages.getValue("internal_error"))
+
+    fun forStatusErrorText(message: String): AppText = when {
+        message == "feed not found" -> AppText("フィードが見つかりません。")
+        message == "feed is paused" -> AppText("フィードは停止中です。")
+        message == "feed could not be parsed" -> AppText("フィードを解析できませんでした。")
+        message.startsWith("feed responded with status ") -> {
+            val status = message.substringAfterLast(' ').toIntOrNull()
+            if (status != null) {
+                AppText("フィードがHTTPエラーを返しました。(%d)", listOf(status))
+            } else {
+                AppText("フィードの取得に失敗しました。")
+            }
+        }
+        else -> AppText("フィードの取得に失敗しました。")
+    }
 
     fun initialFetchMessage(code: String?): String = when (code) {
         "feed_unreachable" -> AppStrings.get("フィードに接続できませんでした。")

@@ -445,10 +445,10 @@ private fun AuthScreen(
                 }
 
                 uiState.statusMessage?.let {
-                    Text(text = it, color = Color(0xFF2F6A3D), style = MaterialTheme.typography.bodyMedium)
+                    Text(text = tr(it), color = Color(0xFF2F6A3D), style = MaterialTheme.typography.bodyMedium)
                 }
                 uiState.errorMessage?.let {
-                    Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    Text(text = tr(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }

@@ -9,10 +9,12 @@ import kotlinx.coroutines.launch
 import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
-import com.filo.app.ui.AppStrings
+import com.filo.app.ui.AppText
 
 enum class AuthMode { SignIn, SignUp, ResetPasswordRequest, ResetPasswordVerify, ResetPasswordNewPassword }
-data class AuthUiState(val isConfigured: Boolean = true, val isInitialized: Boolean = true, val initializationError: Boolean = false, val isSignedIn: Boolean = TokenStore.get() != null, val isSubmitting: Boolean = false, val mode: AuthMode = if (AuthLinkStore.resetToken != null) AuthMode.ResetPasswordNewPassword else AuthMode.SignIn, val email: String = "", val password: String = "", val confirmPassword: String = "", val code: String = "", val statusMessage: String? = null, val errorMessage: String? = null)
+data class AuthUiState(val isConfigured: Boolean = true, val isInitialized: Boolean = true, val initializationError: Boolean = false, val isSignedIn: Boolean = TokenStore.get() != null, val isSubmitting: Boolean = false, val mode: AuthMode = if (AuthLinkStore.resetToken != null) AuthMode.ResetPasswordNewPassword else AuthMode.SignIn, val email: String = "", val password: String = "", val confirmPassword: String = "", val code: String = "", val statusMessage: AppText? = null, val errorMessage: AppText? = null)
+
+private class AuthMessageException(val text: AppText) : Exception()
 
 private object TokenStore { fun get() = SecureTokenStore.get(); fun set(value: String) = SecureTokenStore.set(value); fun clear() = SecureTokenStore.clear() }
 
@@ -40,7 +42,7 @@ class MainViewModel : ViewModel() {
     private fun authenticate(signUp: Boolean) {
         val state = _uiState.value
         if (state.email.isBlank() || state.password.length < 8) {
-            update { copy(errorMessage = AppStrings.get("メールアドレスと8文字以上のパスワードが必要です")) }
+            update { copy(errorMessage = AppText("メールアドレスと8文字以上のパスワードが必要です")) }
             return
         }
         submit {
@@ -52,8 +54,8 @@ class MainViewModel : ViewModel() {
             }.toString()
             val connection = post("/api/auth/$endpoint/email", body)
             val token = connection.getHeaderField("set-auth-token")
-            if (connection.responseCode !in 200..299) error("認証に失敗しました")
-            if (token.isNullOrBlank()) error("認証トークンを取得できませんでした")
+            if (connection.responseCode !in 200..299) throw AuthMessageException(AppText("認証に失敗しました"))
+            if (token.isNullOrBlank()) throw AuthMessageException(AppText("認証トークンを取得できませんでした"))
             TokenStore.set(token)
             update { copy(isSignedIn = true, isSubmitting = false, statusMessage = null) }
         }
@@ -61,21 +63,21 @@ class MainViewModel : ViewModel() {
 
     fun sendResetCode() {
         val email = _uiState.value.email.trim()
-        if (email.isBlank()) { update { copy(errorMessage = AppStrings.get("メールアドレスを入力してください")) }; return }
+        if (email.isBlank()) { update { copy(errorMessage = AppText("メールアドレスを入力してください")) }; return }
         submit {
             val body = JSONObject().apply { put("email", email); put("redirectTo", "filo://auth/reset") }.toString()
             val connection = post("/api/auth/request-password-reset", body)
-            if (connection.responseCode !in 200..299) error(AppStrings.get("リセットメールを送信できませんでした"))
-            update { copy(isSubmitting = false, statusMessage = AppStrings.get("パスワードリセットメールを送信しました")) }
+            if (connection.responseCode !in 200..299) throw AuthMessageException(AppText("リセットメールを送信できませんでした"))
+            update { copy(isSubmitting = false, statusMessage = AppText("パスワードリセットメールを送信しました")) }
         }
     }
 
     fun verifyResetCode() {
         resetToken = AuthLinkStore.resetToken
         if (resetToken.isNullOrBlank()) {
-            update { copy(mode = AuthMode.ResetPasswordVerify, errorMessage = AppStrings.get("リセットリンクを開いてください")) }
+            update { copy(mode = AuthMode.ResetPasswordVerify, errorMessage = AppText("リセットリンクを開いてください")) }
         } else {
-            update { copy(mode = AuthMode.ResetPasswordNewPassword, statusMessage = AppStrings.get("新しいパスワードを入力してください")) }
+            update { copy(mode = AuthMode.ResetPasswordNewPassword, statusMessage = AppText("新しいパスワードを入力してください")) }
         }
     }
 
@@ -83,16 +85,16 @@ class MainViewModel : ViewModel() {
         val state = _uiState.value
         val token = resetToken
         if (token.isNullOrBlank() || state.password.length < 8 || state.password != state.confirmPassword) {
-            update { copy(errorMessage = AppStrings.get("リセットリンクと8文字以上のパスワードを確認してください")) }
+            update { copy(errorMessage = AppText("リセットリンクと8文字以上のパスワードを確認してください")) }
             return
         }
         submit {
             val body = JSONObject().apply { put("token", token); put("newPassword", state.password) }.toString()
             val connection = post("/api/auth/reset-password", body)
-            if (connection.responseCode !in 200..299) error(AppStrings.get("パスワードを変更できませんでした"))
+            if (connection.responseCode !in 200..299) throw AuthMessageException(AppText("パスワードを変更できませんでした"))
             resetToken = null
             AuthLinkStore.resetToken = null
-            update { copy(mode = AuthMode.SignIn, isSubmitting = false, password = "", confirmPassword = "", statusMessage = AppStrings.get("パスワードを変更しました")) }
+            update { copy(mode = AuthMode.SignIn, isSubmitting = false, password = "", confirmPassword = "", statusMessage = AppText("パスワードを変更しました")) }
         }
     }
 
@@ -114,7 +116,12 @@ class MainViewModel : ViewModel() {
     private fun submit(block: suspend () -> Unit) {
         update { copy(isSubmitting = true, errorMessage = null) }
         viewModelScope.launch(Dispatchers.IO) {
-            try { block() } catch (error: Exception) { update { copy(isSubmitting = false, errorMessage = error.message ?: AppStrings.get("認証に失敗しました")) } }
+            try {
+                block()
+            } catch (error: Exception) {
+                val message = (error as? AuthMessageException)?.text ?: AppText("認証に失敗しました")
+                update { copy(isSubmitting = false, errorMessage = message) }
+            }
         }
     }
 

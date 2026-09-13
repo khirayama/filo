@@ -48,6 +48,14 @@ object AppStrings {
             "閲覧開始" to "Start reading",
             "ブラウザで開く" to "Open in browser",
             "開く" to "Open",
+            "取得失敗" to "Fetch failed",
+            "取得中断" to "Fetch interrupted",
+            "取得待ち" to "Fetch pending",
+            "フィードが見つかりません。" to "Feed not found.",
+            "フィードは停止中です。" to "Feed is paused.",
+            "フィードを解析できませんでした。" to "Could not parse the feed.",
+            "フィードがHTTPエラーを返しました。(%d)" to "Feed returned an HTTP error (%d).",
+            "フィードの取得に失敗しました。" to "Failed to fetch the feed.",
             "OPML" to "OPML",
         ),
         "zh" to mapOf(
@@ -55,6 +63,15 @@ object AppStrings {
             "閲覧開始" to "开始阅读",
             "ブラウザで開く" to "在浏览器中打开",
             "開く" to "打开",
+            "認証トークンを取得できませんでした" to "无法获取认证令牌",
+            "取得失敗" to "获取失败",
+            "取得中断" to "获取中断",
+            "取得待ち" to "等待获取",
+            "フィードが見つかりません。" to "未找到订阅源。",
+            "フィードは停止中です。" to "订阅源已暂停。",
+            "フィードを解析できませんでした。" to "无法解析订阅源。",
+            "フィードがHTTPエラーを返しました。(%d)" to "订阅源返回 HTTP 错误（%d）。",
+            "フィードの取得に失敗しました。" to "获取订阅源失败。",
             "原文のまま読む言語" to "按原文阅读的语言",
             "リンクを常にブラウザで開く" to "始终在浏览器中打开链接",
             "OPML" to "OPML",
@@ -71,6 +88,15 @@ object AppStrings {
             "閲覧開始" to "읽기 시작",
             "ブラウザで開く" to "브라우저에서 열기",
             "開く" to "열기",
+            "認証トークンを取得できませんでした" to "인증 토큰을 가져올 수 없습니다",
+            "取得失敗" to "가져오기 실패",
+            "取得中断" to "가져오기 중단",
+            "取得待ち" to "가져오기 대기 중",
+            "フィードが見つかりません。" to "피드를 찾을 수 없습니다.",
+            "フィードは停止中です。" to "피드가 일시중지되었습니다.",
+            "フィードを解析できませんでした。" to "피드를 파싱할 수 없습니다.",
+            "フィードがHTTPエラーを返しました。(%d)" to "피드가 HTTP 오류를 반환했습니다(%d).",
+            "フィードの取得に失敗しました。" to "피드를 가져오지 못했습니다.",
             "原文のまま読む言語" to "원문으로 읽을 언어",
             "リンクを常にブラウザで開く" to "항상 브라우저에서 링크 열기",
             "OPML" to "OPML",
@@ -87,6 +113,15 @@ object AppStrings {
             "閲覧開始" to "Empezar a leer",
             "ブラウザで開く" to "Abrir en el navegador",
             "開く" to "Abrir",
+            "認証トークンを取得できませんでした" to "No se pudo obtener el token de autenticación",
+            "取得失敗" to "Obtención fallida",
+            "取得中断" to "Obtención interrumpida",
+            "取得待ち" to "Pendiente de obtención",
+            "フィードが見つかりません。" to "No se encontró el feed.",
+            "フィードは停止中です。" to "El feed está pausado.",
+            "フィードを解析できませんでした。" to "No se pudo analizar el feed.",
+            "フィードがHTTPエラーを返しました。(%d)" to "El feed devolvió un error HTTP (%d).",
+            "フィードの取得に失敗しました。" to "No se pudo obtener el feed.",
             "原文のまま読む言語" to "Idiomas para leer en original",
             "リンクを常にブラウザで開く" to "Abrir siempre los enlaces en el navegador",
             "OPML" to "OPML",
@@ -541,8 +576,27 @@ object AppStrings {
     }.getOrElse { get(source) }
 }
 
+/**
+ * A localized message that is resolved when it is rendered, not when it is
+ * created. This keeps transient errors and notices in sync with the selected
+ * app language when that language changes while a screen is open.
+ */
+data class AppText(
+    val source: String,
+    val args: List<Any> = emptyList(),
+) {
+    fun resolve(): String = if (args.isEmpty()) {
+        AppStrings.get(source)
+    } else {
+        AppStrings.format(source, *args.toTypedArray())
+    }
+}
+
 @Composable
 fun tr(source: String): String = AppStrings.get(source)
+
+@Composable
+fun tr(text: AppText): String = text.resolve()
 
 @Composable
 fun trf(source: String, vararg args: Any): String = AppStrings.format(source, *args)
