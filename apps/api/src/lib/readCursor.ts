@@ -57,13 +57,18 @@ export interface UnreadCounts {
   reading_list: number;
 }
 
+export type UnreadCountScope = "all" | "reading_list" | "both";
+
 // The reading list can contain retained articles that are no longer under a
 // subscription, so its count cannot be derived from subscription counts.
-export async function unreadCountsForUser(db: D1Database, userId: number): Promise<UnreadCounts> {
-  const row = await db
-    .prepare(
-      `SELECT
-         (
+export async function unreadCountsForUser(
+  db: D1Database,
+  userId: number,
+  scope: UnreadCountScope = "both",
+): Promise<UnreadCounts> {
+  const allArticles = scope === "reading_list"
+    ? "0"
+    : `(
            SELECT COUNT(a.id)
            FROM articles a
            LEFT JOIN article_read_states ars ON ars.user_id = ? AND ars.article_id = a.id
@@ -72,8 +77,10 @@ export async function unreadCountsForUser(db: D1Database, userId: number): Promi
              SELECT 1 FROM subscriptions s WHERE s.user_id = ? AND s.feed_id = a.feed_id
            )
            AND (${EFFECTIVE_IS_READ}) = 0
-         ) AS all_articles,
-         (
+         )`;
+  const readingList = scope === "all"
+    ? "0"
+    : `(
            SELECT COUNT(a.id)
            FROM articles a
            JOIN article_user_collections rli
@@ -81,9 +88,18 @@ export async function unreadCountsForUser(db: D1Database, userId: number): Promi
            LEFT JOIN article_read_states ars ON ars.user_id = ? AND ars.article_id = a.id
            LEFT JOIN feed_read_cursors frc ON frc.user_id = ? AND frc.feed_id = a.feed_id
            WHERE (${EFFECTIVE_IS_READ}) = 0
-         ) AS reading_list`
+         )`;
+  const binds: number[] = [];
+  if (scope !== "reading_list") binds.push(userId, userId, userId);
+  if (scope !== "all") binds.push(userId, userId, userId);
+
+  const row = await db
+    .prepare(
+      `SELECT
+         ${allArticles} AS all_articles,
+         ${readingList} AS reading_list`
     )
-    .bind(userId, userId, userId, userId, userId, userId)
+    .bind(...binds)
     .first<UnreadCounts>();
 
   return {

@@ -431,6 +431,11 @@ current user のリーディングリストから、実効既読状態のすべ�
 Returns unread counts for the top-level article navigation. Both values use
 the same effective read-state rules as `GET /api/v1/articles?read=false`.
 
+- optional query `scope`: `both` (default), `all`, or `reading_list`
+- a scoped response returns `0` for the value outside the requested scope;
+  clients can use `scope=reading_list` when `allArticles` is already available
+  from the subscription summaries
+
 - `allArticles`: unread articles in the current user's subscriptions
 - `readingList`: unread articles in the current user's reading list, including retained articles
 

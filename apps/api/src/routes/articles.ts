@@ -6,7 +6,7 @@ import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { errors } from "../lib/errors";
 import { normalizeSourceLanguage } from "../lib/languages";
 import { canonicalizeUrl } from "../lib/net";
-import { EFFECTIVE_IS_READ, unreadCountsForUser } from "../lib/readCursor";
+import { EFFECTIVE_IS_READ, unreadCountsForUser, type UnreadCountScope } from "../lib/readCursor";
 import { serializeUserState } from "../lib/serialize";
 import { htmlToText, nowIso, parseId, parseLimit, previewFrom, sanitizeHtml, toIso } from "../lib/util";
 
@@ -132,7 +132,11 @@ async function saveArticleFromUrl(
 export const articleRoutes = new Hono<AppContext>()
   .get("/unread-counts", async (c) => {
     const user = c.get("user");
-    const counts = await unreadCountsForUser(c.env.DB, user.id);
+    const scope = c.req.query("scope") ?? "both";
+    if (scope !== "all" && scope !== "reading_list" && scope !== "both") {
+      throw errors.validation("invalid unread count scope");
+    }
+    const counts = await unreadCountsForUser(c.env.DB, user.id, scope as UnreadCountScope);
     return c.json({
       data: {
         allArticles: counts.all_articles,
