@@ -169,7 +169,9 @@ struct ArticleRowView: View {
             }
             .font(.system(size: 12))
             .foregroundStyle(FiloPalette.muted)
+            // Keep translated titles from growing a row beyond two lines.
             title
+                .lineLimit(2)
         }
     }
 
@@ -201,13 +203,18 @@ struct ArticleRowView: View {
                     Text(L10n.string(showOriginal ? "翻訳" : "原文"))
                         .font(.system(size: 10))
                         .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
+                        .frame(height: 18)
                         .overlay(
                             RoundedRectangle(cornerRadius: 3)
                                 .stroke(FiloPalette.border, lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
+            } else {
+                // Match the label's height before translation is available.
+                Color.clear
+                    .frame(height: 18)
+                    .accessibilityHidden(true)
             }
         }
     }
