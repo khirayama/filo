@@ -35,6 +35,8 @@ user-owned（アカウント削除で消える）:
 | `article_read_states` | 記事単位の明示的な既読上書き |
 | `article_user_collections` | リーディングリスト / ブックマーク membership |
 | `feed_read_cursors` | user × feed の既読カーソル |
+| `subscription_unread_counts` | subscription 単位の実効未読数キャッシュ |
+| `user_unread_counts` | user 単位のリーディングリスト未読数キャッシュ |
 | `feed_jobs` | ユーザーが要求した feed 取得ジョブの現在状態 |
 | `opml_import_jobs` | OPML import の非同期処理状態 |
 
@@ -66,6 +68,8 @@ account deletion 専用:
 - ブラウザ／共有から保存した任意URLは、購読を持たない `paused` な `feeds` / `articles` として登録し、`article_user_collections` の membership だけでユーザーから参照できる。既存の本文抽出・再生テーブルを共用する
 - unsubscribe 済み記事は最後の collection membership が削除された時点で参照不可に戻る
 - `feed_read_cursors` は subscription ではなく user × feed に紐づき、購読解除・再購読後も維持される
+- `subscription_unread_counts` と `user_unread_counts` は導出値であり、実効既読状態の source of truth ではない。新着、単体の既読変更、collection 変更、購読追加で差分更新し、一括既読では source of truth から再計算する
+- 導出カウンターが欠落した場合も API は `0` として動作し、購読追加・一括既読の再計算で復旧できる
 
 ### 記事
 
@@ -133,7 +137,7 @@ account deletion 専用:
 - 記事一覧の複合 filter は strict AND で評価する
 - `read=true` は実効既読（`article_read_states.is_read = 1`、または row がなく `feed_read_cursors` がその article id を覆う）を意味する
 - `read=false` は実効未読（`is_read = 0` の row が存在する、または row がなくカーソルにも覆われない）を意味する
-- subscription 一覧の `unreadCount` は実効未読と同じ条件で feed 配下の article を数える
+- subscription 一覧の `unreadCount` は実効未読と同じ条件で feed 配下の article を数えた導出カウンターを返す
 - `readingList=true` または `bookmarked=true` の一覧では retained article を返してよい
 - `readingList=true AND bookmarked=true` は両方を満たす retained/current article のみ返す
 - `subscriptionId` 指定の一覧では retained article を返さず、対象 subscription 配下の記事だけを返す
@@ -152,7 +156,7 @@ account deletion 専用:
 
 ## Data Retention
 
-- user-owned data: `users` `user_settings` `subscriptions` `tags` `subscription_tags` `article_read_states` `article_user_collections` `feed_read_cursors` `feed_jobs` `opml_import_jobs`
+- user-owned data: `users` `user_settings` `subscriptions` `tags` `subscription_tags` `article_read_states` `article_user_collections` `feed_read_cursors` `subscription_unread_counts` `user_unread_counts` `feed_jobs` `opml_import_jobs`
 - shared data: `feeds` `articles` `article_contents` `feed_fetch_states` `feed_fetch_logs`
 
 アカウント削除は user-owned data のみを削除する。shared data は削除しない。
