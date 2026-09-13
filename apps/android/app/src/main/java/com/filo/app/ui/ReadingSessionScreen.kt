@@ -94,7 +94,7 @@ class ReadingPlayerController(
         private set
     var extractedLanguage by mutableStateOf<String?>(null)
         private set
-    var errorMessage by mutableStateOf<String?>(null)
+    var errorMessage by mutableStateOf<AppText?>(null)
         private set
     var isAddingToReadingList by mutableStateOf(false)
         private set
@@ -194,10 +194,10 @@ class ReadingPlayerController(
                 items = readingList
                 readingListItems = readingList
                 index = items.indexOfFirst { !it.isRead }
-                if (index < 0) errorMessage = AppStrings.get("未読の記事がありません。")
+                if (index < 0) errorMessage = AppText("未読の記事がありません。")
             }
             resetPage()
-        }.onFailure { errorMessage = AppStrings.get("リーディングリストを開始できませんでした。") }
+        }.onFailure { errorMessage = AppText("リーディングリストを開始できませんでした。") }
         isLoading = false
     }
 
@@ -212,7 +212,7 @@ class ReadingPlayerController(
 
     fun extractionFailed() {
         if (temporary) {
-            errorMessage = AppStrings.get("本文を抽出できませんでした。")
+            errorMessage = AppText("本文を抽出できませんでした。")
             return
         }
         val id = currentItem?.articleId ?: return
@@ -227,7 +227,7 @@ class ReadingPlayerController(
                 }
                 if (content.status == "error") return@repeat
             }
-            errorMessage = AppStrings.get("本文を抽出できませんでした。")
+            errorMessage = AppText("本文を抽出できませんでした。")
         }
     }
 
@@ -308,7 +308,7 @@ class ReadingPlayerController(
                         readingListItems = readingListItems + item
                     }
                 }
-                .onFailure { errorMessage = AppStrings.get("リーディングリストに追加できませんでした。") }
+                .onFailure { errorMessage = AppText("リーディングリストに追加できませんでした。") }
             isAddingToReadingList = false
         }
     }
@@ -319,7 +319,7 @@ class ReadingPlayerController(
         scope.launch {
             runCatching { ApiClient.setReadingListMembership(articleId, false) }
                 .onSuccess { removedReadingListArticleIds += articleId }
-                .onFailure { errorMessage = AppStrings.get("リーディングリストから削除できませんでした。") }
+                .onFailure { errorMessage = AppText("リーディングリストから削除できませんでした。") }
             removingReadingListArticleIds -= articleId
         }
     }
@@ -577,7 +577,7 @@ fun ReadingSessionScreen(
                 Modifier.fillMaxSize().padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
-            ) { Text(player.errorMessage ?: tr("未読の記事がありません。")) }
+            ) { Text(tr(player.errorMessage ?: AppText("未読の記事がありません。"))) }
         }
     }
     if (showReadingList) {

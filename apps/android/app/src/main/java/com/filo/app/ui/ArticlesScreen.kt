@@ -513,7 +513,7 @@ fun ArticlesScreen(
                                 }
                             }
                         } else if (errorMessage != null) {
-                            item { ErrorBanner(errorMessage) { scope.launch { vm.reload() } } }
+                            item { ErrorBanner(tr(errorMessage)) { scope.launch { vm.reload() } } }
                         } else if (articles.isEmpty()) {
                             item {
                                 Column(
@@ -601,7 +601,7 @@ fun ArticlesScreen(
                         tonalElevation = 3.dp,
                     ) {
                         Text(
-                            notice,
+                            tr(notice),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),

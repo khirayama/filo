@@ -58,7 +58,7 @@ fun SettingsScreen(
 
     var settings by remember { mutableStateOf<UserSettings?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var importJob by remember { mutableStateOf<OpmlImportJob?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var exportedBytes by remember { mutableStateOf<ByteArray?>(null) }
@@ -73,7 +73,7 @@ fun SettingsScreen(
                 LanguagePreference.set(context, it.language)
             }
         } catch (e: Exception) {
-            errorMessage = ErrorMessages.forError(e)
+            errorMessage = ErrorMessages.forErrorText(e)
         }
         isLoading = false
     }
@@ -121,7 +121,7 @@ fun SettingsScreen(
                     ThemePreference.set(context, it.theme)
                     LanguagePreference.set(context, it.language)
                 }
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         }
     }
@@ -141,7 +141,7 @@ fun SettingsScreen(
                     importJob = job
                 }
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         }
     }
@@ -179,7 +179,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            errorMessage?.let { ErrorBanner(it) { scope.launch { reload() } } }
+            errorMessage?.let { ErrorBanner(tr(it)) { scope.launch { reload() } } }
             if (isLoading || settings == null) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(40.dp),
@@ -259,7 +259,7 @@ fun SettingsScreen(
                                 com.filo.app.Analytics.track("export_opml")
                                 exportLauncher.launch("filo-subscriptions.opml")
                             } catch (e: Exception) {
-                                errorMessage = ErrorMessages.forError(e)
+                                errorMessage = ErrorMessages.forErrorText(e)
                             }
                         }
                     }) { Text(tr("エクスポート")) }
@@ -333,7 +333,7 @@ fun SettingsScreen(
                             val accepted = ApiClient.deleteAccount()
                             onDeletionAccepted(accepted.deletionToken)
                         } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forError(e)
+                            errorMessage = ErrorMessages.forErrorText(e)
                         }
                     }
                 }) { Text(tr("削除する"), color = MaterialTheme.colorScheme.error) }

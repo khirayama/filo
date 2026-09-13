@@ -24,13 +24,13 @@ class ArticlesViewModel : ViewModel() {
     var unreadCounts by mutableStateOf(UnreadCounts(allArticles = 0, readingList = 0))
     var isLoading by mutableStateOf(true)
     var isLoadingMore by mutableStateOf(false)
-    var errorMessage by mutableStateOf<String?>(null)
+    var errorMessage by mutableStateOf<AppText?>(null)
     var openInBrowserByDefault by mutableStateOf(false)
     var theme by mutableStateOf<String?>(null)
     var language by mutableStateOf("ja")
     var readableLanguages by mutableStateOf(listOf("ja"))
     var isRefreshingFeeds by mutableStateOf(false)
-    var refreshNotice by mutableStateOf<String?>(null)
+    var refreshNotice by mutableStateOf<AppText?>(null)
 
     var selectedTagId by mutableStateOf<Int?>(null)
     var readFilter by mutableStateOf<Boolean?>(null)
@@ -124,7 +124,7 @@ class ArticlesViewModel : ViewModel() {
             }
         } catch (e: Exception) {
             if (requestGeneration == articleGeneration && requestFilters == filters()) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         } finally {
             if (requestGeneration == articleGeneration) isLoading = false
@@ -146,7 +146,7 @@ class ArticlesViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 if (requestGeneration == articleGeneration && requestFilters == filters()) {
-                    errorMessage = ErrorMessages.forError(e)
+                    errorMessage = ErrorMessages.forErrorText(e)
                 }
             } finally {
                 if (requestGeneration == articleGeneration) isLoadingMore = false
@@ -167,13 +167,13 @@ class ArticlesViewModel : ViewModel() {
         try {
             val result = if (feedId != null) ApiClient.refreshFeed(feedId) else ApiClient.refreshFeeds(force = false)
             if (result.enqueued == 0 && result.skipped > 0) {
-                refreshNotice = AppStrings.get("最近取得済みのため、今回の取得対象はありませんでした。")
+                refreshNotice = AppText("最近取得済みのため、今回の取得対象はありませんでした。")
             } else if (result.enqueued > 0) {
                 val done = awaitRefreshCompletion(result.queuedAt, feedId)
-                if (!done) refreshNotice = AppStrings.get("取得に時間がかかっています。あとで再度更新してください。")
+                if (!done) refreshNotice = AppText("取得に時間がかかっています。あとで再度更新してください。")
             }
         } catch (e: Exception) {
-            refreshNotice = ErrorMessages.forError(e)
+            refreshNotice = ErrorMessages.forErrorText(e)
         }
         reload()
         isRefreshingFeeds = false
@@ -187,7 +187,7 @@ class ArticlesViewModel : ViewModel() {
             reload()
             return true
         } catch (e: Exception) {
-            errorMessage = ErrorMessages.forError(e)
+            errorMessage = ErrorMessages.forErrorText(e)
             return false
         }
     }
@@ -198,7 +198,7 @@ class ArticlesViewModel : ViewModel() {
             ApiClient.removeReadArticlesFromReadingList()
             reload()
         } catch (e: Exception) {
-            errorMessage = ErrorMessages.forError(e)
+            errorMessage = ErrorMessages.forErrorText(e)
         }
     }
 
@@ -231,7 +231,7 @@ class ArticlesViewModel : ViewModel() {
                 }
                 runCatching { ApiClient.getUnreadCounts() }.getOrNull()?.let { unreadCounts = it }
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         }
     }

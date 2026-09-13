@@ -61,10 +61,10 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<StatusOverview?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
     var busyFeedId by remember { mutableStateOf<Int?>(null) }
-    var notice by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<AppText?>(null) }
     var polling by remember { mutableStateOf(true) }
     var filterText by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf(StatusFilter.All) }
@@ -81,7 +81,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
             // only surface load errors when there is nothing to show;
             // background poll failures keep the last good snapshot
             if (status == null || showSpinner) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         }
         if (showSpinner) isLoading = false
@@ -123,7 +123,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            errorMessage?.let { ErrorBanner(it) { scope.launch { load(showSpinner = true) } } }
+            errorMessage?.let { ErrorBanner(tr(it)) { scope.launch { load(showSpinner = true) } } }
 
             if (isLoading || status == null) {
                 Column(
@@ -146,13 +146,13 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                     val result = ApiClient.refreshFeeds(force = true)
                                     com.filo.app.Analytics.track("refresh_feeds", mapOf("source" to "status", "enqueued" to result.enqueued))
                                     notice = if (result.enqueued > 0) {
-                                        AppStrings.format("%d件のフィードの取得を開始しました。", result.enqueued)
+                                        AppText("%d件のフィードの取得を開始しました。", listOf(result.enqueued))
                                     } else {
-                                        AppStrings.get("取得対象のフィードがありません。")
+                                        AppText("取得対象のフィードがありません。")
                                     }
                                     load()
                                 } catch (e: Exception) {
-                                    errorMessage = ErrorMessages.forError(e)
+                                    errorMessage = ErrorMessages.forErrorText(e)
                                 }
                                 isRefreshing = false
                             }
@@ -160,7 +160,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                     ) { Text(if (isRefreshing) tr("取得中…") else tr("すべて取得")) }
                 }
                 notice?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     trf(
@@ -279,7 +279,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                 if (sub.feedStatus == "paused") {
                                     StatusBadge(tr("停止"), BadgeTone.Muted)
                                 }
-                                JobBadge(tr("取得"), sub.fetchJob, fallbackDanger = sub.lastResult == "error")
+                                JobBadge(sub.fetchJob, fallbackDanger = sub.lastResult == "error")
                                 Text(
                                     sub.lastFetchedAt?.let { relativeTime(it) } ?: "—",
                                     style = MaterialTheme.typography.labelSmall,
@@ -287,9 +287,9 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                 )
                             }
                             if (isError) {
-                                (sub.fetchJob?.lastError ?: sub.lastError)?.let {
+                                (sub.fetchJob?.lastError ?: sub.lastError)?.let { error ->
                                     Text(
-                                        it,
+                                        tr(ErrorMessages.forStatusErrorText(error)),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.error,
                                         maxLines = 1,
@@ -308,10 +308,10 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                                             try {
                                                 ApiClient.refreshFeed(sub.feedId)
                                                 com.filo.app.Analytics.track("refresh_feed", mapOf("source" to "status", "feed_id" to sub.feedId))
-                                                notice = AppStrings.get("フィードの取得を開始しました。")
+                                                notice = AppText("フィードの取得を開始しました。")
                                                 load()
                                             } catch (e: Exception) {
-                                                errorMessage = ErrorMessages.forError(e)
+                                                errorMessage = ErrorMessages.forErrorText(e)
                                             }
                                             isRefreshing = false
                                             busyFeedId = null
@@ -385,15 +385,15 @@ private fun compareStatusSubscriptions(
 // Per-row job badge: hidden when idle (never requested or completed), so the
 // list stays quiet unless something is queued, running, or broken.
 @Composable
-private fun JobBadge(label: String, job: FeedJob?, fallbackDanger: Boolean) {
+private fun JobBadge(job: FeedJob?, fallbackDanger: Boolean) {
     if (job == null || job.status == "completed") {
-        if (fallbackDanger) StatusBadge("${label}失敗", BadgeTone.Danger)
+        if (fallbackDanger) StatusBadge(tr("取得失敗"), BadgeTone.Danger)
         return
     }
     when {
-        job.stalled -> StatusBadge("${label}中断", BadgeTone.Danger)
-        job.status == "failed" -> StatusBadge("${label}失敗", BadgeTone.Danger)
-        job.status == "running" -> StatusBadge("${label}中", BadgeTone.Warn)
-        else -> StatusBadge("${label}待ち", BadgeTone.Warn)
+        job.stalled -> StatusBadge(tr("取得中断"), BadgeTone.Danger)
+        job.status == "failed" -> StatusBadge(tr("取得失敗"), BadgeTone.Danger)
+        job.status == "running" -> StatusBadge(tr("取得中"), BadgeTone.Warn)
+        else -> StatusBadge(tr("取得待ち"), BadgeTone.Warn)
     }
 }

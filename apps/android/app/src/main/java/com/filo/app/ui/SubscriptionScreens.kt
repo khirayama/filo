@@ -79,7 +79,7 @@ fun SubscriptionsScreen(
     var subscriptions by remember { mutableStateOf<List<Subscription>>(emptyList()) }
     var tags by remember { mutableStateOf<List<Tag>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var collapsed by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var renamingTag by remember { mutableStateOf<Tag?>(null) }
     var renameText by remember { mutableStateOf("") }
@@ -92,7 +92,7 @@ fun SubscriptionsScreen(
             subscriptions = ApiClient.listSubscriptions()
             tags = ApiClient.listTags()
         } catch (e: Exception) {
-            errorMessage = ErrorMessages.forError(e)
+            errorMessage = ErrorMessages.forErrorText(e)
         }
         isLoading = false
     }
@@ -105,7 +105,7 @@ fun SubscriptionsScreen(
                 val updated = ApiClient.setSubscriptionTags(subscriptionId, tagIds)
                 subscriptions = subscriptions.map { if (it.id == subscriptionId) updated else it }
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         }
     }
@@ -130,7 +130,7 @@ fun SubscriptionsScreen(
             try {
                 ApiClient.reorderSubscriptions(next.map { it.id })
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
                 reload()
             }
             isReordering = false
@@ -149,7 +149,7 @@ fun SubscriptionsScreen(
             try {
                 ApiClient.reorderTags(next.map { it.id })
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
                 reload()
             }
         }
@@ -185,7 +185,7 @@ fun SubscriptionsScreen(
                     ) { CircularProgressIndicator() }
                 }
             } else if (errorMessage != null) {
-                item { ErrorBanner(errorMessage!!) { scope.launch { reload() } } }
+                item { ErrorBanner(tr(errorMessage!!)) { scope.launch { reload() } } }
             } else if (subscriptions.isEmpty()) {
                 item {
                     Column(
@@ -308,7 +308,7 @@ fun SubscriptionsScreen(
                             ApiClient.updateTag(tag.id, renameText)
                             reload()
                         } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forError(e)
+                            errorMessage = ErrorMessages.forErrorText(e)
                         }
                     }
                     renamingTag = null
@@ -406,7 +406,7 @@ fun AddFeedScreen(
     var newTagNames by remember { mutableStateOf("") }
     var isSubmitting by remember { mutableStateOf(false) }
     var isRetrying by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var created by remember { mutableStateOf<Subscription?>(null) }
 
     LaunchedEffect(Unit) {
@@ -497,7 +497,7 @@ fun AddFeedScreen(
                                     ),
                                 )
                             } catch (e: Exception) {
-                                errorMessage = ErrorMessages.forError(e)
+                                errorMessage = ErrorMessages.forErrorText(e)
                             }
                             isSubmitting = false
                         }
@@ -505,7 +505,7 @@ fun AddFeedScreen(
                 ) { Text(if (isSubmitting) tr("フィードを確認中…") else tr("追加")) }
             }
             errorMessage?.let { message ->
-                item { ErrorBanner(message) }
+                item { ErrorBanner(tr(message)) }
             }
             created?.let { subscription ->
                 item {
@@ -541,7 +541,7 @@ fun AddFeedScreen(
                                                     created = ApiClient.retryInitialFetch(subscription.id)
                                                     com.filo.app.Analytics.track("retry_feed_fetch")
                                                 } catch (e: Exception) {
-                                                    errorMessage = ErrorMessages.forError(e)
+                                                    errorMessage = ErrorMessages.forErrorText(e)
                                                 }
                                                 isRetrying = false
                                             }
@@ -564,7 +564,7 @@ fun TagsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var tags by remember { mutableStateOf<List<Tag>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var newName by remember { mutableStateOf("") }
     var renamingTag by remember { mutableStateOf<Tag?>(null) }
     var renameText by remember { mutableStateOf("") }
@@ -579,7 +579,7 @@ fun TagsScreen(onBack: () -> Unit) {
         try {
             tags = ApiClient.listTags()
         } catch (e: Exception) {
-            errorMessage = ErrorMessages.forError(e)
+            errorMessage = ErrorMessages.forErrorText(e)
         }
         isLoading = false
     }
@@ -598,7 +598,7 @@ fun TagsScreen(onBack: () -> Unit) {
             try {
                 ApiClient.reorderTags(next.map { it.id })
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
                 reload()
             }
         }
@@ -641,7 +641,7 @@ fun TagsScreen(onBack: () -> Unit) {
                                     newName = ""
                                     reload()
                                 } catch (e: Exception) {
-                                    errorMessage = ErrorMessages.forError(e)
+                                    errorMessage = ErrorMessages.forErrorText(e)
                                 }
                             }
                         },
@@ -649,7 +649,7 @@ fun TagsScreen(onBack: () -> Unit) {
                 }
             }
             errorMessage?.let { message ->
-                item { ErrorBanner(message) { scope.launch { reload() } } }
+                item { ErrorBanner(tr(message)) { scope.launch { reload() } } }
             }
             if (isLoading) {
                 item {
@@ -714,7 +714,7 @@ fun TagsScreen(onBack: () -> Unit) {
                                             editingTagId = null
                                             reload()
                                         } catch (e: Exception) {
-                                            errorMessage = ErrorMessages.forError(e)
+                                            errorMessage = ErrorMessages.forErrorText(e)
                                         }
                                     }
                                 }) { Text(tr("保存")) }
@@ -778,7 +778,7 @@ fun TagsScreen(onBack: () -> Unit) {
                             ApiClient.updateTag(tag.id, renameText)
                             reload()
                         } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forError(e)
+                            errorMessage = ErrorMessages.forErrorText(e)
                         }
                     }
                     renamingTag = null
@@ -800,7 +800,7 @@ fun TagsScreen(onBack: () -> Unit) {
                             ApiClient.deleteTag(tag.id)
                             reload()
                         } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forError(e)
+                            errorMessage = ErrorMessages.forErrorText(e)
                         }
                     }
                     deletingTag = null

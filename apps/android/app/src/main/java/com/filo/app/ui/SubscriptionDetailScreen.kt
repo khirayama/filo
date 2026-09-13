@@ -74,9 +74,9 @@ fun SubscriptionDetailScreen(
     var isLoadingMore by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
     var isGone by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var isRefreshingFeed by remember { mutableStateOf(false) }
-    var refreshNotice by remember { mutableStateOf<String?>(null) }
+    var refreshNotice by remember { mutableStateOf<AppText?>(null) }
 
     var sort by remember { mutableStateOf("published_at_desc") }
     var readFilter by remember { mutableStateOf<Boolean?>(null) }
@@ -111,7 +111,7 @@ fun SubscriptionDetailScreen(
             }
         } catch (e: Exception) {
             if (requestGeneration == articleGeneration.get() && requestFilters == filters()) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         }
     }
@@ -131,7 +131,7 @@ fun SubscriptionDetailScreen(
                 }
             } catch (e: Exception) {
                 if (requestGeneration == articleGeneration.get() && requestFilters == filters()) {
-                    errorMessage = ErrorMessages.forError(e)
+                    errorMessage = ErrorMessages.forErrorText(e)
                 }
             } finally {
                 if (requestGeneration == articleGeneration.get()) isLoadingMore = false
@@ -146,7 +146,7 @@ fun SubscriptionDetailScreen(
                 subscription = subscription?.copy(unreadCount = result.unreadCount)
                 reloadArticles()
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         }
     }
@@ -171,7 +171,7 @@ fun SubscriptionDetailScreen(
                     else it.copy(userState = state)
                 }
             } catch (e: Exception) {
-                errorMessage = ErrorMessages.forError(e)
+                errorMessage = ErrorMessages.forErrorText(e)
             }
         }
     }
@@ -191,9 +191,9 @@ fun SubscriptionDetailScreen(
             }
             reloadArticles()
         } catch (e: ApiException) {
-            if (e.status == 404) isGone = true else errorMessage = ErrorMessages.forError(e)
+            if (e.status == 404) isGone = true else errorMessage = ErrorMessages.forErrorText(e)
         } catch (e: Exception) {
-            errorMessage = ErrorMessages.forError(e)
+            errorMessage = ErrorMessages.forErrorText(e)
         }
         isLoading = false
     }
@@ -211,10 +211,10 @@ fun SubscriptionDetailScreen(
             )
             val done = awaitRefreshCompletion(result.queuedAt, feedId)
             if (!done) {
-                refreshNotice = AppStrings.get("取得に時間がかかっています。あとで再度更新してください。")
+                refreshNotice = AppText("取得に時間がかかっています。あとで再度更新してください。")
             }
         } catch (e: Exception) {
-            refreshNotice = ErrorMessages.forError(e)
+            refreshNotice = ErrorMessages.forErrorText(e)
         }
         reloadArticles()
         isRefreshingFeed = false
@@ -374,7 +374,7 @@ fun SubscriptionDetailScreen(
                                             subscription = ApiClient.retryInitialFetch(subscriptionId)
                                             com.filo.app.Analytics.track("retry_feed_fetch", mapOf("subscription_id" to subscriptionId))
                                         } catch (e: Exception) {
-                                            errorMessage = ErrorMessages.forError(e)
+                                            errorMessage = ErrorMessages.forErrorText(e)
                                         }
                                     }
                                 }) { Text(tr("再試行")) }
@@ -396,7 +396,7 @@ fun SubscriptionDetailScreen(
                                             try {
                                                 subscription = ApiClient.setSubscriptionTags(subscriptionId, next)
                                             } catch (e: Exception) {
-                                                errorMessage = ErrorMessages.forError(e)
+                                                errorMessage = ErrorMessages.forErrorText(e)
                                             }
                                         }
                                     }
@@ -407,12 +407,12 @@ fun SubscriptionDetailScreen(
                 }
             }
             errorMessage?.let { message ->
-                item { ErrorBanner(message) { scope.launch { reload() } } }
+                item { ErrorBanner(tr(message)) { scope.launch { reload() } } }
             }
             refreshNotice?.let { notice ->
                 item {
                     Text(
-                        notice,
+                        tr(notice),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -502,7 +502,7 @@ fun SubscriptionDetailScreen(
                         try {
                             subscription = ApiClient.updateSubscription(subscriptionId, renameText.trim().ifEmpty { null })
                         } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forError(e)
+                            errorMessage = ErrorMessages.forErrorText(e)
                         }
                     }
                     showRename = false
@@ -543,7 +543,7 @@ fun SubscriptionDetailScreen(
                             ApiClient.deleteSubscription(subscriptionId)
                             onBack()
                         } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forError(e)
+                            errorMessage = ErrorMessages.forErrorText(e)
                         }
                     }
                 }) { Text(tr("購読解除"), color = MaterialTheme.colorScheme.error) }

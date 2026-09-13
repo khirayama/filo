@@ -32,7 +32,7 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onSaved: (() -> Uni
     val scope = rememberCoroutineScope()
     var url by remember(initialUrl) { mutableStateOf(initialUrl) }
     var isSubmitting by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<AppText?>(null) }
 
     Scaffold(
         topBar = {
@@ -72,14 +72,14 @@ fun AddArticleScreen(initialUrl: String, onBack: () -> Unit, onSaved: (() -> Uni
                             )
                             onSaved?.invoke()
                         } catch (cause: Exception) {
-                            error = ErrorMessages.forError(cause)
+                            error = ErrorMessages.forErrorText(cause)
                         } finally {
                             isSubmitting = false
                         }
                     }
                 },
             ) { Text(tr(if (isSubmitting) "保存中…" else "追加")) }
-            error?.let { ErrorBanner(it) }
+            error?.let { ErrorBanner(tr(it)) }
         }
     }
 }
