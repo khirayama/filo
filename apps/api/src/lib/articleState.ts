@@ -1,4 +1,4 @@
-import { readCursorFor } from "./readCursor";
+import { adjustArticleUnreadMutations, adjustReadingListUnreadMutation, readCursorFor } from "./readCursor";
 import type { ArticleStateRow } from "./serialize";
 import { nowIso } from "./util";
 
@@ -98,6 +98,34 @@ export async function setArticleCollection(
   active: boolean,
 ): Promise<ArticleStateRow | null> {
   const now = nowIso();
-  await collectionMutation(db, userId, articleId, kind, active, now).run();
+  const before = await effectiveArticleState(db, userId, articleId, feedId);
+  const mutations = [collectionMutation(db, userId, articleId, kind, active, now)];
+  if (kind === "reading_list" && before && before.is_read === 0) {
+    const membershipDelta = active
+      ? (before.in_reading_list === 1 ? 0 : 1)
+      : (before.in_reading_list === 1 ? -1 : 0);
+    if (membershipDelta !== 0) mutations.push(adjustReadingListUnreadMutation(db, userId, membershipDelta, now));
+  }
+  await db.batch(mutations);
+  return effectiveArticleState(db, userId, articleId, feedId);
+}
+
+export async function setArticleReadState(
+  db: D1Database,
+  userId: number,
+  articleId: number,
+  feedId: number,
+  isRead: boolean,
+): Promise<ArticleStateRow | null> {
+  const before = await effectiveArticleState(db, userId, articleId, feedId);
+  if (!before) return null;
+
+  const nextRead = isRead ? 1 : 0;
+  const delta = nextRead === before.is_read ? 0 : (nextRead === 1 ? -1 : 1);
+  const now = nowIso();
+  await db.batch([
+    readStateMutation(db, userId, articleId, isRead, now),
+    ...adjustArticleUnreadMutations(db, userId, feedId, before.in_reading_list === 1, delta, now),
+  ]);
   return effectiveArticleState(db, userId, articleId, feedId);
 }

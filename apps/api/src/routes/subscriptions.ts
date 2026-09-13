@@ -7,7 +7,11 @@ import {
   serializeSubscription,
   type SubscriptionRow,
 } from "../lib/serialize";
-import { readCursorFor, unreadCountsForSubscriptions } from "../lib/readCursor";
+import {
+  initializeSubscriptionUnreadCount,
+  readCursorFor,
+  recomputeReadingListUnreadCount,
+} from "../lib/readCursor";
 import { attachTags, resolveTagIdsByNames, tagIdsForSubscriptions } from "../lib/tagops";
 import { nowIso, parseId, parseLimit, toIso } from "../lib/util";
 
@@ -28,8 +32,7 @@ async function findFeedByUrl(db: D1Database, feedUrl: string) {
 
 async function serializeOne(db: D1Database, row: SubscriptionRow) {
   const tagMap = await tagIdsForSubscriptions(db, [row.id]);
-  const unreadMap = await unreadCountsForSubscriptions(db, [row.id]);
-  return serializeSubscription(row, tagMap.get(row.id) ?? [], unreadMap.get(row.id) ?? 0);
+  return serializeSubscription(row, tagMap.get(row.id) ?? [], row.unread_count);
 }
 
 export const subscriptionRoutes = new Hono<AppContext>()
@@ -59,9 +62,8 @@ export const subscriptionRoutes = new Hono<AppContext>()
     const hasMore = results.length > limit;
     const page = hasMore ? results.slice(0, limit) : results;
     const tagMap = await tagIdsForSubscriptions(c.env.DB, page.map((r) => r.id));
-    const unreadMap = await unreadCountsForSubscriptions(c.env.DB, page.map((r) => r.id));
     return c.json({
-      data: page.map((row) => serializeSubscription(row, tagMap.get(row.id) ?? [], unreadMap.get(row.id) ?? 0)),
+      data: page.map((row) => serializeSubscription(row, tagMap.get(row.id) ?? [], row.unread_count)),
       meta: { nextCursor: hasMore ? String(offset + limit) : null },
     });
   })
@@ -154,6 +156,7 @@ export const subscriptionRoutes = new Hono<AppContext>()
     }
     const namedTagIds = await resolveTagIdsByNames(c.env.DB, user.id, tagNames as string[]);
     await attachTags(c.env.DB, inserted.id, [...ownedTagIds, ...namedTagIds]);
+    await initializeSubscriptionUnreadCount(c.env.DB, inserted.id, user.id, feed.id, now);
 
     if (!isReady) {
       await c.env.JOBS.send({ jobType: "fetch_feed", feedId: feed.id, reason: "initial", attempt: 1 });
@@ -288,11 +291,19 @@ export const subscriptionRoutes = new Hono<AppContext>()
     }
 
     const cursor = await readCursorFor(c.env.DB, user.id, row.feed_id);
-    const unreadMap = await unreadCountsForSubscriptions(c.env.DB, [subscriptionId]);
+    const nowAfter = nowIso();
+    const unreadCount = await initializeSubscriptionUnreadCount(
+      c.env.DB,
+      subscriptionId,
+      user.id,
+      row.feed_id,
+      nowAfter,
+    );
+    await recomputeReadingListUnreadCount(c.env.DB, user.id, nowAfter);
     return c.json({
       data: {
         lastReadArticleId: cursor?.last_read_article_id ?? null,
-        unreadCount: unreadMap.get(subscriptionId) ?? 0,
+        unreadCount,
         updatedAt: cursor ? toIso(cursor.updated_at) : null,
       },
     });

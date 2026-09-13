@@ -57,6 +57,9 @@ async function resolveUser(env: Env, authHeader?: string | Headers): Promise<Aut
   await env.DB.prepare(
     "INSERT INTO user_settings (user_id, created_at, updated_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING",
   ).bind(row.id, settingsNow, settingsNow).run();
+  await env.DB.prepare(
+    "INSERT INTO user_unread_counts (user_id, reading_list_count, updated_at) VALUES (?, 0, ?) ON CONFLICT (user_id) DO NOTHING",
+  ).bind(row.id, settingsNow).run();
 
   const admins = (env.ADMIN_BETTER_AUTH_USER_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
   return { id: row.id, authUserId: id, isAdmin: admins.includes(id) };

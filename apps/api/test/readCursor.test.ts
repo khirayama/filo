@@ -29,8 +29,9 @@ describe("unread count scopes", () => {
       reading_list: 3,
     });
     expect(captured.sql).toContain("0 AS all_articles");
-    expect(captured.sql).not.toContain("FROM subscriptions");
-    expect(captured.binds).toEqual([7, 7, 7]);
+    expect(captured.sql).toContain("FROM user_unread_counts");
+    expect(captured.sql).not.toContain("FROM articles");
+    expect(captured.binds).toEqual([7]);
   });
 
   it("keeps the legacy both-count query as the default", async () => {
@@ -40,7 +41,9 @@ describe("unread count scopes", () => {
       all_articles: 12,
       reading_list: 3,
     });
-    expect(captured.sql).toContain("FROM subscriptions");
-    expect(captured.binds).toEqual([7, 7, 7, 7, 7, 7]);
+    expect(captured.sql).toContain("FROM subscription_unread_counts");
+    expect(captured.sql).toContain("FROM user_unread_counts");
+    expect(captured.sql).not.toContain("FROM articles");
+    expect(captured.binds).toEqual([7, 7]);
   });
 });

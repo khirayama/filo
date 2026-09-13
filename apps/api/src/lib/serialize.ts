@@ -17,6 +17,7 @@ export interface SubscriptionRow {
   feed_status: string;
   last_success_fetched_at: string | null;
   latest_published_at: string | null;
+  unread_count: number;
 }
 
 export const SUBSCRIPTION_SELECT = `
@@ -27,10 +28,12 @@ export const SUBSCRIPTION_SELECT = `
     f.feed_url AS feed_url, f.favicon_url AS feed_favicon_url, f.language AS feed_language,
     f.status AS feed_status,
     fs.last_success_fetched_at AS last_success_fetched_at,
-    (SELECT MAX(a.published_at) FROM articles a WHERE a.feed_id = f.id) AS latest_published_at
+    (SELECT MAX(a.published_at) FROM articles a WHERE a.feed_id = f.id) AS latest_published_at,
+    COALESCE(uc.unread_count, 0) AS unread_count
   FROM subscriptions s
   JOIN feeds f ON f.id = s.feed_id
   LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
+  LEFT JOIN subscription_unread_counts uc ON uc.subscription_id = s.id
 `;
 
 const STALE_THRESHOLD_MS = 72 * 60 * 60 * 1000;

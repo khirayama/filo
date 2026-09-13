@@ -12,6 +12,7 @@ import {
   safeFetch,
 } from "../lib/net";
 import { isoOffset, nowIso } from "../lib/util";
+import { incrementUnreadForFeedMutation } from "../lib/readCursor";
 
 interface FeedRow {
   id: number;
@@ -374,6 +375,13 @@ export async function runFetchFeed(
           .first<{ id: number }>();
         if (inserted) newArticleIds.push(inserted.id);
       }
+    }
+
+    // New articles are unread for every subscription of this feed. Updating
+    // the derived counters once per fetch avoids rescanning the feed whenever
+    // a client renders its subscription list.
+    if (newArticleIds.length > 0) {
+      await incrementUnreadForFeedMutation(env.DB, feedId, newArticleIds.length, now).run();
     }
 
     // 言語がまだ入っていない記事を埋める。フィードから消えた古い記事は上の upsert で
