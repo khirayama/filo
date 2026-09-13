@@ -560,15 +560,21 @@ object AppStrings {
 
     fun get(source: String): String {
         val language = LanguagePreference.value
-        return translations[language]?.get(source)
+        val localized = translations[language]?.get(source)
             ?: supplementalTranslations[language]?.get(source)
             ?: resourceTranslations[language]?.get(source)
             ?: remainingTranslations[language]?.get(source)
             ?: settingsTranslations[language]?.get(source)
             ?: completionTranslations[language]?.get(source)
-            ?: commonEnglish[source]
-            ?: translations["en"]?.get(source)
-            ?: source
+        if (localized != null) return localized
+
+        // Japanese source strings are already the Japanese UI. Do not replace
+        // missing Japanese entries with the English fallback.
+        if (language != "ja") {
+            commonEnglish[source]?.let { return it }
+            translations["en"]?.get(source)?.let { return it }
+        }
+        return source
     }
 
     fun format(source: String, vararg args: Any): String = runCatching {
