@@ -214,19 +214,28 @@ function ArticleRow({
   const isTranslated = translatedTitle != null;
   const displayTitle = showOriginal || !isTranslated ? article.title : translatedTitle;
   const subscriptionId = article.subscriptionContext.subscriptionIds[0];
-  const titleStyle = { fontSize: "14px", fontWeight: isRead ? 400 : 600 };
+  const titleStyle = { fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: "20px" };
+  // Keep translated titles from growing a row without forcing every title to
+  // occupy the same height.
+  const mobileTitleStyle = {
+    ...titleStyle,
+    display: "-webkit-box" as const,
+    overflow: "hidden",
+    WebkitBoxOrient: "vertical" as const,
+    WebkitLineClamp: 2,
+  };
   const titleEl = article.canonicalUrl ? (
     <a
       href={article.canonicalUrl}
       target="_blank"
       rel="noreferrer"
       onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}
-      style={{ ...titleStyle, color: "inherit", textDecoration: "none" }}
+      style={{ ...mobileTitleStyle, color: "inherit", textDecoration: "none" }}
     >
       {displayTitle}
     </a>
   ) : (
-    <span style={titleStyle}>{displayTitle}</span>
+    <span style={mobileTitleStyle}>{displayTitle}</span>
   );
   const desktopTitleEl = article.canonicalUrl ? (
     <a
@@ -277,35 +286,51 @@ function ArticleRow({
       </span>
     );
 
-  const translationLabel = isTranslated ? (
-    <button
-      type="button"
-      aria-pressed={showOriginal}
-      aria-label={showOriginal ? t("翻訳") : t("原文")}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setShowOriginal((v) => !v);
-      }}
+  // Keep the label's vertical slot present even before translation completes.
+  // This prevents its font and border metrics from changing the row height.
+  const translationLabel = (
+    <span
+      aria-hidden={!isTranslated}
       style={{
-        background: "transparent",
-        border: `1px solid ${palette.border}`,
-        borderRadius: "3px",
-        color: palette.muted,
-        cursor: "pointer",
+        display: "inline-flex",
         flexShrink: 0,
-        font: "inherit",
-        fontSize: "10px",
-        lineHeight: "16px",
-        padding: "0 4px",
-        position: "relative",
-        whiteSpace: "nowrap",
-        zIndex: 1,
+        height: "18px",
+        visibility: isTranslated ? "visible" : "hidden",
       }}
     >
-      {showOriginal ? t("翻訳") : t("原文")}
-    </button>
-  ) : null;
+      {isTranslated ? (
+        <button
+          type="button"
+          aria-pressed={showOriginal}
+          aria-label={showOriginal ? t("翻訳") : t("原文")}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setShowOriginal((v) => !v);
+          }}
+          style={{
+            background: "transparent",
+            border: `1px solid ${palette.border}`,
+            borderRadius: "3px",
+            boxSizing: "border-box",
+            color: palette.muted,
+            cursor: "pointer",
+            flexShrink: 0,
+            font: "inherit",
+            fontSize: "10px",
+            height: "18px",
+            lineHeight: "16px",
+            padding: "0 4px",
+            position: "relative",
+            whiteSpace: "nowrap",
+            zIndex: 1,
+          }}
+        >
+          {showOriginal ? t("翻訳") : t("原文")}
+        </button>
+      ) : null}
+    </span>
+  );
   const articleDate = article.publishedAt ?? article.fetchedAt;
   const dateEl = (
     <time dateTime={articleDate ?? undefined} style={{ color: palette.muted, flexShrink: 0, fontSize: "12px", whiteSpace: "nowrap" }}>
@@ -403,7 +428,7 @@ function ArticleRow({
             {dateEl}
             {actions}
           </div>
-          <div style={{ fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: 1.4, marginTop: 0 }}>
+          <div style={{ marginTop: 0 }}>
             {titleEl}
           </div>
         </>
