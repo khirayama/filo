@@ -769,7 +769,9 @@ private fun RssNavigation(
                     },
                 ) {
                     Column(Modifier.fillMaxSize()) {
-                        if (currentBackStackEntry?.destination?.route != "articles") {
+                        if (currentBackStackEntry?.destination?.route != "articles" &&
+                            currentBackStackEntry?.destination?.route != "settings"
+                        ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
