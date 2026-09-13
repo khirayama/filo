@@ -36,6 +36,7 @@ async function resolveUser(env: Env, authHeader?: string | Headers): Promise<Aut
 
   let row = await env.DB.prepare("SELECT id, email FROM users WHERE auth_user_id = ? LIMIT 1")
     .bind(id).first<{ id: number; email: string | null }>();
+  let needsProvisioning = false;
 
   if (!row) {
     const now = nowIso();
@@ -47,19 +48,25 @@ async function resolveUser(env: Env, authHeader?: string | Headers): Promise<Aut
     // row here.
     row = await env.DB.prepare("SELECT id, email FROM users WHERE auth_user_id = ? LIMIT 1")
       .bind(id).first<{ id: number; email: string | null }>();
+    needsProvisioning = true;
   }
   if (!row) throw errors.internal();
 
-  // Settings are part of first-request provisioning too. Always use an
-  // idempotent insert so an existing row missing settings is repaired and
-  // concurrent requests cannot create duplicates.
-  const settingsNow = nowIso();
-  await env.DB.prepare(
-    "INSERT INTO user_settings (user_id, created_at, updated_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING",
-  ).bind(row.id, settingsNow, settingsNow).run();
-  await env.DB.prepare(
-    "INSERT INTO user_unread_counts (user_id, reading_list_count, updated_at) VALUES (?, 0, ?) ON CONFLICT (user_id) DO NOTHING",
-  ).bind(row.id, settingsNow).run();
+  // These rows are created once with the user projection. Running the
+  // idempotent inserts on every authenticated request still makes D1 inspect
+  // the conflict indexes on every request, so only the new-user path needs
+  // the repair/provisioning work. Existing users are covered by migrations.
+  if (needsProvisioning) {
+    const settingsNow = nowIso();
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO user_settings (user_id, created_at, updated_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING",
+      ).bind(row.id, settingsNow, settingsNow),
+      env.DB.prepare(
+        "INSERT INTO user_unread_counts (user_id, reading_list_count, updated_at) VALUES (?, 0, ?) ON CONFLICT (user_id) DO NOTHING",
+      ).bind(row.id, settingsNow),
+    ]);
+  }
 
   const admins = (env.ADMIN_BETTER_AUTH_USER_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
   return { id: row.id, authUserId: id, isAdmin: admins.includes(id) };
