@@ -14,6 +14,7 @@ import type {
   Tag,
   SavedArticleResult,
   UnreadCounts,
+  UnreadCountScope,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
@@ -141,7 +142,10 @@ export function createApiClient(getToken: TokenGetter) {
       const res = await get<ArticleListItem[]>(`/api/v1/articles?${params}`);
       return { articles: res.data, nextCursor: res.meta?.nextCursor ?? null };
     },
-    getUnreadCounts: async () => (await get<UnreadCounts>("/api/v1/articles/unread-counts")).data,
+    getUnreadCounts: async (scope: UnreadCountScope = "both") => {
+      const params = scope === "both" ? "" : `?scope=${scope}`;
+      return (await get<UnreadCounts>(`/api/v1/articles/unread-counts${params}`)).data;
+    },
     markAllArticlesRead: async (tagId?: number) =>
       (await send<{ updatedFeeds: number }>("POST", "/api/v1/articles/mark-all-read", tagId === undefined ? {} : { tagId })).data,
     removeReadArticlesFromReadingList: async () =>

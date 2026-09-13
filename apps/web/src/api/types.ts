@@ -99,6 +99,8 @@ export interface UnreadCounts {
   readingList: number;
 }
 
+export type UnreadCountScope = "all" | "reading_list" | "both";
+
 export interface RefreshResult {
   accepted: boolean;
   enqueued: number;

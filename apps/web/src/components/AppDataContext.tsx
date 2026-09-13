@@ -16,7 +16,7 @@ interface AppData {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  refreshUnreadCounts: () => Promise<void>;
+  refreshUnreadCounts: (options?: { force?: boolean }) => Promise<void>;
   setSettings: (settings: Settings) => void;
   language: SupportedLanguage;
   t: (source: string, values?: Record<string, string | number>) => string;
@@ -25,6 +25,14 @@ interface AppData {
 const AppDataContext = createContext<AppData | null>(null);
 
 const LANGUAGE_STORAGE_KEY = "filo:language";
+const UNREAD_CACHE_TTL_MS = 10_000;
+
+interface CachedUnreadCounts {
+  userId: string;
+  value: UnreadCounts;
+  fetchedAt: number;
+  inFlight?: Promise<UnreadCounts>;
+}
 
 function loadStoredLanguage(): SupportedLanguage {
   try {
@@ -55,18 +63,62 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [localLanguage, setLocalLanguage] = useState<SupportedLanguage>(loadStoredLanguage);
   const generation = useRef(0);
   const activeUserId = useRef<string | null | undefined>(undefined);
+  const unreadCache = useRef<CachedUnreadCounts | null>(null);
+
+  const fetchUnreadCounts = useCallback(async (force = false): Promise<UnreadCounts | null> => {
+    if (!userId || activeUserId.current !== userId) return null;
+    const cached = unreadCache.current;
+    const now = Date.now();
+    if (cached?.userId === userId && cached.inFlight) return cached.inFlight;
+    if (
+      !force &&
+      cached?.userId === userId &&
+      now - cached.fetchedAt < UNREAD_CACHE_TTL_MS
+    ) {
+      return cached.value;
+    }
+
+    let request: Promise<UnreadCounts>;
+    request = api.getUnreadCounts().then((nextUnreadCounts) => {
+      if (activeUserId.current === userId) {
+        unreadCache.current = {
+          userId,
+          value: nextUnreadCounts,
+          fetchedAt: Date.now(),
+        };
+      }
+      return nextUnreadCounts;
+    }).finally(() => {
+      if (unreadCache.current?.inFlight === request) {
+        unreadCache.current.inFlight = undefined;
+      }
+    });
+    unreadCache.current = {
+      userId,
+      value: cached?.userId === userId ? cached.value : { allArticles: 0, readingList: 0 },
+      fetchedAt: cached?.userId === userId ? cached.fetchedAt : 0,
+      inFlight: request,
+    };
+    return request;
+  }, [api, userId]);
 
   const refresh = useCallback(async () => {
     if (!userId || activeUserId.current !== userId) return;
     const refreshUserId = userId;
     const gen = ++generation.current;
     try {
-      const [tagList, subscriptionList, userSettings, nextUnreadCounts] = await Promise.all([
+      const [tagList, subscriptionList, userSettings, readingListCounts] = await Promise.all([
         api.listTags(),
         api.listSubscriptions(),
         api.getSettings(),
-        api.getUnreadCounts(),
+        api.getUnreadCounts("reading_list"),
       ]);
+      const nextUnreadCounts: UnreadCounts = {
+        // Each article belongs to at most one subscription for a user, so the
+        // subscription badges are an exact and cheaper source for this total.
+        allArticles: subscriptionList.reduce((total, subscription) => total + subscription.unreadCount, 0),
+        readingList: readingListCounts.readingList,
+      };
       if (generation.current !== gen || activeUserId.current !== refreshUserId) return;
       setTags(tagList);
       setSubscriptions(subscriptionList);
@@ -74,6 +126,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setLocalLanguage(userSettings.language);
       storeLanguage(userSettings.language);
       setUnreadCounts(nextUnreadCounts);
+      unreadCache.current = {
+        userId: refreshUserId,
+        value: nextUnreadCounts,
+        fetchedAt: Date.now(),
+      };
       applyTheme(userSettings.theme);
       setError(null);
     } catch (e) {
@@ -84,11 +141,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   }, [api, userId]);
 
-  const refreshUnreadCounts = useCallback(async () => {
-    if (!userId || activeUserId.current !== userId) return;
-    const nextUnreadCounts = await api.getUnreadCounts();
-    if (activeUserId.current === userId) setUnreadCounts(nextUnreadCounts);
-  }, [api, userId]);
+  const refreshUnreadCounts = useCallback(async (options: { force?: boolean } = {}) => {
+    const nextUnreadCounts = await fetchUnreadCounts(options.force === true);
+    if (nextUnreadCounts && activeUserId.current === userId) setUnreadCounts(nextUnreadCounts);
+  }, [fetchUnreadCounts, userId]);
 
   useEffect(() => {
     const userChanged = activeUserId.current !== userId;
@@ -99,6 +155,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setSubscriptions([]);
       setSettingsState(null);
       setUnreadCounts({ allArticles: 0, readingList: 0 });
+      unreadCache.current = null;
       setError(null);
       setLoading(Boolean(userId));
     }

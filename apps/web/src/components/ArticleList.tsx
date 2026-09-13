@@ -86,7 +86,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
             trackEvent(patch.isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", { items: [item] });
           }
         }
-        void refreshUnreadCounts().catch(() => undefined);
+        void refreshUnreadCounts({ force: true }).catch(() => undefined);
         // Same-filter reloads may race with this write and read the old server
         // state, so still apply the mutation response after those reloads.
         // Only discard it when the API/user or visible filters have changed.

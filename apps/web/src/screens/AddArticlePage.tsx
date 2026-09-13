@@ -28,7 +28,7 @@ export function AddArticlePage() {
     try {
       await api.importArticle({ url: url.trim() });
       trackEvent("add_to_reading_list", { source: "manual_url" });
-      await refreshUnreadCounts();
+      await refreshUnreadCounts({ force: true });
       navigate("/articles?readingList=1", { replace: true });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

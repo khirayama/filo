@@ -172,7 +172,7 @@ function ArticlesListPage() {
       await api.removeReadArticlesFromReadingList();
       trackEvent("remove_read_articles_from_reading_list");
       await list.reload();
-      void refreshUnreadCounts().catch(() => undefined);
+      void refreshUnreadCounts({ force: true }).catch(() => undefined);
     } catch (e) {
       setMarkAllError(errorMessage(e, language));
     } finally {
