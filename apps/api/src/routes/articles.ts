@@ -1,12 +1,20 @@
 import { Hono } from "hono";
 import { requireArticleAccess, subscriptionContextsForFeeds } from "../lib/articleAccess";
-import { effectiveArticleState, readStateMutation, setArticleCollection } from "../lib/articleState";
+import { effectiveArticleState, setArticleCollection, setArticleReadState } from "../lib/articleState";
 import type { AppContext } from "../lib/auth";
-import { decodeCursor, encodeCursor } from "../lib/cursor";
+import { decodeCursor, encodeCursor, type ArticleCursor } from "../lib/cursor";
 import { errors } from "../lib/errors";
 import { normalizeSourceLanguage } from "../lib/languages";
 import { canonicalizeUrl } from "../lib/net";
-import { EFFECTIVE_IS_READ, unreadCountsForUser, type UnreadCountScope } from "../lib/readCursor";
+import {
+  adjustReadingListUnreadMutation,
+  EFFECTIVE_IS_READ,
+  incrementUnreadForFeedMutation,
+  initializeSubscriptionUnreadCount,
+  recomputeReadingListUnreadCount,
+  unreadCountsForUser,
+  type UnreadCountScope,
+} from "../lib/readCursor";
 import { serializeUserState } from "../lib/serialize";
 import { htmlToText, nowIso, parseId, parseLimit, previewFrom, sanitizeHtml, toIso } from "../lib/util";
 
@@ -38,6 +46,137 @@ interface ArticleListRow {
   is_read: number | null;
   in_reading_list: number | null;
   is_bookmarked: number | null;
+}
+
+type ReadGroup = 0 | 1;
+
+function readGroupCondition(group: ReadGroup): string {
+  return group === 0
+    ? "(ars.is_read = 0 OR (ars.user_id IS NULL AND (frc.last_read_article_id IS NULL OR frc.last_read_article_id < a.id)))"
+    : "(ars.is_read = 1 OR (ars.user_id IS NULL AND frc.last_read_article_id >= a.id))";
+}
+
+function articleDateOrder(sort: string): string {
+  return sort === "fetched_at_desc"
+    ? "a.fetched_at DESC, a.id DESC"
+    : "(a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC";
+}
+
+function articleWithinCursor(sort: string, cursor: ArticleCursor): { sql: string; binds: unknown[] } {
+  if (sort === "fetched_at_desc") {
+    return {
+      sql: "(a.fetched_at < ? OR (a.fetched_at = ? AND a.id < ?))",
+      binds: [cursor.ts, cursor.ts, cursor.id],
+    };
+  }
+  if (cursor.ts !== null) {
+    return {
+      sql: "(a.published_at IS NULL OR a.published_at < ? OR (a.published_at = ? AND a.id < ?))",
+      binds: [cursor.ts, cursor.ts, cursor.id],
+    };
+  }
+  return { sql: "(a.published_at IS NULL AND a.id < ?)", binds: [cursor.id] };
+}
+
+function articleListSelect(
+  readingListJoin: "JOIN" | "LEFT JOIN",
+  bookmarkJoin: "JOIN" | "LEFT JOIN",
+  where: string,
+  orderBy: string,
+): string {
+  return `
+    SELECT
+      a.id, a.title, a.canonical_url, a.rss_summary, a.rss_content_html,
+      a.published_at, a.fetched_at, a.source_language,
+      f.id AS feed_id, f.title AS feed_title, f.favicon_url AS feed_favicon_url,
+      (${EFFECTIVE_IS_READ}) AS is_read,
+      CASE WHEN rli.user_id IS NULL THEN 0 ELSE 1 END AS in_reading_list,
+      CASE WHEN ab.user_id IS NULL THEN 0 ELSE 1 END AS is_bookmarked
+    FROM articles a
+    JOIN feeds f ON f.id = a.feed_id
+    LEFT JOIN article_read_states ars ON ars.article_id = a.id AND ars.user_id = ?
+    ${readingListJoin} article_user_collections rli
+      ON rli.article_id = a.id AND rli.user_id = ? AND rli.kind = 'reading_list'
+    ${bookmarkJoin} article_user_collections ab
+      ON ab.article_id = a.id AND ab.user_id = ? AND ab.kind = 'bookmark'
+    LEFT JOIN feed_read_cursors frc ON frc.feed_id = a.feed_id AND frc.user_id = ?
+    WHERE ${where}
+    ORDER BY ${orderBy}
+    LIMIT ?
+  `;
+}
+
+async function articleRowsForGroup(
+  db: D1Database,
+  userId: number,
+  baseConditions: string[],
+  baseBinds: unknown[],
+  readingListJoin: "JOIN" | "LEFT JOIN",
+  bookmarkJoin: "JOIN" | "LEFT JOIN",
+  sort: string,
+  group: ReadGroup,
+  cursor: ArticleCursor | undefined,
+  limit: number,
+): Promise<ArticleListRow[]> {
+  const conditions = [...baseConditions, readGroupCondition(group)];
+  const binds = [...baseBinds];
+  if (cursor) {
+    const within = articleWithinCursor(sort, cursor);
+    conditions.push(within.sql);
+    binds.push(...within.binds);
+  }
+  const sql = articleListSelect(readingListJoin, bookmarkJoin, conditions.join(" AND "), articleDateOrder(sort));
+  const { results } = await db.prepare(sql).bind(userId, userId, userId, userId, ...binds, limit).all<ArticleListRow>();
+  return results;
+}
+
+async function splitArticleRows(
+  db: D1Database,
+  userId: number,
+  baseConditions: string[],
+  baseBinds: unknown[],
+  readingListJoin: "JOIN" | "LEFT JOIN",
+  bookmarkJoin: "JOIN" | "LEFT JOIN",
+  sort: string,
+  readOrder: string,
+  cursor: ArticleCursor | undefined,
+  limit: number,
+): Promise<{ page: ArticleListRow[]; hasMore: boolean }> {
+  const firstGroup: ReadGroup = readOrder === "read_first" ? 1 : 0;
+  const secondGroup: ReadGroup = firstGroup === 0 ? 1 : 0;
+
+  // Once a cursor is in the second group, the first group is exhausted and
+  // must not be queried again.
+  if (cursor && cursor.r === secondGroup) {
+    const rows = await articleRowsForGroup(
+      db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
+      sort, secondGroup, cursor, limit + 1,
+    );
+    return { page: rows.slice(0, limit), hasMore: rows.length > limit };
+  }
+
+  const firstRows = await articleRowsForGroup(
+    db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
+    sort, firstGroup, cursor, limit + 1,
+  );
+  if (firstRows.length > limit) return { page: firstRows.slice(0, limit), hasMore: true };
+
+  // A full first group still needs one probe row from the second group to
+  // avoid incorrectly reporting the end of pagination at the boundary.
+  if (firstRows.length === limit) {
+    const secondProbe = await articleRowsForGroup(
+      db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
+      sort, secondGroup, undefined, 1,
+    );
+    return { page: firstRows, hasMore: secondProbe.length > 0 };
+  }
+
+  const secondRows = await articleRowsForGroup(
+    db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
+    sort, secondGroup, undefined, limit - firstRows.length + 1,
+  );
+  const page = [...firstRows, ...secondRows.slice(0, limit - firstRows.length)];
+  return { page, hasMore: secondRows.length > limit - firstRows.length };
 }
 
 function fallbackSavedArticleTitle(url: string): string {
@@ -92,11 +231,12 @@ async function saveArticleFromUrl(
   const feed = await db.prepare("SELECT id FROM feeds WHERE feed_url = ?").bind(input.url).first<{ id: number }>();
   if (!feed) throw errors.internal();
 
-  await db.prepare(
+  const insertedArticle = await db.prepare(
     `INSERT INTO articles (feed_id, guid, canonical_url, dedupe_key, title, rss_summary, fetched_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (feed_id, dedupe_key) DO NOTHING`,
-  ).bind(feed.id, input.url, input.url, input.url, title, input.summary ?? null, now, now, now).run();
+     ON CONFLICT (feed_id, dedupe_key) DO NOTHING
+     RETURNING id`,
+  ).bind(feed.id, input.url, input.url, input.url, title, input.summary ?? null, now, now, now).first<{ id: number }>();
   const article = await db.prepare(
     "SELECT id, title, canonical_url FROM articles WHERE feed_id = ? AND dedupe_key = ?",
   ).bind(feed.id, input.url).first<{ id: number; title: string; canonical_url: string | null }>();
@@ -106,11 +246,19 @@ async function saveArticleFromUrl(
     `SELECT 1 FROM article_user_collections
      WHERE user_id = ? AND article_id = ? AND kind = 'reading_list'`,
   ).bind(userId, article.id).first();
-  await db.prepare(
+  const articleState = membership === null
+    ? await effectiveArticleState(db, userId, article.id, feed.id)
+    : null;
+  const collectionMutations: D1PreparedStatement[] = [db.prepare(
     `INSERT INTO article_user_collections (user_id, article_id, kind, added_at, updated_at)
      VALUES (?, ?, 'reading_list', ?, ?)
      ON CONFLICT (user_id, article_id, kind) DO UPDATE SET updated_at = excluded.updated_at`,
-  ).bind(userId, article.id, now, now).run();
+  ).bind(userId, article.id, now, now)];
+  if (membership === null && articleState?.is_read === 0) {
+    collectionMutations.push(adjustReadingListUnreadMutation(db, userId, 1, now));
+  }
+  if (insertedArticle) collectionMutations.push(incrementUnreadForFeedMutation(db, feed.id, 1, now));
+  await db.batch(collectionMutations);
 
   const content = await db.prepare("SELECT status FROM article_contents WHERE article_id = ?").bind(article.id).first<{ status: string }>();
   if (!content || content.status === "error") {
@@ -208,73 +356,66 @@ export const articleRoutes = new Hono<AppContext>()
       binds.push(user.id);
     }
 
-    // Read state combines explicit rows with the per-feed read cursor.
-    if (read === true) conditions.push(`(${EFFECTIVE_IS_READ}) = 1`);
-    if (read === false) conditions.push(`(${EFFECTIVE_IS_READ}) = 0`);
-
+    const baseConditions = [...conditions];
+    const baseBinds = [...binds];
     const cursorRaw = c.req.query("cursor");
-    if (cursorRaw !== undefined) {
-      const cursor = await decodeCursor(cursorSecret, sort, cursorRaw, readOrder);
-      let within: string;
-      const withinBinds: unknown[] = [];
-      if (sort === "fetched_at_desc") {
-        within = "(a.fetched_at < ? OR (a.fetched_at = ? AND a.id < ?))";
-        withinBinds.push(cursor.ts, cursor.ts, cursor.id);
-      } else if (cursor.ts !== null) {
-        within = "(a.published_at IS NULL OR a.published_at < ? OR (a.published_at = ? AND a.id < ?))";
-        withinBinds.push(cursor.ts, cursor.ts, cursor.id);
-      } else {
-        within = "(a.published_at IS NULL AND a.id < ?)";
-        withinBinds.push(cursor.id);
-      }
-      if (readOrder === "none") {
-        conditions.push(within);
-        binds.push(...withinBinds);
-      } else {
-        // The selected read state group comes first; later pages continue
-        // within that group and then move to the other group.
-        const laterReadState = readOrder === "read_first" ? "<" : ">";
-        conditions.push(`((${EFFECTIVE_IS_READ}) ${laterReadState} ? OR ((${EFFECTIVE_IS_READ}) = ? AND ${within}))`);
-        binds.push(cursor.r, cursor.r, ...withinBinds);
-      }
-    }
-
-    const orderBy =
-      readOrder === "none"
-        ? sort === "fetched_at_desc"
-          ? "a.fetched_at DESC, a.id DESC"
-          : "(a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC"
-        : sort === "fetched_at_desc"
-          ? `(${EFFECTIVE_IS_READ}) ${readOrder === "read_first" ? "DESC" : "ASC"}, a.fetched_at DESC, a.id DESC`
-          : `(${EFFECTIVE_IS_READ}) ${readOrder === "read_first" ? "DESC" : "ASC"}, (a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC`;
     const readingListJoin = readingList === true ? "JOIN" : "LEFT JOIN";
     const bookmarkJoin = bookmarked === true ? "JOIN" : "LEFT JOIN";
+    const cursor = cursorRaw === undefined
+      ? undefined
+      : await decodeCursor(cursorSecret, sort, cursorRaw, readOrder);
+    const useSplitReadQuery = read === undefined && readOrder !== "none";
 
-    const sql = `
-      SELECT
-        a.id, a.title, a.canonical_url, a.rss_summary, a.rss_content_html,
-        a.published_at, a.fetched_at, a.source_language,
-        f.id AS feed_id, f.title AS feed_title, f.favicon_url AS feed_favicon_url,
-        (${EFFECTIVE_IS_READ}) AS is_read,
-        CASE WHEN rli.user_id IS NULL THEN 0 ELSE 1 END AS in_reading_list,
-        CASE WHEN ab.user_id IS NULL THEN 0 ELSE 1 END AS is_bookmarked
-      FROM articles a
-      JOIN feeds f ON f.id = a.feed_id
-      LEFT JOIN article_read_states ars ON ars.article_id = a.id AND ars.user_id = ?
-      ${readingListJoin} article_user_collections rli
-        ON rli.article_id = a.id AND rli.user_id = ? AND rli.kind = 'reading_list'
-      ${bookmarkJoin} article_user_collections ab
-        ON ab.article_id = a.id AND ab.user_id = ? AND ab.kind = 'bookmark'
-      LEFT JOIN feed_read_cursors frc ON frc.feed_id = a.feed_id AND frc.user_id = ?
-      WHERE ${conditions.length > 0 ? conditions.join(" AND ") : "1 = 1"}
-      ORDER BY ${orderBy}
-      LIMIT ?
-    `;
-    const { results } = await c.env.DB.prepare(sql)
-      .bind(user.id, user.id, user.id, user.id, ...binds, limit + 1)
-      .all<ArticleListRow>();
+    let results: ArticleListRow[];
+    let hasMore: boolean;
+    if (useSplitReadQuery) {
+      const split = await splitArticleRows(
+        c.env.DB,
+        user.id,
+        baseConditions,
+        baseBinds,
+        readingListJoin,
+        bookmarkJoin,
+        sort,
+        readOrder,
+        cursor,
+        limit,
+      );
+      results = split.page;
+      hasMore = split.hasMore;
+    } else {
+      // Read state combines explicit rows with the per-feed read cursor.
+      if (read === true) conditions.push(`(${EFFECTIVE_IS_READ}) = 1`);
+      if (read === false) conditions.push(`(${EFFECTIVE_IS_READ}) = 0`);
+      if (cursor) {
+        const within = articleWithinCursor(sort, cursor);
+        if (readOrder === "none") {
+          conditions.push(within.sql);
+          binds.push(...within.binds);
+        } else {
+          // The selected read state group comes first; later pages continue
+          // within that group and then move to the other group.
+          const laterReadState = readOrder === "read_first" ? "<" : ">";
+          conditions.push(`((${EFFECTIVE_IS_READ}) ${laterReadState} ? OR ((${EFFECTIVE_IS_READ}) = ? AND ${within.sql}))`);
+          binds.push(cursor.r, cursor.r, ...within.binds);
+        }
+      }
+      const orderBy = readOrder === "none"
+        ? articleDateOrder(sort)
+        : `${EFFECTIVE_IS_READ} ${readOrder === "read_first" ? "DESC" : "ASC"}, ${articleDateOrder(sort)}`;
+      const sql = articleListSelect(
+        readingListJoin,
+        bookmarkJoin,
+        conditions.length > 0 ? conditions.join(" AND ") : "1 = 1",
+        orderBy,
+      );
+      const query = await c.env.DB.prepare(sql)
+        .bind(user.id, user.id, user.id, user.id, ...binds, limit + 1)
+        .all<ArticleListRow>();
+      results = query.results;
+      hasMore = results.length > limit;
+    }
 
-    const hasMore = results.length > limit;
     const page = hasMore ? results.slice(0, limit) : results;
 
     const contexts = await subscriptionContextsForFeeds(c.env.DB, user.id, page.map((row) => row.feed_id));
@@ -375,6 +516,22 @@ export const articleRoutes = new Hono<AppContext>()
       ).bind(now, now, user.id, user.id, ...tagBinds),
     ]);
 
+    const { results: affectedSubscriptions } = await c.env.DB.prepare(
+      `SELECT s.id, s.feed_id
+       FROM subscriptions s
+       WHERE s.user_id = ?${tagFilter}`,
+    ).bind(user.id, ...tagBinds).all<{ id: number; feed_id: number }>();
+    for (const subscription of affectedSubscriptions) {
+      await initializeSubscriptionUnreadCount(
+        c.env.DB,
+        subscription.id,
+        user.id,
+        subscription.feed_id,
+        now,
+      );
+    }
+    await recomputeReadingListUnreadCount(c.env.DB, user.id, now);
+
     return c.json({ data: { updatedFeeds: upsert?.meta.changes ?? 0 } });
   })
   .delete("/reading-list/read", async (c) => {
@@ -433,6 +590,7 @@ export const articleRoutes = new Hono<AppContext>()
       throw errors.validation("isRead is required");
     }
     if (typeof body.isRead !== "boolean") throw errors.validation("invalid isRead");
-    await readStateMutation(c.env.DB, user.id, articleId, body.isRead, nowIso()).run();
-    return c.json({ data: serializeUserState(await effectiveArticleState(c.env.DB, user.id, articleId, article.feed_id)) });
+    return c.json({
+      data: serializeUserState(await setArticleReadState(c.env.DB, user.id, articleId, article.feed_id, body.isRead)),
+    });
   });

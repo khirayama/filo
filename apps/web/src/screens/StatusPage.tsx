@@ -18,7 +18,9 @@ import {
 import { errorMessage } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
 
-const POLL_INTERVAL_MS = 5000;
+// Status is operational information, not a realtime feed. A slower poll
+// avoids repeatedly counting every article while keeping manual reloads fast.
+const POLL_INTERVAL_MS = 30000;
 
 // One busy marker for all manual operations: which operation, and for which
 // feed ("all" for the bulk buttons).
@@ -66,9 +68,17 @@ export function StatusPage() {
 
   useEffect(() => {
     void load(true);
-    pollRef.current = window.setInterval(() => void load(), POLL_INTERVAL_MS);
+    const poll = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    pollRef.current = window.setInterval(poll, POLL_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [load]);
 
