@@ -56,6 +56,8 @@ object AppStrings {
             "フィードを解析できませんでした。" to "Could not parse the feed.",
             "フィードがHTTPエラーを返しました。(%d)" to "Feed returned an HTTP error (%d).",
             "フィードの取得に失敗しました。" to "Failed to fetch the feed.",
+            "既読に変更しています…" to "Marking as read…",
+            "既読への変更が完了しました。" to "Marked as read.",
             "OPML" to "OPML",
         ),
         "zh" to mapOf(
@@ -82,6 +84,8 @@ object AppStrings {
             "サインアウト" to "退出登录",
             "危険な操作" to "危险操作",
             "この操作は取り消せません。" to "此操作无法撤销。",
+            "既読に変更しています…" to "正在标记为已读…",
+            "既読への変更が完了しました。" to "已标记为已读。",
         ),
         "ko" to mapOf(
             "今" to "지금",
@@ -107,6 +111,8 @@ object AppStrings {
             "サインアウト" to "로그아웃",
             "危険な操作" to "위험한 작업",
             "この操作は取り消せません。" to "되돌릴 수 없습니다.",
+            "既読に変更しています…" to "읽음으로 표시하는 중…",
+            "既読への変更が完了しました。" to "읽음으로 표시했습니다.",
         ),
         "es" to mapOf(
             "今" to "ahora",
@@ -512,6 +518,8 @@ object AppStrings {
             "登録済みのメールアドレスにリセット用のリンクを送信します。" to "Enviaremos un enlace de restablecimiento a tu correo registrado.",
             "記事" to "Artículos",
             "記事の読み上げ再生中に表示されます" to "Se muestra mientras se lee un artículo en voz alta",
+            "既読に変更しています…" to "Marcando como leído…",
+            "既読への変更が完了しました。" to "Marcado como leído.",
         ),
     )
 

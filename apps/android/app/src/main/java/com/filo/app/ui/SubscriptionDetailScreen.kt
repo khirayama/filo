@@ -29,6 +29,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -77,6 +79,16 @@ fun SubscriptionDetailScreen(
     var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var isRefreshingFeed by remember { mutableStateOf(false) }
     var refreshNotice by remember { mutableStateOf<AppText?>(null) }
+    var isMarkingAllRead by remember { mutableStateOf(false) }
+    var markAllReadNotice by remember { mutableStateOf<AppText?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val markAllReadNoticeText = markAllReadNotice?.let { tr(it) }
+
+    LaunchedEffect(markAllReadNoticeText) {
+        val notice = markAllReadNoticeText ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(notice)
+        markAllReadNotice = null
+    }
 
     var sort by remember { mutableStateOf("published_at_desc") }
     var readFilter by remember { mutableStateOf<Boolean?>(null) }
@@ -140,13 +152,20 @@ fun SubscriptionDetailScreen(
     }
 
     fun markAllRead() {
+        if (isMarkingAllRead) return
         scope.launch {
+            isMarkingAllRead = true
+            markAllReadNotice = null
+            errorMessage = null
             try {
                 val result = ApiClient.markAllRead(subscriptionId)
                 subscription = subscription?.copy(unreadCount = result.unreadCount)
                 reloadArticles()
+                markAllReadNotice = AppText("既読への変更が完了しました。")
             } catch (e: Exception) {
                 errorMessage = ErrorMessages.forErrorText(e)
+            } finally {
+                isMarkingAllRead = false
             }
         }
     }
@@ -227,6 +246,7 @@ fun SubscriptionDetailScreen(
         if (!isLoading) reloadArticles()
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             Column {
@@ -252,12 +272,15 @@ fun SubscriptionDetailScreen(
                     actions = {
                         if (!isGone) {
                         IconButton(
-                            enabled = !isRefreshingFeed,
+                    enabled = !isRefreshingFeed && !isMarkingAllRead,
                             onClick = { scope.launch { refreshFeedAndReload() } },
                         ) {
                             FiloIcon(FiloIconName.Refresh, contentDescription = tr("このフィードを更新"))
                         }
-                        IconButton(onClick = { markAllRead() }) {
+                        IconButton(
+                            enabled = !isMarkingAllRead,
+                            onClick = { markAllRead() },
+                        ) {
                             FiloIcon(FiloIconName.CheckCircle, contentDescription = tr("すべて既読にする"))
                         }
                         Box {
@@ -334,6 +357,7 @@ fun SubscriptionDetailScreen(
                 )
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         if (isGone) {
             Column(
@@ -482,6 +506,10 @@ fun SubscriptionDetailScreen(
             }
         }
         }
+    }
+    if (isMarkingAllRead) {
+        BlockingProgressOverlay(message = tr("既読に変更しています…"))
+    }
     }
 
     if (showRename) {

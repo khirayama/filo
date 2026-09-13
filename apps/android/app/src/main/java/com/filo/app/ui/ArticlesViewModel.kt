@@ -31,6 +31,8 @@ class ArticlesViewModel : ViewModel() {
     var readableLanguages by mutableStateOf(listOf("ja"))
     var isRefreshingFeeds by mutableStateOf(false)
     var refreshNotice by mutableStateOf<AppText?>(null)
+    var isMarkingAllRead by mutableStateOf(false)
+    var markAllReadNotice by mutableStateOf<AppText?>(null)
 
     var selectedTagId by mutableStateOf<Int?>(null)
     var readFilter by mutableStateOf<Boolean?>(null)
@@ -181,15 +183,26 @@ class ArticlesViewModel : ViewModel() {
 
     // 表示中スコープ(全購読 or 選択タグ配下)の既読カーソルを一括前進させる
     suspend fun markAllRead(): Boolean {
+        if (isMarkingAllRead) return false
+        isMarkingAllRead = true
+        markAllReadNotice = null
+        errorMessage = null
         com.filo.app.Analytics.track("mark_all_articles_read")
         try {
             ApiClient.markAllArticlesRead(selectedTagId)
             reload()
+            markAllReadNotice = AppText("既読への変更が完了しました。")
             return true
         } catch (e: Exception) {
             errorMessage = ErrorMessages.forErrorText(e)
             return false
+        } finally {
+            isMarkingAllRead = false
         }
+    }
+
+    fun clearMarkAllReadNotice() {
+        markAllReadNotice = null
     }
 
     suspend fun removeReadArticlesFromReadingList() {

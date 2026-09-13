@@ -41,6 +41,8 @@ import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Surface
@@ -143,6 +145,14 @@ fun ArticlesScreen(
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
     var viewedArticleIds by remember { mutableStateOf("") }
+    val markAllReadSnackbarHostState = remember { SnackbarHostState() }
+    val markAllReadNoticeText = vm.markAllReadNotice?.let { tr(it) }
+
+    LaunchedEffect(markAllReadNoticeText) {
+        val notice = markAllReadNoticeText ?: return@LaunchedEffect
+        markAllReadSnackbarHostState.showSnackbar(notice)
+        vm.clearMarkAllReadNotice()
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -264,10 +274,12 @@ fun ArticlesScreen(
 
     BoxWithConstraints(
         modifier = Modifier
+            .fillMaxSize()
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (vm.isMarkingAllRead) return@onPreviewKeyEvent true
                 val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
                 if (event.isShiftPressed && event.key == Key.A && !hasModifier) {
                     if (!bookmarkedOnly && !readingListOnly) scope.launch { markAllReadAndResetList() }
@@ -449,7 +461,10 @@ fun ArticlesScreen(
                                 }
                             }
                             if (!bookmarkedOnly && !readingListOnly) {
-                                IconButton(onClick = { scope.launch { markAllReadAndResetList() } }) {
+                                IconButton(
+                                    enabled = !vm.isMarkingAllRead,
+                                    onClick = { scope.launch { markAllReadAndResetList() } },
+                                ) {
                                     FiloIcon(FiloIconName.CheckCircle, size = 20.dp, contentDescription = tr("すべて既読にする"))
                                 }
                             }
@@ -528,6 +543,7 @@ fun ArticlesScreen(
                     )
                 }
             },
+                snackbarHost = { SnackbarHost(markAllReadSnackbarHostState) },
                 ) { innerPadding ->
             Box(
                 modifier = Modifier
@@ -678,6 +694,9 @@ fun ArticlesScreen(
             ) { mainContent() }
         } else {
             mainContent()
+        }
+        if (vm.isMarkingAllRead) {
+            BlockingProgressOverlay(message = tr("既読に変更しています…"))
         }
     }
 
