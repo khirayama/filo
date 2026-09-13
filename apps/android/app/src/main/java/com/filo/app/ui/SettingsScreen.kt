@@ -67,11 +67,12 @@ fun SettingsScreen(
         isLoading = true
         errorMessage = null
         try {
-            settings = ApiClient.getSettings()
-            settings?.let {
-                ThemePreference.set(context, it.theme)
-                LanguagePreference.set(context, it.language)
-            }
+            val loadedSettings = ApiClient.getSettings()
+            // Apply the server language before publishing the screen state so
+            // the first rendered settings frame cannot mix languages.
+            ThemePreference.set(context, loadedSettings.theme)
+            LanguagePreference.set(context, loadedSettings.language)
+            settings = loadedSettings
         } catch (e: Exception) {
             errorMessage = ErrorMessages.forErrorText(e)
         }
@@ -89,6 +90,8 @@ fun SettingsScreen(
     ) {
         scope.launch {
             val previous = settings
+            if (language != null) LanguagePreference.set(context, language)
+            if (theme != null) ThemePreference.set(context, theme)
             settings = previous?.copy(
                 theme = theme ?: previous.theme,
                 language = language ?: previous.language,
@@ -96,10 +99,8 @@ fun SettingsScreen(
                 articleSortOrder = articleSortOrder ?: previous.articleSortOrder,
                 openInBrowserByDefault = openInBrowserByDefault ?: previous.openInBrowserByDefault,
             )
-            if (language != null) LanguagePreference.set(context, language)
-            if (theme != null) ThemePreference.set(context, theme)
             try {
-                settings = ApiClient.updateSettings(
+                val updatedSettings = ApiClient.updateSettings(
                     theme, language, readableLanguages, articleSortOrder, openInBrowserByDefault,
                 )
                 listOf(
@@ -111,16 +112,15 @@ fun SettingsScreen(
                 ).filter { it.second != null }.forEach { (setting, value) ->
                     com.filo.app.Analytics.track("settings_change", mapOf("setting" to setting, "value" to value.toString()))
                 }
-                settings?.let {
-                    ThemePreference.set(context, it.theme)
-                    LanguagePreference.set(context, it.language)
-                }
+                ThemePreference.set(context, updatedSettings.theme)
+                LanguagePreference.set(context, updatedSettings.language)
+                settings = updatedSettings
             } catch (e: Exception) {
-                settings = previous
                 previous?.let {
                     ThemePreference.set(context, it.theme)
                     LanguagePreference.set(context, it.language)
                 }
+                settings = previous
                 errorMessage = ErrorMessages.forErrorText(e)
             }
         }
