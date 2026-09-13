@@ -13,7 +13,7 @@ struct StatusScreen: View {
     @State private var sortKey: StatusSortKey = .status
     @State private var sortAscending = true
 
-    private let pollInterval: TimeInterval = 5
+    private let pollInterval: TimeInterval = 30
 
     var body: some View {
         List {

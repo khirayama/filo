@@ -480,7 +480,10 @@ private fun RssNavigation(
     LaunchedEffect(currentBackStackEntry?.destination?.route) {
         currentBackStackEntry?.destination?.route?.let { route ->
             Analytics.screen(route.substringBefore('/').substringBefore('?'))
-            if (route == "articles") articlesModel.refreshUnreadCounts()
+            // The article screen loads unread counts as part of its initial
+            // request. Refresh on return from another screen, but do not race
+            // that first load with a duplicate request.
+            if (route == "articles" && articlesModel.articles.isNotEmpty()) articlesModel.refreshUnreadCounts()
         }
     }
 

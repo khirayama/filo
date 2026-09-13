@@ -50,7 +50,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-private const val POLL_INTERVAL_MS = 5000L
+private const val POLL_INTERVAL_MS = 30_000L
 
 private enum class StatusFilter { All, Attention, Fetching, Paused }
 private enum class StatusSortKey { Status, FeedTitle, FetchStatus, LastFetchedAt }

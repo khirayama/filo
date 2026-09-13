@@ -362,7 +362,11 @@ struct ArticlesScreen: View {
         .refreshable { await model.refreshFeedsAndReload() }
         .onAppear {
             isKeyboardFocused = true
-            Task { await model.refreshUnreadCounts() }
+            // load() already fetches unread counts on the first appearance.
+            // Keep the return-from-reading refresh without racing that load.
+            if model.settings != nil {
+                Task { await model.refreshUnreadCounts() }
+            }
         }
         .task {
             await model.load()
