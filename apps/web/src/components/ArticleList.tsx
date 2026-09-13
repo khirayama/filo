@@ -406,22 +406,6 @@ function ArticleRow({
           <div style={{ fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: 1.4, marginTop: 0 }}>
             {titleEl}
           </div>
-          {article.previewText ? (
-            <div
-              style={{
-                color: palette.muted,
-                display: "-webkit-box",
-                fontSize: "13px",
-                lineHeight: 1.4,
-                marginTop: "2px",
-                overflow: "hidden",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: 2,
-              }}
-            >
-              {article.previewText}
-            </div>
-          ) : null}
         </>
       )}
     </li>
