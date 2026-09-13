@@ -134,6 +134,8 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "選択範囲を読み上げ": "Read selection aloud",
     "選択範囲がありません。読み上げる文章を選択してください。": "No selection. Select some text to read aloud.",
     "Filo Reader": "Filo Reader",
+    "既読に変更しています…": "Marking as read…",
+    "既読への変更が完了しました。": "Marked as read.",
   },
   zh: {
     "サインアウト中…": "正在退出登录…",
@@ -162,6 +164,8 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "選択範囲を読み上げ": "朗读选中的文字",
     "選択範囲がありません。読み上げる文章を選択してください。": "没有选中内容，请选择要朗读的文字。",
     "Filo Reader": "Filo Reader",
+    "既読に変更しています…": "正在标记为已读…",
+    "既読への変更が完了しました。": "已标记为已读。",
   },
   ko: {
     "サインアウト中…": "로그아웃 중…",
@@ -192,6 +196,8 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "選択範囲を読み上げ": "선택한 텍스트 낭독",
     "選択範囲がありません。読み上げる文章を選択してください。": "선택한 내용이 없습니다. 읽을 텍스트를 선택하세요.",
     "Filo Reader": "Filo Reader",
+    "既読に変更しています…": "읽음으로 표시하는 중…",
+    "既読への変更が完了しました。": "읽음으로 표시했습니다.",
   },
   es: {
     "サインアウト中…": "Cerrando sesión…",
@@ -222,6 +228,8 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "選択範囲を読み上げ": "Leer la selección en voz alta",
     "選択範囲がありません。読み上げる文章を選択してください。": "No hay selección. Selecciona el texto que quieres leer.",
     "Filo Reader": "Filo Reader",
+    "既読に変更しています…": "Marcando como leído…",
+    "既読への変更が完了しました。": "Marcado como leído.",
   },
 };
 

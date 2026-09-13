@@ -5,7 +5,7 @@ import { AppShell, SIDEBAR_WIDTH, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
-import { Button, EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, palette, useDialogFocus } from "../components/ui";
+import { BlockingProgress, Button, EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, Toast, palette, useDialogFocus } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { detectReadingExtension, launchReadingExtension } from "../lib/extensionBridge";
 import { errorMessage } from "../lib/messages";
@@ -49,6 +49,8 @@ function ArticlesListPage() {
   const { tags, subscriptions, settings, error: sideError, refresh: refreshAppData, refreshUnreadCounts, language, t } = useAppData();
   const { tagId, bookmarkedOnly, readingListOnly, read, sort, readOrder, setRead, setSort, setReadOrder, clearTag } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [markAllNotice, setMarkAllNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [removingReadArticles, setRemovingReadArticles] = useState(false);
@@ -60,6 +62,12 @@ function ArticlesListPage() {
   const [articleHeaderHeight, setArticleHeaderHeight] = useState(0);
   const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
   useDialogFocus(showShortcutHelp, "filo-shortcut-help", closeShortcutHelp);
+
+  useEffect(() => {
+    if (!markAllNotice) return;
+    const timer = window.setTimeout(() => setMarkAllNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [markAllNotice]);
 
   useLayoutEffect(() => {
     const header = articleHeaderRef.current;
@@ -152,16 +160,22 @@ function ArticlesListPage() {
   };
 
   const markAllRead = async () => {
+    if (markingAllRead) return;
+    setMarkingAllRead(true);
+    setMarkAllNotice(null);
+    setMarkAllError(null);
     try {
       await api.markAllArticlesRead(tagId);
       trackEvent("mark_all_articles_read", { scope: selectedTag ? "tag" : "all_articles" });
-      setMarkAllError(null);
       await list.reload();
       void refreshAppData();
       setActiveArticleIndex(null);
       scrollArticlesToTop();
+      setMarkAllNotice(t("既読への変更が完了しました。"));
     } catch (e) {
       setMarkAllError(errorMessage(e, language));
+    } finally {
+      setMarkingAllRead(false);
     }
   };
 
@@ -224,6 +238,10 @@ function ArticlesListPage() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (markingAllRead) {
+        event.preventDefault();
+        return;
+      }
       if (showShortcutHelp && event.key === "Escape") {
         event.preventDefault();
         setShowShortcutHelp(false);
@@ -291,7 +309,7 @@ function ArticlesListPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeArticleIndex, bookmarkedOnly, list, markAllRead, readingListOnly, refreshFeeds, showShortcutHelp]);
+  }, [activeArticleIndex, bookmarkedOnly, list, markAllRead, markingAllRead, readingListOnly, refreshFeeds, showShortcutHelp]);
 
   useEffect(() => {
     const article = activeArticleIndex == null ? undefined : list.articles[activeArticleIndex];
@@ -326,7 +344,7 @@ function ArticlesListPage() {
         </>
       ) : null}
       {!bookmarkedOnly && !readingListOnly ? (
-        <IconButton icon="checkCircle" label={t("すべて既読にする")} onClick={() => void markAllRead()} />
+        <IconButton icon="checkCircle" label={t("すべて既読にする")} disabled={markingAllRead} onClick={() => void markAllRead()} />
       ) : null}
       <ArticleListControls
         read={read}
@@ -343,7 +361,7 @@ function ArticlesListPage() {
 
   return (
     <AppShell mobileHeaderContent={isDesktop ? undefined : renderArticleHeaderContent()}>
-      <main className="articles-page" style={{ padding: "0 0 16px", ...(isDesktop ? { paddingTop: `${articleHeaderHeight}px` } : {}) }}>
+      <main className="articles-page" aria-busy={markingAllRead} style={{ padding: "0 0 16px", ...(isDesktop ? { paddingTop: `${articleHeaderHeight}px` } : {}) }}>
         {isDesktop ? (
           <header
             ref={articleHeaderRef}
@@ -417,6 +435,8 @@ function ArticlesListPage() {
           />
         )}
       </main>
+      {markingAllRead ? <BlockingProgress message={t("既読に変更しています…")} /> : null}
+      {markAllNotice ? <Toast message={markAllNotice} /> : null}
       {showShortcutHelp ? (
         <div
           role="dialog"

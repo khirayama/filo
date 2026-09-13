@@ -7,7 +7,7 @@ import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
-import { Badge, Button, EmptyState, ErrorBox, FilterChip, IconButton, MenuItem, Spinner, menuStyle, palette } from "../components/ui";
+import { BlockingProgress, Badge, Button, EmptyState, ErrorBox, FilterChip, IconButton, MenuItem, Spinner, Toast, menuStyle, palette } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
 import { refreshFeedsAndWait } from "../lib/refresh";
@@ -28,6 +28,8 @@ export function SubscriptionDetailPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [markAllNotice, setMarkAllNotice] = useState<string | null>(null);
   const { read, sort, readOrder, setRead, setSort, setReadOrder } = useArticleFilterParams();
   const filters = useMemo(
     () => ({
@@ -39,6 +41,12 @@ export function SubscriptionDetailPage() {
     [subscriptionId, read, sort, readOrder]
   );
   const list = useArticleList(api, filters);
+
+  useEffect(() => {
+    if (!markAllNotice) return;
+    const timer = window.setTimeout(() => setMarkAllNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [markAllNotice]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,14 +115,20 @@ export function SubscriptionDetailPage() {
   };
 
   const markAllRead = async () => {
-    if (!subscription) return;
+    if (!subscription || markingAllRead) return;
+    setMarkingAllRead(true);
+    setMarkAllNotice(null);
+    setError(null);
     try {
       const result = await api.markAllRead(subscription.id);
       setSubscription({ ...subscription, unreadCount: result.unreadCount });
       await list.reload();
       void refreshAppData();
+      setMarkAllNotice(t("既読への変更が完了しました。"));
     } catch (e) {
       setError(errorMessage(e, language));
+    } finally {
+      setMarkingAllRead(false);
     }
   };
 
@@ -166,7 +180,7 @@ export function SubscriptionDetailPage() {
 
   return (
     <AppShell>
-      <main style={mainStyle}>
+      <main aria-busy={markingAllRead} style={mainStyle}>
         {loading ? (
           <Spinner />
         ) : subscription ? (
@@ -210,6 +224,7 @@ export function SubscriptionDetailPage() {
               <IconButton
                 icon="checkCircle"
                 label={t("すべて既読にする")}
+                disabled={markingAllRead}
                 onClick={() => void markAllRead()}
               />
               <div style={{ position: "relative" }}>
@@ -329,6 +344,8 @@ export function SubscriptionDetailPage() {
           <ErrorBox message={error} onRetry={() => void load()} />
         ) : null}
       </main>
+      {markingAllRead ? <BlockingProgress message={t("既読に変更しています…")} /> : null}
+      {markAllNotice ? <Toast message={markAllNotice} /> : null}
     </AppShell>
   );
 }

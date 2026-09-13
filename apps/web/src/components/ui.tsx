@@ -224,6 +224,98 @@ export function Spinner({ label = "読み込み中…" }: { label?: string }) {
   );
 }
 
+export function BlockingProgress({ message }: { message: string }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    containerRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={message}
+      tabIndex={-1}
+      style={{
+        alignItems: "center",
+        background: palette.scrim,
+        display: "flex",
+        inset: 0,
+        justifyContent: "center",
+        position: "fixed",
+        zIndex: 100,
+      }}
+    >
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          alignItems: "center",
+          background: palette.surface,
+          border: `1px solid ${palette.border}`,
+          borderRadius: "8px",
+          boxShadow: `0 4px 16px ${palette.shadow}`,
+          color: palette.text,
+          display: "flex",
+          gap: "10px",
+          padding: "14px 16px",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            border: `3px solid ${palette.mutedBorder}`,
+            borderTopColor: palette.accent,
+            borderRadius: "50%",
+            display: "inline-block",
+            height: "18px",
+            width: "18px",
+          }}
+        />
+        <span>{message}</span>
+      </div>
+    </div>
+  );
+}
+
+export function Toast({ message }: { message: string }) {
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      style={{
+        background: palette.surface,
+        border: `1px solid ${palette.okBorder}`,
+        borderRadius: "6px",
+        bottom: "16px",
+        boxShadow: `0 4px 12px ${palette.shadow}`,
+        boxSizing: "border-box",
+        color: palette.text,
+        fontSize: "13px",
+        left: "16px",
+        margin: 0,
+        maxWidth: "480px",
+        padding: "8px 12px",
+        pointerEvents: "none",
+        position: "fixed",
+        right: "16px",
+        width: "calc(100% - 32px)",
+        zIndex: 25,
+      }}
+    >
+      {message}
+    </p>
+  );
+}
+
 export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () => void }) {
   const { t } = useAppData();
   return (
