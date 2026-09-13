@@ -88,9 +88,9 @@ export const statusRoutes = new Hono<OpsContext>()
       .first<FeedAggRow>();
 
     const articleAgg = await c.env.DB.prepare(
-      `SELECT COUNT(*) AS n
-       FROM articles a
-       JOIN subscriptions s ON s.feed_id = a.feed_id AND s.user_id = ?`
+      `SELECT COALESCE(SUM(f.article_count), 0) AS n
+       FROM feeds f
+       JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?`
     )
       .bind(userId)
       .first<{ n: number }>();

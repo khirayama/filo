@@ -257,7 +257,13 @@ async function saveArticleFromUrl(
   if (membership === null && articleState?.is_read === 0) {
     collectionMutations.push(adjustReadingListUnreadMutation(db, userId, 1, now));
   }
-  if (insertedArticle) collectionMutations.push(incrementUnreadForFeedMutation(db, feed.id, 1, now));
+  if (insertedArticle) {
+    collectionMutations.push(
+      db.prepare("UPDATE feeds SET article_count = article_count + 1, updated_at = ? WHERE id = ?")
+        .bind(now, feed.id),
+    );
+    collectionMutations.push(incrementUnreadForFeedMutation(db, feed.id, 1, now));
+  }
   await db.batch(collectionMutations);
 
   const content = await db.prepare("SELECT status FROM article_contents WHERE article_id = ?").bind(article.id).first<{ status: string }>();

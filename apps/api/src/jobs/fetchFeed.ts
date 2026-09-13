@@ -381,7 +381,12 @@ export async function runFetchFeed(
     // the derived counters once per fetch avoids rescanning the feed whenever
     // a client renders its subscription list.
     if (newArticleIds.length > 0) {
-      await incrementUnreadForFeedMutation(env.DB, feedId, newArticleIds.length, now).run();
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE feeds SET article_count = article_count + ?, updated_at = ? WHERE id = ?",
+        ).bind(newArticleIds.length, now, feedId),
+        incrementUnreadForFeedMutation(env.DB, feedId, newArticleIds.length, now),
+      ]);
     }
 
     // 言語がまだ入っていない記事を埋める。フィードから消えた古い記事は上の upsert で

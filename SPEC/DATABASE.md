@@ -44,7 +44,7 @@ shared（ユーザー間で共有。アカウント削除でも消さない）:
 
 | テーブル | 役割 |
 | --- | --- |
-| `feeds` | RSS/Atom の取得元。宣言言語 `language` を含む |
+| `feeds` | RSS/Atom の取得元。宣言言語 `language` と記事件数キャッシュ `article_count` を含む |
 | `articles` | feed 配下の記事実体。`source_language` を含む |
 | `article_contents` | 本文抽出結果（リーディングパート専用） |
 | `feed_fetch_states` / `feed_fetch_logs` | 取得の現在状態と履歴 |
@@ -69,6 +69,7 @@ account deletion 専用:
 - unsubscribe 済み記事は最後の collection membership が削除された時点で参照不可に戻る
 - `feed_read_cursors` は subscription ではなく user × feed に紐づき、購読解除・再購読後も維持される
 - `subscription_unread_counts` と `user_unread_counts` は導出値であり、実効既読状態の source of truth ではない。新着、単体の既読変更、collection 変更、購読追加で差分更新し、一括既読では source of truth から再計算する
+- `feeds.article_count` は `articles` の件数を保持する共有導出値であり、feed fetch または保存記事の作成時に新規行数だけ加算する。初期値は migration で再構築し、status の表示用集計に使う
 - 導出カウンターが欠落した場合も API は `0` として動作し、購読追加・一括既読の再計算で復旧できる
 
 ### 記事
