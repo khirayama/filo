@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,7 +29,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.DrawerValue
@@ -89,7 +90,7 @@ import androidx.compose.material3.AlertDialog
 
 private const val ARTICLE_SELECTION_BUFFER = 3
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ArticlesScreen(
     translations: TitleTranslationStore,
@@ -456,24 +457,71 @@ fun ArticlesScreen(
                                 IconButton(onClick = { articleOptionsMenuOpen = true }) {
                                     FiloIcon(FiloIconName.Gear, size = 20.dp, contentDescription = tr("表示設定"))
                                 }
-                                DropdownMenu(expanded = articleOptionsMenuOpen, onDismissRequest = { articleOptionsMenuOpen = false }) {
-                                    if (translations.isSupported) {
-                                        DropdownMenuItem(
-                                            text = { Text(tr(if (translations.isEnabled) "タイトルを翻訳（オン）" else "タイトルを翻訳（オフ）")) },
-                                            onClick = { translations.toggle(); articleOptionsMenuOpen = false },
-                                        )
+                                DropdownMenu(
+                                    expanded = articleOptionsMenuOpen,
+                                    onDismissRequest = { articleOptionsMenuOpen = false },
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .widthIn(min = 280.dp, max = 360.dp)
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        if (translations.isSupported) {
+                                            SettingsMenuToggle(
+                                                label = tr("タイトルを翻訳"),
+                                                selected = translations.isEnabled,
+                                                onClick = {
+                                                    translations.toggle()
+                                                    articleOptionsMenuOpen = false
+                                                },
+                                            )
+                                        }
+                                        SettingsMenuSection(tr("既読状態")) {
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                FilterChipButton(tr("全ての記事"), readFilter == null) {
+                                                    readFilter = null
+                                                    articleOptionsMenuOpen = false
+                                                }
+                                                FilterChipButton(tr("未読"), readFilter == false) {
+                                                    readFilter = false
+                                                    articleOptionsMenuOpen = false
+                                                }
+                                                FilterChipButton(tr("既読"), readFilter == true) {
+                                                    readFilter = true
+                                                    articleOptionsMenuOpen = false
+                                                }
+                                            }
+                                        }
+                                        SettingsMenuSection(tr("並び順")) {
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                FilterChipButton(tr("公開日時が新しい順"), sort == "published_at_desc") {
+                                                    sort = "published_at_desc"
+                                                    articleOptionsMenuOpen = false
+                                                }
+                                                FilterChipButton(tr("取得日時が新しい順"), sort == "fetched_at_desc") {
+                                                    sort = "fetched_at_desc"
+                                                    articleOptionsMenuOpen = false
+                                                }
+                                            }
+                                        }
+                                        SettingsMenuSection(tr("既読の扱い")) {
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                FilterChipButton(tr("既読で並び替えない"), readOrder == "none") {
+                                                    readOrder = "none"
+                                                    articleOptionsMenuOpen = false
+                                                }
+                                                FilterChipButton(tr("既読は下"), readOrder == "unread_first") {
+                                                    readOrder = "unread_first"
+                                                    articleOptionsMenuOpen = false
+                                                }
+                                                FilterChipButton(tr("既読は上"), readOrder == "read_first") {
+                                                    readOrder = "read_first"
+                                                    articleOptionsMenuOpen = false
+                                                }
+                                            }
+                                        }
                                     }
-                                    DropdownMenuItem(enabled = false, text = { Text(tr("既読状態")) }, onClick = {})
-                                    DropdownMenuItem(text = { Text(tr("全ての記事")) }, onClick = { readFilter = null; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text(tr("未読")) }, onClick = { readFilter = false; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text(tr("既読")) }, onClick = { readFilter = true; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(enabled = false, text = { Text(tr("並び順")) }, onClick = {})
-                                    DropdownMenuItem(text = { Text(tr("公開日時が新しい順")) }, onClick = { sort = "published_at_desc"; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text(tr("取得日時が新しい順")) }, onClick = { sort = "fetched_at_desc"; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(enabled = false, text = { Text(tr("既読の扱い")) }, onClick = {})
-                                    DropdownMenuItem(text = { Text(tr("既読で並び替えない")) }, onClick = { readOrder = "none"; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text(tr("既読は下")) }, onClick = { readOrder = "unread_first"; articleOptionsMenuOpen = false })
-                                    DropdownMenuItem(text = { Text(tr("既読は上")) }, onClick = { readOrder = "read_first"; articleOptionsMenuOpen = false })
                                 }
                             }
                         },
@@ -692,6 +740,27 @@ fun ArticlesScreen(
 }
 
 @Composable
+private fun SettingsMenuSection(label: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        content()
+    }
+}
+
+@Composable
+private fun SettingsMenuToggle(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChipButton(
+        label = "$label${if (selected) " ✓" else ""}",
+        selected = selected,
+        onClick = onClick,
+    )
+}
+
+@Composable
 fun RssSourcesDrawerContent(
     tags: List<Tag>,
     subscriptions: List<Subscription>,
@@ -716,73 +785,77 @@ fun RssSourcesDrawerContent(
     var untaggedExpanded by remember { mutableStateOf(false) }
     val noViewFilter = selectedTagId == null && !readingListOnly && !bookmarkedOnly
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 12.dp),
-    ) {
-        if (showCloseButton) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Filo",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            if (showCloseButton) {
                 IconButton(onClick = onCloseDrawer) {
                     FiloIcon(FiloIconName.Close, contentDescription = tr("閉じる"))
                 }
             }
         }
-        Text(
-            "Filo",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        )
-        Button(
-            onClick = onOpenAddFeed,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        HorizontalDivider()
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 12.dp),
         ) {
-            FiloIcon(FiloIconName.Plus)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(tr("フィードを追加"))
-        }
-        OutlinedButton(
-            onClick = onOpenAddArticle,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 0.dp),
-        ) {
-            FiloIcon(FiloIconName.Plus)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(tr("記事を追加"))
-        }
-        DrawerNavigationRow(
-            label = tr("全ての記事"),
-            count = unreadCounts.allArticles.takeIf { it > 0 },
-            selected = noViewFilter,
-            onClick = { onSelectView(null, false, false) },
-            icon = { FiloIcon(FiloIconName.List) },
-        )
-        DrawerNavigationRow(
-            label = tr("リーディングリスト"),
-            count = unreadCounts.readingList.takeIf { it > 0 },
-            selected = readingListOnly && selectedTagId == null,
-            onClick = { onSelectView(null, true, false) },
-            icon = { FiloIcon(FiloIconName.QueueAdd) },
-        )
-        DrawerNavigationRow(
-            label = tr("ブックマーク"),
-            selected = bookmarkedOnly && selectedTagId == null,
-            onClick = { onSelectView(null, false, true) },
-            icon = { FiloIcon(FiloIconName.Bookmark) },
-        )
+            Button(
+                onClick = onOpenAddFeed,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                FiloIcon(FiloIconName.Plus)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(tr("フィードを追加"))
+            }
+            OutlinedButton(
+                onClick = onOpenAddArticle,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 0.dp),
+            ) {
+                FiloIcon(FiloIconName.Plus)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(tr("記事を追加"))
+            }
+            DrawerNavigationRow(
+                label = tr("全ての記事"),
+                count = unreadCounts.allArticles.takeIf { it > 0 },
+                selected = noViewFilter,
+                onClick = { onSelectView(null, false, false) },
+                icon = { FiloIcon(FiloIconName.List) },
+            )
+            DrawerNavigationRow(
+                label = tr("リーディングリスト"),
+                count = unreadCounts.readingList.takeIf { it > 0 },
+                selected = readingListOnly && selectedTagId == null,
+                onClick = { onSelectView(null, true, false) },
+                icon = { FiloIcon(FiloIconName.QueueAdd) },
+            )
+            DrawerNavigationRow(
+                label = tr("ブックマーク"),
+                selected = bookmarkedOnly && selectedTagId == null,
+                onClick = { onSelectView(null, false, true) },
+                icon = { FiloIcon(FiloIconName.Bookmark) },
+            )
 
-        Text(
-            tr("フィード"),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
-        )
-        tags.forEach { tag ->
+            Text(
+                tr("フィード"),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
+            )
+            tags.forEach { tag ->
             val items = subscriptions.filter { it.tagIds.contains(tag.id) }
             val unreadCount = items.sumOf { it.unreadCount }
             Row(
@@ -815,8 +888,8 @@ fun RssSourcesDrawerContent(
                 }
             }
         }
-        val untagged = subscriptions.filter { it.tagIds.isEmpty() }
-        if (untagged.isNotEmpty()) {
+            val untagged = subscriptions.filter { it.tagIds.isEmpty() }
+            if (untagged.isNotEmpty()) {
             val unreadCount = untagged.sumOf { it.unreadCount }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 24.dp),
@@ -848,31 +921,32 @@ fun RssSourcesDrawerContent(
             }
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        DrawerNavigationRow(
-            label = tr("購読管理"),
-            selected = activeRoute == "subscriptions",
-            onClick = onOpenSubscriptions,
-            icon = { FiloIcon(FiloIconName.List) },
-        )
-        DrawerNavigationRow(
-            label = tr("タグ管理"),
-            selected = activeRoute == "tags",
-            onClick = onOpenTags,
-            icon = { FiloIcon(FiloIconName.Tag) },
-        )
-        DrawerNavigationRow(
-            label = tr("処理ステータス"),
-            selected = activeRoute == "status",
-            onClick = onOpenStatus,
-            icon = { FiloIcon(FiloIconName.Refresh) },
-        )
-        DrawerNavigationRow(
-            label = tr("設定"),
-            selected = activeRoute == "settings",
-            onClick = onOpenSettings,
-            icon = { FiloIcon(FiloIconName.Gear) },
-        )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            DrawerNavigationRow(
+                label = tr("購読管理"),
+                selected = activeRoute == "subscriptions",
+                onClick = onOpenSubscriptions,
+                icon = { FiloIcon(FiloIconName.List) },
+            )
+            DrawerNavigationRow(
+                label = tr("タグ管理"),
+                selected = activeRoute == "tags",
+                onClick = onOpenTags,
+                icon = { FiloIcon(FiloIconName.Tag) },
+            )
+            DrawerNavigationRow(
+                label = tr("処理ステータス"),
+                selected = activeRoute == "status",
+                onClick = onOpenStatus,
+                icon = { FiloIcon(FiloIconName.Refresh) },
+            )
+            DrawerNavigationRow(
+                label = tr("設定"),
+                selected = activeRoute == "settings",
+                onClick = onOpenSettings,
+                icon = { FiloIcon(FiloIconName.Gear) },
+            )
+        }
     }
 }
 

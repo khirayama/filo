@@ -2,7 +2,6 @@ package com.filo.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -21,10 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PermanentDrawerSheet
@@ -50,6 +46,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.Alignment
@@ -66,7 +64,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.rememberDrawerState
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -467,12 +464,17 @@ private fun RssNavigation(
     val titleTranslations = remember { com.filo.app.ui.TitleTranslationStore(context, scope) }
     val readingPlayer = remember { com.filo.app.ui.ReadingPlayerController(context.applicationContext, scope) }
     val articlesModel: com.filo.app.ui.ArticlesViewModel = viewModel()
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
-    val isReadingBrowser = currentBackStackEntry?.destination?.route?.startsWith("reading") == true
+    val currentRoute = currentBackStackEntry?.destination?.route
+    val isReadingBrowser = currentRoute?.startsWith("reading") == true
+    val hideGlobalNavigation = isReadingBrowser || currentRoute in setOf("subscriptions", "tags", "status", "drawer")
 
-    BackHandler(enabled = drawerState.isOpen) {
-        scope.launch { drawerState.close() }
+    fun openDrawer() {
+        if (currentRoute != "drawer") {
+            navController.navigate("drawer") {
+                launchSingleTop = true
+            }
+        }
     }
 
     LaunchedEffect(currentBackStackEntry?.destination?.route) {
@@ -503,6 +505,8 @@ private fun RssNavigation(
     ) {
         BoxWithConstraints(modifier = Modifier.weight(1f)) {
             val isDesktop = maxWidth >= 1024.dp
+            val drawerActiveBackStackEntry =
+                if (currentRoute == "drawer") navController.previousBackStackEntry else currentBackStackEntry
             val drawerContent: @Composable () -> Unit = {
                 com.filo.app.ui.RssSourcesDrawerContent(
                     tags = articlesModel.tags,
@@ -511,45 +515,35 @@ private fun RssNavigation(
                     selectedTagId = articlesModel.selectedTagId,
                     readingListOnly = articlesModel.readingListOnly,
                     bookmarkedOnly = articlesModel.bookmarkedOnly,
-                    activeRoute = currentBackStackEntry?.destination?.route,
-                    activeSubscriptionId = currentBackStackEntry?.arguments?.getString("id")?.toIntOrNull(),
+                    activeRoute = drawerActiveBackStackEntry?.destination?.route,
+                    activeSubscriptionId = drawerActiveBackStackEntry?.arguments?.getString("id")?.toIntOrNull(),
                     showCloseButton = !isDesktop,
-                    onCloseDrawer = { scope.launch { drawerState.close() } },
+                    onCloseDrawer = { navController.navigateUp() },
                     onSelectView = { tagId, readingList, bookmarked ->
                         articlesModel.selectedTagId = tagId
                         articlesModel.readingListOnly = readingList
                         articlesModel.bookmarkedOnly = bookmarked
-                        scope.launch {
-                            drawerState.close()
-                            navController.popBackStack("articles", false)
-                        }
+                        navController.popBackStack("articles", false)
                     },
                     onOpenSubscription = {
-                        scope.launch { drawerState.close() }
                         navController.navigate("subscription/$it")
                     },
                     onOpenAddFeed = {
-                        scope.launch { drawerState.close() }
                         navController.navigate("addFeed")
                     },
                     onOpenAddArticle = {
-                        scope.launch { drawerState.close() }
                         navController.navigate("addArticle")
                     },
                     onOpenSubscriptions = {
-                        scope.launch { drawerState.close() }
                         navController.navigate("subscriptions")
                     },
                     onOpenTags = {
-                        scope.launch { drawerState.close() }
                         navController.navigate("tags")
                     },
                     onOpenStatus = {
-                        scope.launch { drawerState.close() }
                         navController.navigate("status")
                     },
                     onOpenSettings = {
-                        scope.launch { drawerState.close() }
                         navController.navigate("settings")
                     },
                 )
@@ -560,28 +554,52 @@ private fun RssNavigation(
             startDestination = "articles",
             modifier = Modifier.fillMaxSize(),
             enterTransition = {
-                slideInHorizontally(
-                    initialOffsetX = { it },
-                    animationSpec = tween(280),
-                )
+                if (targetState.destination.route == "drawer") {
+                    slideInHorizontally(
+                        initialOffsetX = { -it },
+                        animationSpec = tween(280),
+                    )
+                } else {
+                    slideInHorizontally(
+                        initialOffsetX = { it },
+                        animationSpec = tween(280),
+                    )
+                }
             },
             exitTransition = {
-                slideOutHorizontally(
-                    targetOffsetX = { -it / 3 },
-                    animationSpec = tween(280),
-                )
+                if (targetState.destination.route == "drawer") {
+                    ExitTransition.None
+                } else {
+                    slideOutHorizontally(
+                        targetOffsetX = { -it / 3 },
+                        animationSpec = tween(280),
+                    )
+                }
             },
             popEnterTransition = {
-                slideInHorizontally(
-                    initialOffsetX = { -it / 3 },
-                    animationSpec = tween(280),
-                )
+                if (initialState.destination.route == "drawer" ||
+                    targetState.destination.route == "drawer"
+                ) {
+                    EnterTransition.None
+                } else {
+                    slideInHorizontally(
+                        initialOffsetX = { -it / 3 },
+                        animationSpec = tween(280),
+                    )
+                }
             },
             popExitTransition = {
-                slideOutHorizontally(
-                    targetOffsetX = { it },
-                    animationSpec = tween(280),
-                )
+                if (initialState.destination.route == "drawer") {
+                    slideOutHorizontally(
+                        targetOffsetX = { -it },
+                        animationSpec = tween(280),
+                    )
+                } else {
+                    slideOutHorizontally(
+                        targetOffsetX = { it },
+                        animationSpec = tween(280),
+                    )
+                }
             },
         ) {
         composable("articles") { entry ->
@@ -597,8 +615,8 @@ private fun RssNavigation(
                 showDesktopSidebar = false,
                 showMobileDrawer = false,
                 showMobileMenu = true,
-                onCloseMobileDrawer = { scope.launch { drawerState.close() } },
-                onOpenMobileDrawer = { scope.launch { drawerState.open() } },
+                onCloseMobileDrawer = { navController.navigateUp() },
+                onOpenMobileDrawer = { openDrawer() },
                 initialSelectedTagId = selectedTagId,
                 onInitialSelectedTagConsumed = {
                     entry.savedStateHandle.remove<Int>("selectedTagId")
@@ -632,6 +650,11 @@ private fun RssNavigation(
                 onOpenStatus = { navController.navigate("status") },
                 onOpenSettings = { navController.navigate("settings") },
             )
+        }
+        composable("drawer") {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                drawerContent()
+            }
         }
         composable("reading/{autoplay}") { entry ->
             com.filo.app.ui.ReadingSessionScreen(
@@ -759,42 +782,34 @@ private fun RssNavigation(
                     },
                 ) { navContent() }
             } else {
-                ModalNavigationDrawer(
-                    drawerState = drawerState,
-                    drawerContent = {
-                        ModalDrawerSheet(
-                            modifier = Modifier.fillMaxWidth(),
-                            drawerShape = RectangleShape,
-                        ) { drawerContent() }
-                    },
-                ) {
-                    Column(Modifier.fillMaxSize()) {
-                        if (currentBackStackEntry?.destination?.route != "articles" &&
-                            currentBackStackEntry?.destination?.route != "settings"
+                Column(Modifier.fillMaxSize()) {
+                    if (currentRoute != "articles" &&
+                        currentRoute != "settings" &&
+                        !hideGlobalNavigation
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(51.dp)
+                                .background(MaterialTheme.colorScheme.surface)
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(51.dp)
-                                    .background(MaterialTheme.colorScheme.surface)
-                                    .padding(horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                    FiloIcon(FiloIconName.Menu, contentDescription = tr("メニュー"))
-                                }
-                                Text("Filo", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                            IconButton(onClick = ::openDrawer) {
+                                FiloIcon(FiloIconName.Menu, contentDescription = tr("メニュー"))
                             }
-                            HorizontalDivider()
+                            Text("Filo", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
-                        navContent()
+                        HorizontalDivider()
                     }
+                    navContent()
                 }
             }
         }
         if (readingPlayer.isPlaying && !isReadingBrowser) {
             com.filo.app.ui.ReadingMiniPlayer(readingPlayer)
         }
+
     }
 }
 
