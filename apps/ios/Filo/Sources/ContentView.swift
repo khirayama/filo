@@ -426,6 +426,50 @@ struct ErrorBanner: View {
     }
 }
 
+struct BlockingProgressOverlay: View {
+    let message: String
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.32)
+                .ignoresSafeArea()
+            HStack(spacing: 10) {
+                ProgressView()
+                    .tint(FiloPalette.accent)
+                Text(message)
+                    .foregroundStyle(FiloPalette.text)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(FiloPalette.surface, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(FiloPalette.border, lineWidth: 1))
+            .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
+        .accessibilityAddTraits(.isModal)
+        .contentShape(Rectangle())
+        .onTapGesture {}
+    }
+}
+
+struct ToastView: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.caption)
+            .foregroundStyle(FiloPalette.text)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(FiloPalette.surface, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(FiloPalette.ok.opacity(0.7), lineWidth: 1))
+            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+            .padding(16)
+            .allowsHitTesting(false)
+    }
+}
+
 struct EmptyStateView<Content: View>: View {
     @ViewBuilder let content: Content
 

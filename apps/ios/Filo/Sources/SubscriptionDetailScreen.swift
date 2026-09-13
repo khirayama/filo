@@ -13,6 +13,8 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var isGone = false
     @Published var errorMessage: String?
     @Published var openInBrowserByDefault = false
+    @Published var isMarkingAllRead = false
+    @Published var markAllReadNotice: String?
 
     @Published var sort = "published_at_desc" {
         didSet { if sort != oldValue { invalidateArticleRequests() } }
@@ -144,10 +146,16 @@ final class SubscriptionDetailViewModel: ObservableObject {
     }
 
     func markAllRead() async {
+        guard !isMarkingAllRead else { return }
+        isMarkingAllRead = true
+        markAllReadNotice = nil
+        errorMessage = nil
+        defer { isMarkingAllRead = false }
         do {
             let result = try await APIClient.shared.markAllRead(subscriptionId)
             subscription?.unreadCount = result.unreadCount
             await reloadArticles()
+            markAllReadNotice = L10n.string("既読への変更が完了しました。")
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
@@ -261,6 +269,23 @@ struct SubscriptionDetailScreen: View {
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
         .onChange(of: model.articles, initial: true) { translations.register(model.articles) }
         .onChange(of: translations.isEnabled) { translations.register(model.articles) }
+        .disabled(model.isMarkingAllRead)
+        .overlay {
+            if model.isMarkingAllRead {
+                BlockingProgressOverlay(message: L10n.string("既読に変更しています…"))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let notice = model.markAllReadNotice {
+                ToastView(message: notice)
+            }
+        }
+        .task(id: model.markAllReadNotice) {
+            guard model.markAllReadNotice != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            model.markAllReadNotice = nil
+        }
     }
 
     private var contentList: some View {

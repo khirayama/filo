@@ -32,6 +32,8 @@ final class ArticlesViewModel: ObservableObject {
         didSet { if bookmarkedOnly != oldValue { invalidateArticleRequests() } }
     }
     @Published var settings: UserSettings?
+    @Published var isMarkingAllRead = false
+    @Published var markAllReadNotice: String?
 
     private var articleGeneration = 0
     private var loadGeneration = 0
@@ -185,12 +187,18 @@ final class ArticlesViewModel: ObservableObject {
 
     // 表示中スコープ(全購読 or 選択タグ配下)の既読カーソルを一括前進させる
     func markAllRead() async -> Bool {
+        guard !isMarkingAllRead else { return false }
+        isMarkingAllRead = true
+        markAllReadNotice = nil
+        errorMessage = nil
+        defer { isMarkingAllRead = false }
         FiloAnalytics.track("mark_all_articles_read")
         do {
             _ = try await APIClient.shared.markAllArticlesRead(tagId: selectedTagId)
             await reloadArticles()
             subscriptions = (try? await APIClient.shared.listSubscriptions()) ?? subscriptions
             await refreshUnreadCounts()
+            markAllReadNotice = L10n.string("既読への変更が完了しました。")
             return true
         } catch {
             errorMessage = ErrorMessages.message(for: error)
@@ -396,6 +404,23 @@ struct ArticlesScreen: View {
         .onChange(of: model.settings) { registerTitlesForTranslation() }
         .background(shortcutButtons)
         .sheet(isPresented: $showShortcutHelp) { ShortcutHelpView() }
+        .disabled(model.isMarkingAllRead)
+        .overlay {
+            if model.isMarkingAllRead {
+                BlockingProgressOverlay(message: L10n.string("既読に変更しています…"))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let notice = model.markAllReadNotice {
+                ToastView(message: notice)
+            }
+        }
+        .task(id: model.markAllReadNotice) {
+            guard model.markAllReadNotice != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            model.markAllReadNotice = nil
+        }
     }
 
     private var mobileArticleHeader: some View {

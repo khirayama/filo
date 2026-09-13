@@ -85,6 +85,8 @@
 "すべて" = "Todo";
 "すべて取得" = "Obtener todo";
 "すべて既読にする" = "Marcar todo como leído";
+"既読に変更しています…" = "Marcando como leído…";
+"既読への変更が完了しました。" = "Marcado como leído.";
 "アカウントの削除が完了しました。ご利用ありがとうございました。" = "Tu cuenta se ha eliminado. Gracias por usar Filo.";
 "アカウントを作成" = "Crear cuenta";
 "アカウントを削除しますか？この操作は取り消せません。" = "¿Eliminar tu cuenta? No se puede deshacer.";

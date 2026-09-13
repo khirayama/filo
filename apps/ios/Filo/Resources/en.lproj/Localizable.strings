@@ -84,6 +84,8 @@
 "すべて" = "All";
 "すべて取得" = "Fetch all";
 "すべて既読にする" = "Mark all as read";
+"既読に変更しています…" = "Marking as read…";
+"既読への変更が完了しました。" = "Marked as read.";
 "アカウントの削除が完了しました。ご利用ありがとうございました。" = "Your account has been deleted. Thank you for using Filo.";
 "アカウントを作成" = "Create account";
 "アカウントを削除しますか？この操作は取り消せません。" = "Delete your account? This cannot be undone.";
