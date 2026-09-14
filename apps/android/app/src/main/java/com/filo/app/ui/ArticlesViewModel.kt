@@ -156,8 +156,7 @@ class ArticlesViewModel : ViewModel() {
         }
     }
 
-    // Manual refresh: enqueue feed fetches, wait for the queued fetches to land
-    // by polling /status, then reload the visible list.
+    // Manual refresh: enqueue feed fetches, then reload the visible list once.
     suspend fun refreshFeedsAndReload(feedId: Int? = null) {
         if (isRefreshingFeeds) return
         com.filo.app.Analytics.track(
@@ -171,8 +170,7 @@ class ArticlesViewModel : ViewModel() {
             if (result.enqueued == 0 && result.skipped > 0) {
                 refreshNotice = AppText("最近取得済みのため、今回の取得対象はありませんでした。")
             } else if (result.enqueued > 0) {
-                val done = awaitRefreshCompletion(result.queuedAt, feedId)
-                if (!done) refreshNotice = AppText("取得に時間がかかっています。あとで再度更新してください。")
+                refreshNotice = AppText("%d件のフィードの取得を開始しました。", listOf(result.enqueued))
             }
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forErrorText(e)

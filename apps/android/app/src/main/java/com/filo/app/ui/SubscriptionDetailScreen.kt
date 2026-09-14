@@ -228,10 +228,7 @@ fun SubscriptionDetailScreen(
                 "refresh_feed",
                 mapOf("feed_id" to feedId, "source" to "subscription_detail"),
             )
-            val done = awaitRefreshCompletion(result.queuedAt, feedId)
-            if (!done) {
-                refreshNotice = AppText("取得に時間がかかっています。あとで再度更新してください。")
-            }
+            if (result.enqueued > 0) refreshNotice = AppText("フィードの取得を開始しました。")
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forErrorText(e)
         }

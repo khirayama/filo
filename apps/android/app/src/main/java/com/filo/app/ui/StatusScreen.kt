@@ -28,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,11 +45,8 @@ import com.filo.app.api.ErrorMessages
 import com.filo.app.api.FeedJob
 import com.filo.app.api.StatusOverview
 import com.filo.app.api.StatusSubscription
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
-
-private const val POLL_INTERVAL_MS = 30_000L
 
 private enum class StatusFilter { All, Attention, Fetching, Paused }
 private enum class StatusSortKey { Status, FeedTitle, FetchStatus, LastFetchedAt }
@@ -65,7 +61,6 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
     var isRefreshing by remember { mutableStateOf(false) }
     var busyFeedId by remember { mutableStateOf<Int?>(null) }
     var notice by remember { mutableStateOf<AppText?>(null) }
-    var polling by remember { mutableStateOf(true) }
     var filterText by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf(StatusFilter.All) }
     var sortKey by remember { mutableStateOf(StatusSortKey.Status) }
@@ -88,15 +83,6 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
     }
 
     LaunchedEffect(Unit) { load(showSpinner = true) }
-
-    LaunchedEffect(polling) {
-        while (polling) {
-            delay(POLL_INTERVAL_MS)
-            load()
-        }
-    }
-
-    DisposableEffect(Unit) { onDispose { polling = false } }
 
     Scaffold(
         topBar = {
@@ -168,8 +154,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSubscription: (Int) -> Unit) {
                         s.feeds.total,
                         s.articleTotal,
                     ) +
-                        (s.feeds.lastFetchedAt?.let { "・${trf("最終取得 %s", relativeTime(it))}" } ?: "") +
-                        "・${trf("約%d秒ごとに自動更新", POLL_INTERVAL_MS / 1000)}",
+                        (s.feeds.lastFetchedAt?.let { "・${trf("最終取得 %s", relativeTime(it))}" } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
