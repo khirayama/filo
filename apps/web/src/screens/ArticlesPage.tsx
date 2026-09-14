@@ -9,7 +9,7 @@ import { BlockingProgress, Button, EmptyState, ErrorBox, FilterChip, IconButton,
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { detectReadingExtension, launchReadingExtension } from "../lib/extensionBridge";
 import { errorMessage } from "../lib/messages";
-import { refreshFeedsAndWait } from "../lib/refresh";
+import { enqueueFeedRefresh } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
 
 function isArticleVisibleInViewport(articleId: number): boolean {
@@ -132,17 +132,17 @@ function ArticlesListPage() {
 
   const selectedTag = tagId !== undefined ? tags.find((t) => t.id === tagId) : undefined;
 
-  // 更新: 購読 feed の取得ジョブを enqueue し、/status のポーリングで完了を待って再読込する
+  // 更新: 購読 feed の取得ジョブを enqueue し、一覧を一度再読込する。
   const refreshFeeds = async () => {
     if (refreshing) return;
     setRefreshing(true);
     setRefreshNotice(null);
     try {
-      const outcome = await refreshFeedsAndWait(api);
+      const outcome = await enqueueFeedRefresh(api);
       if (outcome.enqueued === 0 && outcome.skipped > 0) {
         setRefreshNotice(t("最近取得済みのため、今回の取得対象はありませんでした。"));
-      } else if (outcome.timedOut) {
-        setRefreshNotice(t("取得に時間がかかっています。あとで再度更新してください。"));
+      } else if (outcome.enqueued > 0) {
+        setRefreshNotice(`${outcome.enqueued}${t("件のフィードの取得を開始しました。")}`);
       }
       trackEvent("refresh_feeds", {
         enqueued: outcome.enqueued,

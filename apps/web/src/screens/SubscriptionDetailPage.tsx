@@ -10,7 +10,7 @@ import { ArticleListControls } from "../components/ArticleListControls";
 import { BlockingProgress, Badge, Button, EmptyState, ErrorBox, FilterChip, IconButton, MenuItem, Spinner, Toast, menuStyle, palette } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
-import { refreshFeedsAndWait } from "../lib/refresh";
+import { enqueueFeedRefresh } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
 
 export function SubscriptionDetailPage() {
@@ -146,15 +146,13 @@ export function SubscriptionDetailPage() {
     setRefreshing(true);
     setRefreshNotice(null);
     try {
-      const outcome = await refreshFeedsAndWait(api, { feedId: subscription.feed.id });
+      const outcome = await enqueueFeedRefresh(api, { feedId: subscription.feed.id });
       trackEvent("refresh_feed", {
         feed_id: String(subscription.feed.id),
         source: "subscription_detail",
         timed_out: outcome.timedOut,
       });
-      if (outcome.timedOut) {
-        setRefreshNotice(t("取得に時間がかかっています。あとで再度更新してください。"));
-      }
+      if (outcome.enqueued > 0) setRefreshNotice(t("フィードの取得を開始しました。"));
       await list.reload();
       void refreshAppData();
     } catch (e) {

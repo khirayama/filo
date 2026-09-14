@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { FeedJob, StatusOverview, StatusSubscription } from "../api/types";
@@ -17,10 +17,6 @@ import {
 } from "../components/ui";
 import { errorMessage } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
-
-// Status is operational information, not a realtime feed. A slower poll
-// avoids repeatedly counting every article while keeping manual reloads fast.
-const POLL_INTERVAL_MS = 30000;
 
 // One busy marker for all manual operations: which operation, and for which
 // feed ("all" for the bulk buttons).
@@ -44,8 +40,6 @@ export function StatusPage() {
     key: "status",
     direction: "asc",
   });
-  const pollRef = useRef<number | null>(null);
-
   const load = useCallback(
     async (showSpinner = false) => {
       if (showSpinner) setLoading(true);
@@ -53,8 +47,8 @@ export function StatusPage() {
         setStatus(await api.getStatus());
         setError(null);
       } catch (e) {
-        // Background polls fail transiently (network blips); keep showing the
-        // last good snapshot and only surface errors when there is nothing.
+        // Keep showing the last good snapshot and only surface errors when
+        // there is nothing to show.
         setStatus((current) => {
           if (!current || showSpinner) setError(errorMessage(e, language));
           return current;
@@ -68,18 +62,6 @@ export function StatusPage() {
 
   useEffect(() => {
     void load(true);
-    const poll = () => {
-      if (document.visibilityState === "visible") void load();
-    };
-    pollRef.current = window.setInterval(poll, POLL_INTERVAL_MS);
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void load();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
   }, [load]);
 
   // Every manual operation shares the same shape: mark busy, clear the
@@ -172,7 +154,6 @@ export function StatusPage() {
               <p style={{ color: palette.muted, fontSize: "12px", margin: "12px 0 0" }}>
                 {t("購読")} {status.feeds.total}・{t("記事")} {status.articles.total}
                 {status.feeds.lastFetchedAt ? `・${t("最終取得")} ${formatTime(status.feeds.lastFetchedAt, language)}` : ""}
-                ・{t("約{seconds}秒ごとに自動更新", { seconds: Math.round(POLL_INTERVAL_MS / 1000) })}
               </p>
             </section>
 
