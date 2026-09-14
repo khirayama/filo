@@ -117,8 +117,8 @@ final class ArticlesViewModel: ObservableObject {
     @Published var isRefreshingFeeds = false
     @Published var refreshNotice: String?
 
-    // Manual refresh: enqueue feed fetches, wait for them to land by polling
-    // /status, then reload the list.
+    // Manual refresh: enqueue feed fetches, then reload the list once. The
+    // server continues the queued work after this method returns.
     func refreshFeedsAndReload() async {
         guard !isRefreshingFeeds else { return }
         FiloAnalytics.track("refresh_feeds")
@@ -129,8 +129,7 @@ final class ArticlesViewModel: ObservableObject {
             if result.enqueued == 0, (result.skipped ?? 0) > 0 {
                 refreshNotice = L10n.string("最近取得済みのため、今回の取得対象はありませんでした。")
             } else if result.enqueued > 0 {
-                let done = await Self.awaitRefreshCompletion(queuedAtIso: result.queuedAt)
-                if !done { refreshNotice = L10n.string("取得に時間がかかっています。あとで再度更新してください。") }
+                refreshNotice = L10n.format("%ld件のフィードの取得を開始しました。", result.enqueued)
             }
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
@@ -138,23 +137,6 @@ final class ArticlesViewModel: ObservableObject {
         await reloadArticles()
         await refreshUnreadCounts()
         isRefreshingFeeds = false
-    }
-
-    // The server records a pending fetch job per feed before responding, so
-    // completion is "no fetch job is pending or running anymore".
-    static func awaitRefreshCompletion(queuedAtIso: String, feedId: Int? = nil, timeout: TimeInterval = 45) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            try? await Task.sleep(for: .seconds(2.5))
-            guard let status = try? await APIClient.shared.getStatus() else { continue }
-            if let feedId {
-                guard let sub = status.subscriptionStatuses.first(where: { $0.feedId == feedId }) else { return false }
-                if sub.fetchJob?.isActive != true { return true }
-            } else if status.subscriptionStatuses.allSatisfy({ $0.fetchJob?.isActive != true }) {
-                return true
-            }
-        }
-        return false
     }
 
     func loadMore() async {

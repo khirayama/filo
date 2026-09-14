@@ -7,13 +7,10 @@ struct StatusScreen: View {
     @State private var isRefreshing = false
     @State private var busyFeedId: Int?
     @State private var notice: String?
-    @State private var pollTask: Task<Void, Never>?
     @State private var filterText = ""
     @State private var statusFilter: StatusFilter = .all
     @State private var sortKey: StatusSortKey = .status
     @State private var sortAscending = true
-
-    private let pollInterval: TimeInterval = 30
 
     var body: some View {
         List {
@@ -40,9 +37,7 @@ struct StatusScreen: View {
         }
         .task {
             await load()
-            startPolling()
         }
-        .onDisappear { pollTask?.cancel() }
     }
 
     // MARK: - Sections
@@ -212,7 +207,6 @@ struct StatusScreen: View {
     private func summaryLine(_ s: StatusOverview) -> String {
         var line = L10n.format("購読 %ld件・記事 %ld件", s.feeds.total, s.articles.total)
         if let fetchedAt = s.feeds.lastFetchedAt { line += L10n.format("・最終取得 %@", DateFormatting.relative(fetchedAt)) }
-        line += L10n.format("・約%ld秒ごとに自動更新", Int(pollInterval))
         return line
     }
 
@@ -247,22 +241,6 @@ struct StatusScreen: View {
             }
         }
         isLoading = false
-    }
-
-    private func startPolling() {
-        pollTask?.cancel()
-        pollTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(pollInterval))
-                guard !Task.isCancelled else { break }
-                do {
-                    status = try await APIClient.shared.getStatus()
-                    errorMessage = nil
-                } catch {
-                    // silent on poll errors
-                }
-            }
-        }
     }
 
     private func refreshAll() async {

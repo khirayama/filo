@@ -183,7 +183,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var isRefreshingFeed = false
     @Published var refreshNotice: String?
 
-    // Manual per-feed refresh: enqueue the fetch, poll /status until it lands, reload.
+    // Manual per-feed refresh: enqueue the fetch, then reload the list once.
     func refreshFeedAndReload() async {
         guard let feedId = subscription?.feed.id, !isRefreshingFeed else { return }
         isRefreshingFeed = true
@@ -191,8 +191,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
         do {
             let result = try await APIClient.shared.refreshFeed(feedId)
             FiloAnalytics.track("refresh_feed", parameters: ["feed_id": feedId])
-            let done = await ArticlesViewModel.awaitRefreshCompletion(queuedAtIso: result.queuedAt, feedId: feedId)
-            if !done { refreshNotice = L10n.string("取得に時間がかかっています。あとで再度更新してください。") }
+            if result.enqueued > 0 { refreshNotice = L10n.string("フィードの取得を開始しました。") }
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
         }
