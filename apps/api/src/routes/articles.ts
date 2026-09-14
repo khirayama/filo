@@ -52,7 +52,7 @@ type ReadGroup = 0 | 1;
 
 function readGroupCondition(group: ReadGroup): string {
   return group === 0
-    ? "(ars.is_read = 0 OR (ars.user_id IS NULL AND (frc.last_read_article_id IS NULL OR frc.last_read_article_id < a.id)))"
+    ? "(ars.is_read = 0 OR (ars.user_id IS NULL AND COALESCE(frc.last_read_article_id, 0) < a.id))"
     : "(ars.is_read = 1 OR (ars.user_id IS NULL AND frc.last_read_article_id >= a.id))";
 }
 
@@ -81,6 +81,7 @@ function articleWithinCursor(sort: string, cursor: ArticleCursor): { sql: string
 function articleListSelect(
   readingListJoin: "JOIN" | "LEFT JOIN",
   bookmarkJoin: "JOIN" | "LEFT JOIN",
+  subscriptionJoin: boolean,
   where: string,
   orderBy: string,
 ): string {
@@ -100,6 +101,7 @@ function articleListSelect(
     ${bookmarkJoin} article_user_collections ab
       ON ab.article_id = a.id AND ab.user_id = ? AND ab.kind = 'bookmark'
     LEFT JOIN feed_read_cursors frc ON frc.feed_id = a.feed_id AND frc.user_id = ?
+    ${subscriptionJoin ? "JOIN subscriptions s ON s.feed_id = a.feed_id AND s.user_id = ?" : ""}
     WHERE ${where}
     ORDER BY ${orderBy}
     LIMIT ?
@@ -113,6 +115,7 @@ async function articleRowsForGroup(
   baseBinds: unknown[],
   readingListJoin: "JOIN" | "LEFT JOIN",
   bookmarkJoin: "JOIN" | "LEFT JOIN",
+  subscriptionJoin: boolean,
   sort: string,
   group: ReadGroup,
   cursor: ArticleCursor | undefined,
@@ -125,8 +128,16 @@ async function articleRowsForGroup(
     conditions.push(within.sql);
     binds.push(...within.binds);
   }
-  const sql = articleListSelect(readingListJoin, bookmarkJoin, conditions.join(" AND "), articleDateOrder(sort));
-  const { results } = await db.prepare(sql).bind(userId, userId, userId, userId, ...binds, limit).all<ArticleListRow>();
+  const sql = articleListSelect(
+    readingListJoin,
+    bookmarkJoin,
+    subscriptionJoin,
+    conditions.join(" AND "),
+    articleDateOrder(sort),
+  );
+  const { results } = await db.prepare(sql)
+    .bind(userId, userId, userId, userId, ...(subscriptionJoin ? [userId] : []), ...binds, limit)
+    .all<ArticleListRow>();
   return results;
 }
 
@@ -137,6 +148,7 @@ async function splitArticleRows(
   baseBinds: unknown[],
   readingListJoin: "JOIN" | "LEFT JOIN",
   bookmarkJoin: "JOIN" | "LEFT JOIN",
+  subscriptionJoin: boolean,
   sort: string,
   readOrder: string,
   cursor: ArticleCursor | undefined,
@@ -150,14 +162,14 @@ async function splitArticleRows(
   if (cursor && cursor.r === secondGroup) {
     const rows = await articleRowsForGroup(
       db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
-      sort, secondGroup, cursor, limit + 1,
+      subscriptionJoin, sort, secondGroup, cursor, limit + 1,
     );
     return { page: rows.slice(0, limit), hasMore: rows.length > limit };
   }
 
   const firstRows = await articleRowsForGroup(
     db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
-    sort, firstGroup, cursor, limit + 1,
+    subscriptionJoin, sort, firstGroup, cursor, limit + 1,
   );
   if (firstRows.length > limit) return { page: firstRows.slice(0, limit), hasMore: true };
 
@@ -166,14 +178,14 @@ async function splitArticleRows(
   if (firstRows.length === limit) {
     const secondProbe = await articleRowsForGroup(
       db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
-      sort, secondGroup, undefined, 1,
+      subscriptionJoin, sort, secondGroup, undefined, 1,
     );
     return { page: firstRows, hasMore: secondProbe.length > 0 };
   }
 
   const secondRows = await articleRowsForGroup(
     db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
-    sort, secondGroup, undefined, limit - firstRows.length + 1,
+    subscriptionJoin, sort, secondGroup, undefined, limit - firstRows.length + 1,
   );
   const page = [...firstRows, ...secondRows.slice(0, limit - firstRows.length)];
   return { page, hasMore: secondRows.length > limit - firstRows.length };
@@ -357,10 +369,11 @@ export const articleRoutes = new Hono<AppContext>()
 
     // Retained articles only appear in unscoped collection lists, and never under read=false.
     const includeRetained = (readingList === true || bookmarked === true) && !scopedToSubscription && read !== false;
-    if (!includeRetained) {
-      conditions.push("EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = ? AND s.feed_id = a.feed_id)");
-      binds.push(user.id);
-    }
+    // A regular article list is subscription-scoped. Use an explicit join so
+    // SQLite can apply the user's subscription index before evaluating the
+    // read-state and collection joins. Retained-only lists intentionally skip
+    // this join because saved articles do not have a subscription.
+    const subscriptionJoin = !includeRetained;
 
     const baseConditions = [...conditions];
     const baseBinds = [...binds];
@@ -382,6 +395,7 @@ export const articleRoutes = new Hono<AppContext>()
         baseBinds,
         readingListJoin,
         bookmarkJoin,
+        subscriptionJoin,
         sort,
         readOrder,
         cursor,
@@ -412,11 +426,12 @@ export const articleRoutes = new Hono<AppContext>()
       const sql = articleListSelect(
         readingListJoin,
         bookmarkJoin,
+        subscriptionJoin,
         conditions.length > 0 ? conditions.join(" AND ") : "1 = 1",
         orderBy,
       );
       const query = await c.env.DB.prepare(sql)
-        .bind(user.id, user.id, user.id, user.id, ...binds, limit + 1)
+        .bind(user.id, user.id, user.id, user.id, ...(subscriptionJoin ? [user.id] : []), ...binds, limit + 1)
         .all<ArticleListRow>();
       results = query.results;
       hasMore = results.length > limit;
