@@ -12,6 +12,8 @@ import android.speech.tts.UtteranceProgressListener
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -103,6 +105,8 @@ class ReadingPlayerController(
         private set
     var extractedLanguage by mutableStateOf<String?>(null)
         private set
+    var isExtracting by mutableStateOf(false)
+        private set
     var errorMessage by mutableStateOf<AppText?>(null)
         private set
     var isAddingToReadingList by mutableStateOf(false)
@@ -126,6 +130,7 @@ class ReadingPlayerController(
     private var chunks = emptyList<String>()
     private var chunkIndex = 0
     private var autoplayWhenReady = false
+    private var playWhenExtractionReady = false
     private var playbackGeneration = 0
     private var playbackArticleId: Int? = null
     private var playbackArticleTitle: String? = null
@@ -213,18 +218,28 @@ class ReadingPlayerController(
     fun receiveExtracted(text: String, language: String?) {
         extractedText = clean(text)
         extractedLanguage = language ?: currentItem?.article?.sourceLanguage
-        if (autoplayWhenReady) {
-            autoplayWhenReady = false
+        isExtracting = false
+        val shouldPlay = autoplayWhenReady || playWhenExtractionReady
+        autoplayWhenReady = false
+        playWhenExtractionReady = false
+        if (shouldPlay) {
             play()
         }
     }
 
     fun extractionFailed() {
+        isExtracting = false
         if (temporary) {
+            autoplayWhenReady = false
+            playWhenExtractionReady = false
             errorMessage = AppText("本文を抽出できませんでした。")
             return
         }
-        val id = currentItem?.articleId ?: return
+        val id = currentItem?.articleId ?: run {
+            autoplayWhenReady = false
+            playWhenExtractionReady = false
+            return
+        }
         scope.launch {
             runCatching { ApiClient.requestArticleContent(id) }
             repeat(12) {
@@ -236,6 +251,8 @@ class ReadingPlayerController(
                 }
                 if (content.status == "error") return@repeat
             }
+            autoplayWhenReady = false
+            playWhenExtractionReady = false
             errorMessage = AppText("本文を抽出できませんでした。")
         }
     }
@@ -243,6 +260,10 @@ class ReadingPlayerController(
     fun play() {
         val source = extractedText
         if (source.isNullOrBlank()) {
+            if (isExtracting) {
+                playWhenExtractionReady = true
+                return
+            }
             extractionFailed()
             return
         }
@@ -275,6 +296,8 @@ class ReadingPlayerController(
 
     fun pause() {
         playbackGeneration += 1
+        autoplayWhenReady = false
+        playWhenExtractionReady = false
         tts?.stop()
         isPlaying = false
         notifyMedia()
@@ -382,6 +405,8 @@ class ReadingPlayerController(
         val preservePlayback = isPlaying
         extractedText = null
         extractedLanguage = null
+        isExtracting = currentItem?.article?.canonicalUrl != null
+        playWhenExtractionReady = false
         if (!preservePlayback) {
             chunks = emptyList()
             chunkIndex = 0
@@ -632,6 +657,7 @@ fun ReadingSessionScreen(
                     onExtracted = player::receiveExtracted,
                     onFailure = player::extractionFailed,
                     readRequest = sourceRequest,
+                    pageReady = !player.isExtracting,
                     onSourceCaptured = { request, text, language ->
                         if (sourceRequest?.id == request.id) {
                             sourceRequest = null
@@ -920,6 +946,7 @@ private fun ReadingWebView(
     onExtracted: (String, String?) -> Unit,
     onFailure: () -> Unit,
     readRequest: ReadingSourceRequest?,
+    pageReady: Boolean,
     onSourceCaptured: (ReadingSourceRequest, String, String?) -> Unit,
     onSelectionChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -942,23 +969,35 @@ private fun ReadingWebView(
                         view.evaluateJavascript(
                             "(() => { const report=()=>FiloReader.selectionChanged((window.getSelection()||{}).toString());" +
                                 "document.addEventListener('selectionchange', report); report(); })();" +
-                                "$readability;(() => { const a = new Readability(document.cloneNode(true), {charThreshold:100}).parse();" +
-                                "const n=v=>String(v||'').replace(/\\s+/g,' ').trim();" +
+                            "$readability;(() => { const n=v=>String(v||'').replace(/\\s+/g,' ').trim();" +
+                                "const extract=()=>{ try { const a=new Readability(document.cloneNode(true), {charThreshold:100}).parse();" +
                                 "const root=document.implementation.createHTMLDocument('').body; if(a) root.innerHTML=a.content||'';" +
                                 "const tags=new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']), lines=[];" +
                                 "const visit=x=>Array.from(x.children).forEach(c=>tags.has(c.tagName)?(n(c.textContent)&&lines.push(n(c.textContent))):visit(c));" +
                                 "if(a) visit(root); if(a&&!lines.length) lines.push(...n(a.textContent).split(/\\n+/).filter(Boolean));" +
                                 "const title=n(a&&a.title)||n(document.title), text=a?[title,...(lines[0]===title?lines.slice(1):lines)].filter(Boolean).join('\\n\\n'):'';" +
-                                "FiloReader.postMessage(JSON.stringify(text.length>=100?{text:text,lang:a.lang||document.documentElement.lang||null}:{error:true})); })();",
-                            null,
+                                "return a&&text.length>=100?{text:text,lang:a.lang||document.documentElement.lang||null}:{error:true};" +
+                                "} catch (_) { return {error:true}; } };" +
+                                "const send=result=>FiloReader.postMessage(JSON.stringify(result));" +
+                                "setTimeout(() => { const first=extract(); if(first.text) send(first); else setTimeout(() => send(extract()), 800); }, 500); })();",
+                                null,
                         )
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView,
+                        request: WebResourceRequest,
+                        error: WebResourceError,
+                    ) {
+                        if (request.isForMainFrame) onFailure()
                     }
                 }
                 loadUrl(url)
             }
         }
-        LaunchedEffect(webView, readRequest?.id) {
+        LaunchedEffect(webView, readRequest?.id, pageReady) {
             val request = readRequest ?: return@LaunchedEffect
+            if (!pageReady) return@LaunchedEffect
             val source = request.source.name
             val textExpression = when (request.source) {
                 ReadingSource.Selection -> "(window.getSelection()||{}).toString()"
