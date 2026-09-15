@@ -19,6 +19,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published var isReadingBrowserVisible = false
     @Published var extractedText: String?
     @Published var extractedLanguage: String?
+    @Published var isExtracting = false
     @Published var errorMessage: String?
     @Published var isAddingToReadingList = false
     @Published private(set) var removedReadingListArticleIds: Set<Int> = []
@@ -35,6 +36,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var temporary = false
     private var translationToken = 0
     private var pendingOriginalText: String?
+    private var playWhenExtractionReady = false
     private var playbackArticleId: Int? = nil
     private var playbackArticleTitle: String? = nil
     private var playbackTemporary = false
@@ -111,18 +113,28 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     func receiveExtracted(text: String, language: String?) {
         extractedText = clean(text)
         extractedLanguage = language ?? currentItem?.article.sourceLanguage
-        if startingAutoplay {
-            startingAutoplay = false
+        isExtracting = false
+        let shouldPlay = startingAutoplay || playWhenExtractionReady
+        startingAutoplay = false
+        playWhenExtractionReady = false
+        if shouldPlay {
             play()
         }
     }
 
     func extractionFailed() {
+        isExtracting = false
         if temporary {
+            startingAutoplay = false
+            playWhenExtractionReady = false
             errorMessage = L10n.string("本文を抽出できませんでした。")
             return
         }
-        guard let articleId = currentItem?.articleId else { return }
+        guard let articleId = currentItem?.articleId else {
+            startingAutoplay = false
+            playWhenExtractionReady = false
+            return
+        }
         Task {
             _ = try? await APIClient.shared.requestArticleContent(articleId)
             for _ in 0 ..< 12 {
@@ -134,12 +146,18 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 }
                 if content.status == "error" { break }
             }
+            startingAutoplay = false
+            playWhenExtractionReady = false
             errorMessage = L10n.string("本文を抽出できませんでした。")
         }
     }
 
     func play() {
         guard let text = extractedText, !text.isEmpty else {
+            if isExtracting {
+                playWhenExtractionReady = true
+                return
+            }
             extractionFailed()
             return
         }
@@ -200,6 +218,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         translationToken += 1
         translationRequest = nil
         pendingOriginalText = nil
+        startingAutoplay = false
+        playWhenExtractionReady = false
         synthesizer.stopSpeaking(at: .immediate)
         isPlaying = false
     }
@@ -301,6 +321,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         let preservePlayback = isPlaying
         extractedText = nil
         extractedLanguage = nil
+        isExtracting = currentItem?.article.canonicalUrl != nil
+        playWhenExtractionReady = false
         if !preservePlayback {
             chunks = []
             chunkIndex = 0
@@ -668,28 +690,48 @@ private struct ReadingWebView: UIViewRepresentable {
             \(readability)
             (() => {
               const normalize = value => String(value || '').replace(/\\s+/g, ' ').trim();
-              const article = new Readability(document.cloneNode(true), { charThreshold: 100 }).parse();
-              const text = (() => {
-                if (!article) return '';
-                const root = document.implementation.createHTMLDocument('').body;
-                root.innerHTML = article.content || '';
-                const blocks = new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']);
-                const lines = [];
-                const visit = node => Array.from(node.children).forEach(child => {
-                  if (blocks.has(child.tagName)) { const value = normalize(child.textContent); if (value) lines.push(value); }
-                  else visit(child);
-                });
-                visit(root);
-                if (!lines.length) lines.push(...normalize(article.textContent).split(/\\n+/).filter(Boolean));
-                const title = normalize(article.title) || normalize(document.title);
-                return [title, ...(lines[0] === title ? lines.slice(1) : lines)].filter(Boolean).join('\\n\\n');
-              })();
-              window.webkit.messageHandlers.filoReader.postMessage(text.length >= 100
-                ? { text, lang: article.lang || document.documentElement.lang || null }
-                : { error: true });
+              const extract = () => {
+                try {
+                  const article = new Readability(document.cloneNode(true), { charThreshold: 100 }).parse();
+                  const text = (() => {
+                    if (!article) return '';
+                    const root = document.implementation.createHTMLDocument('').body;
+                    root.innerHTML = article.content || '';
+                    const blocks = new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']);
+                    const lines = [];
+                    const visit = node => Array.from(node.children).forEach(child => {
+                      if (blocks.has(child.tagName)) { const value = normalize(child.textContent); if (value) lines.push(value); }
+                      else visit(child);
+                    });
+                    visit(root);
+                    if (!lines.length) lines.push(...normalize(article.textContent).split(/\\n+/).filter(Boolean));
+                    const title = normalize(article.title) || normalize(document.title);
+                    return [title, ...(lines[0] === title ? lines.slice(1) : lines)].filter(Boolean).join('\\n\\n');
+                  })();
+                  return text.length >= 100
+                    ? { text, lang: article.lang || document.documentElement.lang || null }
+                    : { error: true };
+                } catch (_) {
+                  return { error: true };
+                }
+              };
+              const send = result => window.webkit.messageHandlers.filoReader.postMessage(result);
+              setTimeout(() => {
+                const first = extract();
+                if (first.text) send(first);
+                else setTimeout(() => send(extract()), 800);
+              }, 500);
             })();
             """
             webView.evaluateJavaScript(script) { _, error in if error != nil { self.onFailure() } }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            onFailure()
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            onFailure()
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
