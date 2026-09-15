@@ -3,6 +3,10 @@ import { WEB_APP_URL } from "./config";
 
 type ExtractionMode = "article" | "display";
 
+const EXTRACTION_SETTLE_DELAY_MS = 500;
+const EXTRACTION_RETRY_DELAY_MS = 800;
+const EXTRACTION_READY_TIMEOUT_MS = 5000;
+
 function normalize(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -54,6 +58,50 @@ function displayedText(): string {
 function selectedText(): { text: string; lang: string | null } | null {
   const text = normalize(window.getSelection()?.toString() ?? "");
   return text ? { text, lang: document.documentElement.lang || null } : null;
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function waitForPageReady(): Promise<void> {
+  if (document.readyState === "complete") {
+    await wait(EXTRACTION_SETTLE_DELAY_MS);
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    let timeoutId: number | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      window.removeEventListener("load", finish);
+      resolve();
+    };
+    timeoutId = window.setTimeout(finish, EXTRACTION_READY_TIMEOUT_MS);
+    window.addEventListener("load", finish, { once: true });
+  });
+  await wait(EXTRACTION_SETTLE_DELAY_MS);
+}
+
+async function extractWithRetry(mode: ExtractionMode): Promise<ReturnType<typeof extract>> {
+  await waitForPageReady();
+  let result: ReturnType<typeof extract> = null;
+  try {
+    result = extract(mode);
+  } catch {
+    // A page can still be changing while Readability walks its cloned DOM.
+  }
+  if (result) return result;
+
+  await wait(EXTRACTION_RETRY_DELAY_MS);
+  try {
+    return extract(mode);
+  } catch {
+    return null;
+  }
 }
 
 function extract(mode: ExtractionMode = "article") {
@@ -118,8 +166,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (message?.type !== "filoExtract") return false;
-  sendResponse(extract(message.mode === "display" ? "display" : "article"));
-  return false;
+  void extractWithRetry(message.mode === "display" ? "display" : "article")
+    .then(sendResponse)
+    .catch(() => sendResponse(null));
+  return true;
 });
 
 chrome.runtime.sendMessage({ type: "filoPageReady" }).catch(() => undefined);
