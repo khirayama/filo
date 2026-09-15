@@ -146,13 +146,28 @@ export async function initializeSubscriptionUnreadCount(
   feedId: number,
   now: string,
 ): Promise<number> {
+  // Effective unread is the disjoint union of explicit unread overrides and
+  // articles after the feed cursor with no explicit override. Keeping those
+  // branches separate lets SQLite use the sparse state index and the
+  // feed/id range index instead of scanning the whole feed.
   const row = await db.prepare(
-    `SELECT COUNT(a.id) AS unread_count
-     FROM articles a
-     LEFT JOIN article_read_states ars ON ars.user_id = ? AND ars.article_id = a.id
-     LEFT JOIN feed_read_cursors frc ON frc.user_id = ? AND frc.feed_id = a.feed_id
-     WHERE a.feed_id = ? AND (${EFFECTIVE_IS_READ}) = 0`,
-  ).bind(userId, userId, feedId).first<{ unread_count: number }>();
+    `SELECT
+       (SELECT COUNT(*)
+        FROM article_read_states ars
+        JOIN articles a ON a.id = ars.article_id
+        WHERE ars.user_id = ? AND ars.is_read = 0 AND a.feed_id = ?)
+       +
+       (SELECT COUNT(*)
+        FROM articles a
+        LEFT JOIN feed_read_cursors frc
+          ON frc.user_id = ? AND frc.feed_id = ?
+        WHERE a.feed_id = ?
+          AND a.id > COALESCE(frc.last_read_article_id, 0)
+          AND NOT EXISTS (
+            SELECT 1 FROM article_read_states ars
+            WHERE ars.user_id = ? AND ars.article_id = a.id
+          )) AS unread_count`,
+  ).bind(userId, feedId, userId, feedId, feedId, userId).first<{ unread_count: number }>();
   const count = Number(row?.unread_count ?? 0);
   await subscriptionUnreadCountMutation(db, subscriptionId, userId, feedId, count, now).run();
   return count;

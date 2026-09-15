@@ -10,7 +10,6 @@ import {
   adjustReadingListUnreadMutation,
   EFFECTIVE_IS_READ,
   incrementUnreadForFeedMutation,
-  initializeSubscriptionUnreadCount,
   recomputeReadingListUnreadCount,
   unreadCountsForUser,
   type UnreadCountScope,
@@ -59,8 +58,13 @@ function readGroupCondition(group: ReadGroup): string {
 function articleDateOrder(sort: string): string {
   return sort === "fetched_at_desc"
     ? "a.fetched_at DESC, a.id DESC"
-    : "(a.published_at IS NULL) ASC, a.published_at DESC, a.id DESC";
+    // SQLite sorts NULLs last for DESC, so this preserves the previous
+    // published_at ordering while allowing idx_articles_published_id to
+    // provide the order without a temporary sort.
+    : "a.published_at DESC, a.id DESC";
 }
+
+type SubscriptionFilter = "none" | "exists";
 
 function articleWithinCursor(sort: string, cursor: ArticleCursor): { sql: string; binds: unknown[] } {
   if (sort === "fetched_at_desc") {
@@ -81,10 +85,14 @@ function articleWithinCursor(sort: string, cursor: ArticleCursor): { sql: string
 function articleListSelect(
   readingListJoin: "JOIN" | "LEFT JOIN",
   bookmarkJoin: "JOIN" | "LEFT JOIN",
-  subscriptionJoin: boolean,
+  subscriptionFilter: SubscriptionFilter,
   where: string,
   orderBy: string,
 ): string {
+  const subscriptionCondition = subscriptionFilter === "exists"
+    ? "EXISTS (SELECT 1 FROM subscriptions s WHERE s.feed_id = a.feed_id AND s.user_id = ?)"
+    : "";
+  const conditions = [subscriptionCondition, where].filter(Boolean).join(" AND ");
   return `
     SELECT
       a.id, a.title, a.canonical_url, a.rss_summary, a.rss_content_html,
@@ -101,8 +109,7 @@ function articleListSelect(
     ${bookmarkJoin} article_user_collections ab
       ON ab.article_id = a.id AND ab.user_id = ? AND ab.kind = 'bookmark'
     LEFT JOIN feed_read_cursors frc ON frc.feed_id = a.feed_id AND frc.user_id = ?
-    ${subscriptionJoin ? "JOIN subscriptions s ON s.feed_id = a.feed_id AND s.user_id = ?" : ""}
-    WHERE ${where}
+    WHERE ${conditions}
     ORDER BY ${orderBy}
     LIMIT ?
   `;
@@ -115,7 +122,7 @@ async function articleRowsForGroup(
   baseBinds: unknown[],
   readingListJoin: "JOIN" | "LEFT JOIN",
   bookmarkJoin: "JOIN" | "LEFT JOIN",
-  subscriptionJoin: boolean,
+  subscriptionFilter: SubscriptionFilter,
   sort: string,
   group: ReadGroup,
   cursor: ArticleCursor | undefined,
@@ -131,12 +138,12 @@ async function articleRowsForGroup(
   const sql = articleListSelect(
     readingListJoin,
     bookmarkJoin,
-    subscriptionJoin,
+    subscriptionFilter,
     conditions.join(" AND "),
     articleDateOrder(sort),
   );
   const { results } = await db.prepare(sql)
-    .bind(userId, userId, userId, userId, ...(subscriptionJoin ? [userId] : []), ...binds, limit)
+    .bind(userId, userId, userId, userId, ...(subscriptionFilter === "exists" ? [userId] : []), ...binds, limit)
     .all<ArticleListRow>();
   return results;
 }
@@ -148,7 +155,7 @@ async function splitArticleRows(
   baseBinds: unknown[],
   readingListJoin: "JOIN" | "LEFT JOIN",
   bookmarkJoin: "JOIN" | "LEFT JOIN",
-  subscriptionJoin: boolean,
+  subscriptionFilter: SubscriptionFilter,
   sort: string,
   readOrder: string,
   cursor: ArticleCursor | undefined,
@@ -162,14 +169,14 @@ async function splitArticleRows(
   if (cursor && cursor.r === secondGroup) {
     const rows = await articleRowsForGroup(
       db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
-      subscriptionJoin, sort, secondGroup, cursor, limit + 1,
+      subscriptionFilter, sort, secondGroup, cursor, limit + 1,
     );
     return { page: rows.slice(0, limit), hasMore: rows.length > limit };
   }
 
   const firstRows = await articleRowsForGroup(
     db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
-    subscriptionJoin, sort, firstGroup, cursor, limit + 1,
+    subscriptionFilter, sort, firstGroup, cursor, limit + 1,
   );
   if (firstRows.length > limit) return { page: firstRows.slice(0, limit), hasMore: true };
 
@@ -178,14 +185,14 @@ async function splitArticleRows(
   if (firstRows.length === limit) {
     const secondProbe = await articleRowsForGroup(
       db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
-      subscriptionJoin, sort, secondGroup, undefined, 1,
+      subscriptionFilter, sort, secondGroup, undefined, 1,
     );
     return { page: firstRows, hasMore: secondProbe.length > 0 };
   }
 
   const secondRows = await articleRowsForGroup(
     db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
-    subscriptionJoin, sort, secondGroup, undefined, limit - firstRows.length + 1,
+    subscriptionFilter, sort, secondGroup, undefined, limit - firstRows.length + 1,
   );
   const page = [...firstRows, ...secondRows.slice(0, limit - firstRows.length)];
   return { page, hasMore: secondRows.length > limit - firstRows.length };
@@ -369,11 +376,12 @@ export const articleRoutes = new Hono<AppContext>()
 
     // Retained articles only appear in unscoped collection lists, and never under read=false.
     const includeRetained = (readingList === true || bookmarked === true) && !scopedToSubscription && read !== false;
-    // A regular article list is subscription-scoped. Use an explicit join so
-    // SQLite can apply the user's subscription index before evaluating the
-    // read-state and collection joins. Retained-only lists intentionally skip
-    // this join because saved articles do not have a subscription.
-    const subscriptionJoin = !includeRetained;
+    // A regular article list is subscription-scoped. Use a correlated EXISTS
+    // so SQLite can scan the global article-order index and stop at LIMIT
+    // instead of joining every subscribed feed and sorting all its articles.
+    // Collection lists with a subscription/tag predicate are already scoped;
+    // retained-only lists intentionally skip this filter.
+    const subscriptionFilter: SubscriptionFilter = includeRetained || scopedToSubscription ? "none" : "exists";
 
     const baseConditions = [...conditions];
     const baseBinds = [...binds];
@@ -395,7 +403,7 @@ export const articleRoutes = new Hono<AppContext>()
         baseBinds,
         readingListJoin,
         bookmarkJoin,
-        subscriptionJoin,
+        subscriptionFilter,
         sort,
         readOrder,
         cursor,
@@ -426,12 +434,12 @@ export const articleRoutes = new Hono<AppContext>()
       const sql = articleListSelect(
         readingListJoin,
         bookmarkJoin,
-        subscriptionJoin,
+        subscriptionFilter,
         conditions.length > 0 ? conditions.join(" AND ") : "1 = 1",
         orderBy,
       );
       const query = await c.env.DB.prepare(sql)
-        .bind(user.id, user.id, user.id, user.id, ...(subscriptionJoin ? [user.id] : []), ...binds, limit + 1)
+        .bind(user.id, user.id, user.id, user.id, ...(subscriptionFilter === "exists" ? [user.id] : []), ...binds, limit + 1)
         .all<ArticleListRow>();
       results = query.results;
       hasMore = results.length > limit;
@@ -535,22 +543,20 @@ export const articleRoutes = new Hono<AppContext>()
            WHERE s.user_id = ?${tagFilter}
          )`
       ).bind(now, now, user.id, user.id, ...tagBinds),
+      // The cursor and explicit-state update above make every current article
+      // in the selected subscriptions read. Reset the derived counters in
+      // the same batch instead of rescanning each feed independently.
+      c.env.DB.prepare(
+        `UPDATE subscription_unread_counts
+         SET unread_count = 0, updated_at = ?
+         WHERE user_id = ?
+           AND subscription_id IN (
+             SELECT s.id FROM subscriptions s
+             WHERE s.user_id = ?${tagFilter}
+           )`,
+      ).bind(now, user.id, user.id, ...tagBinds),
     ]);
 
-    const { results: affectedSubscriptions } = await c.env.DB.prepare(
-      `SELECT s.id, s.feed_id
-       FROM subscriptions s
-       WHERE s.user_id = ?${tagFilter}`,
-    ).bind(user.id, ...tagBinds).all<{ id: number; feed_id: number }>();
-    for (const subscription of affectedSubscriptions) {
-      await initializeSubscriptionUnreadCount(
-        c.env.DB,
-        subscription.id,
-        user.id,
-        subscription.feed_id,
-        now,
-      );
-    }
     await recomputeReadingListUnreadCount(c.env.DB, user.id, now);
 
     return c.json({ data: { updatedFeeds: upsert?.meta.changes ?? 0 } });
