@@ -442,7 +442,6 @@ struct BlockingProgressOverlay: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .background(FiloPalette.surface, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(FiloPalette.border, lineWidth: 1))
             .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
         }
         .accessibilityElement(children: .combine)

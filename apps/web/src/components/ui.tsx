@@ -260,7 +260,6 @@ export function BlockingProgress({ message }: { message: string }) {
         style={{
           alignItems: "center",
           background: palette.surface,
-          border: `1px solid ${palette.border}`,
           borderRadius: "8px",
           boxShadow: `0 4px 16px ${palette.shadow}`,
           color: palette.text,

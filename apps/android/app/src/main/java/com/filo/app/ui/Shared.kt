@@ -122,6 +122,7 @@ fun BlockingProgressOverlay(message: String) {
         Surface(
             shape = MaterialTheme.shapes.small,
             color = MaterialTheme.colorScheme.surface,
+            border = null,
             tonalElevation = 3.dp,
         ) {
             Row(
