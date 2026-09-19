@@ -112,7 +112,6 @@ struct ContentView: View {
 struct AppNavigationView: View {
     @State private var path = NavigationPath()
     @State private var activeRoute: AppRoute?
-    @State private var drawerStackDepth: Int?
     @State private var showGlobalDrawer = false
     @StateObject private var articlesModel = ArticlesViewModel()
     @ObservedObject private var languageManager = LanguageManager.shared
@@ -134,16 +133,13 @@ struct AppNavigationView: View {
                             model: articlesModel,
                             onSelect: resetToArticles,
                             showCloseButton: false,
-                            onRoute: { route in
-                                activeRoute = route
-                                path.append(route)
-                            },
+                            onRoute: navigateFromDesktopDrawer,
                             activeRoute: activeRoute,
                         )
                         .frame(width: 280)
                         .background(FiloPalette.surface)
                         Divider()
-                        navigationStack
+                        navigationStack(isDesktop: true)
                     }
                     if readingPlayer.isPlaying && !readingPlayer.isReadingBrowserVisible {
                         ReadingMiniPlayer(player: readingPlayer)
@@ -152,10 +148,7 @@ struct AppNavigationView: View {
             } else {
                 ZStack(alignment: .leading) {
                     VStack(spacing: 0) {
-                        if !showGlobalDrawer && activeRoute != nil {
-                            mobileHeader
-                        }
-                        navigationStack
+                        navigationStack(isDesktop: false)
                         if readingPlayer.isPlaying && !readingPlayer.isReadingBrowserVisible {
                             ReadingMiniPlayer(player: readingPlayer)
                         }
@@ -173,11 +166,6 @@ struct AppNavigationView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { openPendingShare() }
         }
-        .onChange(of: path.count) { _, depth in
-            guard showGlobalDrawer, let drawerStackDepth, depth < drawerStackDepth else { return }
-            self.drawerStackDepth = nil
-            withAnimation(.easeIn(duration: 0.2)) { showGlobalDrawer = false }
-        }
         .task {
             if let settings = try? await APIClient.shared.getSettings() {
                 languageManager.language = settings.language
@@ -185,7 +173,7 @@ struct AppNavigationView: View {
         }
     }
 
-    private var navigationStack: some View {
+    private func navigationStack(isDesktop: Bool) -> some View {
         NavigationStack(path: $path) {
             ArticlesScreen(
                 path: $path,
@@ -202,6 +190,11 @@ struct AppNavigationView: View {
             }
             .navigationDestination(for: AppRoute.self) { route in
                 switch route {
+                case .drawer:
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .onAppear { showGlobalDrawer = true }
+                        .onDisappear { showGlobalDrawer = false }
                 case .subscriptions:
                     SubscriptionsScreen(onSelectTag: { tagId in
                         articlesModel.selectView(tagId: tagId)
@@ -211,8 +204,6 @@ struct AppNavigationView: View {
                         activeRoute = .subscriptions
                         FiloAnalytics.screen("subscriptions")
                     }
-                case .drawer:
-                    Color.clear
                 case .settings:
                     SettingsScreen().onAppear {
                         activeRoute = .settings
@@ -281,31 +272,20 @@ struct AppNavigationView: View {
         .titleTranslation(store: titleTranslations)
         .environmentObject(readingPlayer)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var mobileHeader: some View {
-        HStack(spacing: 8) {
-            Button {
-                openMobileDrawer()
-            } label: {
-                FiloIcon(.menu, size: 18)
-                    .frame(width: 32, height: 32)
+        .toolbar {
+            if !isDesktop, !path.isEmpty {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        openMobileDrawer()
+                    } label: {
+                        FiloIcon(.menu, size: 18)
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("メニュー")
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("メニュー")
-            Button {
-                resetToArticles()
-            } label: {
-                Text("Filo")
-                    .font(.body.weight(.bold))
-            }
-            .buttonStyle(.plain)
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 51)
-        .background(FiloPalette.surface)
-        .overlay(alignment: .bottom) { Divider() }
     }
 
     private var globalDrawerOverlay: some View {
@@ -318,10 +298,7 @@ struct AppNavigationView: View {
                 onSelect: resetToArticles,
                 showCloseButton: true,
                 onClose: closeMobileDrawer,
-                onRoute: { route in
-                    activeRoute = route
-                    path.append(route)
-                },
+                onRoute: navigateFromMobileDrawer,
                 activeRoute: activeRoute,
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -335,7 +312,6 @@ struct AppNavigationView: View {
     }
 
     private func resetToArticles() {
-        drawerStackDepth = nil
         withAnimation(.easeIn(duration: 0.2)) {
             showGlobalDrawer = false
         }
@@ -345,27 +321,31 @@ struct AppNavigationView: View {
 
     private func openMobileDrawer() {
         guard !showGlobalDrawer else { return }
-        drawerStackDepth = path.count + 1
         withAnimation(.easeOut(duration: 0.2)) {
-            showGlobalDrawer = true
-        }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
             path.append(AppRoute.drawer)
+            showGlobalDrawer = true
         }
     }
 
     private func closeMobileDrawer() {
         guard showGlobalDrawer else { return }
-        drawerStackDepth = nil
         withAnimation(.easeIn(duration: 0.2)) {
             showGlobalDrawer = false
-        }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
             if !path.isEmpty { path.removeLast() }
+        }
+    }
+
+    private func navigateFromDesktopDrawer(_ route: AppRoute) {
+        activeRoute = route
+        path = NavigationPath()
+        path.append(route)
+    }
+
+    private func navigateFromMobileDrawer(_ route: AppRoute) {
+        withAnimation(.easeIn(duration: 0.2)) {
+            activeRoute = route
+            showGlobalDrawer = false
+            path.append(route)
         }
     }
 

@@ -471,6 +471,9 @@ struct TitleTranslationSetupView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(FiloPalette.background)
+            .listRowBackground(FiloPalette.background)
             .navigationTitle("翻訳の準備")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

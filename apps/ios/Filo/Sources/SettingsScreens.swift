@@ -18,7 +18,7 @@ struct SettingsScreen: View {
     var body: some View {
         Form {
             if isLoading {
-                ProgressView("読み込み中…")
+                ProgressView(L10n.string("読み込み中…"))
             } else if let settings {
                 settingsSection(settings)
                 opmlSection
@@ -35,6 +35,7 @@ struct SettingsScreen: View {
         }
         .scrollContentBackground(.hidden)
         .background(FiloPalette.background)
+        .listRowBackground(FiloPalette.background)
         .navigationTitle("設定")
         .task { await load() }
         .onDisappear { pollTask?.cancel() }
@@ -335,10 +336,13 @@ struct AccountDeletionStatusScreen: View {
                             .foregroundStyle(FiloPalette.muted)
                     }
                 } else {
-                    ProgressView("状態を確認しています…")
+                    ProgressView(L10n.string("状態を確認しています…"))
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(FiloPalette.background)
+        .listRowBackground(FiloPalette.background)
         .navigationTitle("アカウント削除")
         .navigationBarBackButtonHidden(status?.status == "completed")
         .task { startPolling() }

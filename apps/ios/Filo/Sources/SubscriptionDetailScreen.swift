@@ -296,7 +296,7 @@ struct SubscriptionDetailScreen: View {
                 }
             }
             if model.isRefreshingFeed {
-                ProgressView("フィードを更新しています…")
+                ProgressView(L10n.string("フィードを更新しています…"))
             }
             if let notice = model.refreshNotice {
                 Text(notice)
@@ -308,7 +308,7 @@ struct SubscriptionDetailScreen: View {
             }
             Section {
                 if model.isLoading {
-                    ProgressView("購読記事を読み込んでいます…")
+                    ProgressView(L10n.string("購読記事を読み込んでいます…"))
                 } else if model.articles.isEmpty {
                     if model.subscription?.initialFetchStatus == "fetching" {
                         EmptyStateView {
@@ -350,11 +350,14 @@ struct SubscriptionDetailScreen: View {
                         }
                     }
                     if model.isLoadingMore {
-                        ProgressView("次の記事を読み込んでいます…")
+                        ProgressView(L10n.string("次の記事を読み込んでいます…"))
                     }
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(FiloPalette.background)
+        .listRowBackground(FiloPalette.background)
         .refreshable { await model.refreshFeedAndReload() }
         .alert("購読名を変更", isPresented: $showRename) {
             TextField("空欄でフィード名に戻す", text: $renameText)

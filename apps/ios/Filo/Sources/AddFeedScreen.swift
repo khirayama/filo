@@ -80,7 +80,7 @@ struct AddFeedScreen: View {
             if selected { selectedTagIds.remove(tag.id) } else { selectedTagIds.insert(tag.id) }
         } label: {
             Text(tag.name)
-                .font(.system(size: 13))
+                .font(.caption)
                 .foregroundStyle(selected ? FiloPalette.background : FiloPalette.text)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)

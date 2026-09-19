@@ -426,7 +426,7 @@ struct ReadingSessionScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             if player.isLoading {
-                ProgressView("読み込み中…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView(L10n.string("読み込み中…")).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let item = player.currentItem, let url = item.article.canonicalUrl {
                 ReadingWebView(url: url) { text, language in
                     player.receiveExtracted(text: text, language: language)

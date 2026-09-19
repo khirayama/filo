@@ -71,7 +71,7 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 13))
+                .font(.caption)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)
                 .background(isOn ? Color.primary : Color.clear)
@@ -147,13 +147,13 @@ struct ArticleRowView: View {
                 .padding(.leading, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(DateFormatting.compact(article.publishedAt ?? article.fetchedAt))
-                .font(.system(size: 12))
+                .font(.caption2)
                 .foregroundStyle(FiloPalette.muted)
                 .fixedSize()
             actions
                 .opacity(hovered || selected || article.userState.inReadingList || article.userState.isBookmarked ? 1 : 0)
         }
-        .font(.system(size: 12))
+        .font(.caption2)
         .foregroundStyle(FiloPalette.muted)
     }
 
@@ -167,7 +167,7 @@ struct ArticleRowView: View {
                     .layoutPriority(1)
                 actions
             }
-            .font(.system(size: 12))
+            .font(.caption2)
             .foregroundStyle(FiloPalette.muted)
             // Keep translated titles from growing a row beyond two lines.
             title
@@ -201,7 +201,7 @@ struct ArticleRowView: View {
                     showOriginal.toggle()
                 } label: {
                     Text(L10n.string(showOriginal ? "翻訳" : "原文"))
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .padding(.horizontal, 4)
                         .frame(height: 18)
                         .overlay(
@@ -221,7 +221,7 @@ struct ArticleRowView: View {
 
     private var title: some View {
         Text(displayTitle)
-            .font(.system(size: 14, weight: article.userState.isRead ? .regular : .semibold))
+            .font(article.userState.isRead ? .body : .body.weight(.semibold))
             .foregroundStyle(FiloPalette.text)
             .contentShape(Rectangle())
             .onTapGesture { onOpen?() }

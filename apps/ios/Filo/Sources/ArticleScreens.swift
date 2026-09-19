@@ -315,7 +315,7 @@ struct ArticlesScreen: View {
             if isDesktop {
                 ToolbarItem(placement: .principal) {
                     Text(model.viewTitle)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if model.readingListOnly {
@@ -423,8 +423,11 @@ struct ArticlesScreen: View {
             }
 
             Text(model.viewTitle)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.headline.weight(.semibold))
                 .foregroundStyle(FiloPalette.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
 
             Spacer(minLength: 8)
 
@@ -460,7 +463,7 @@ struct ArticlesScreen: View {
                 .frame(width: 32, height: 32)
         }
         .padding(.horizontal, 12)
-        .frame(height: 51)
+        .frame(minHeight: 51)
         .background(FiloPalette.surface)
         .overlay(alignment: .bottom) { Divider() }
     }
@@ -483,6 +486,7 @@ struct ArticlesScreen: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(FiloPalette.background)
+            .listRowBackground(FiloPalette.background)
             .overlay(alignment: .bottom) {
                 if let notice = model.refreshNotice {
                     Text(notice)
@@ -555,11 +559,13 @@ struct ArticlesScreen: View {
     private var articleSection: some View {
         Section {
             if model.isLoading, model.articles.isEmpty {
-                ProgressView("記事一覧を読み込んでいます…")
+                ProgressView(L10n.string("記事一覧を読み込んでいます…"))
+                    .listRowBackground(FiloPalette.background)
             } else if let error = model.errorMessage {
                 ErrorBanner(message: error) { Task { await model.load() } }
+                    .listRowBackground(FiloPalette.background)
             } else if model.articles.isEmpty {
-                emptyState
+                emptyState.listRowBackground(FiloPalette.background)
                 } else {
                     ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
                         ArticleRowView(
@@ -589,6 +595,7 @@ struct ArticlesScreen: View {
                         },
                     )
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowBackground(FiloPalette.background)
                     .id(article.id)
                     .onAppear {
                         visibleArticleIds.insert(article.id)
@@ -599,10 +606,12 @@ struct ArticlesScreen: View {
                     .onDisappear { visibleArticleIds.remove(article.id) }
                 }
                 if model.isLoadingMore {
-                    ProgressView("次の記事を読み込んでいます…")
+                    ProgressView(L10n.string("次の記事を読み込んでいます…"))
+                        .listRowBackground(FiloPalette.background)
                 }
             }
         }
+        .listRowBackground(FiloPalette.background)
     }
 
     private var selectedArticle: ArticleListItem? {
@@ -746,6 +755,9 @@ struct ShortcutHelpView: View {
                 Text("Shift+A  すべて既読")
                 Text("?  この一覧")
             }
+            .scrollContentBackground(.hidden)
+            .background(FiloPalette.background)
+            .listRowBackground(FiloPalette.background)
             .navigationTitle("ショートカット")
         }
     }

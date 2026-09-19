@@ -27,7 +27,7 @@ struct TagsScreen: View {
                 ErrorBanner(message: errorMessage) { Task { await load() } }
             }
             if isLoading {
-                ProgressView("読み込み中…")
+                ProgressView(L10n.string("読み込み中…"))
             } else if tags.isEmpty {
                 EmptyStateView { Text("タグがありません。上の入力欄から作成できます。") }
             } else {
@@ -100,6 +100,7 @@ struct TagsScreen: View {
         }
         .scrollContentBackground(.hidden)
         .background(FiloPalette.background)
+        .listRowBackground(FiloPalette.background)
         .navigationTitle("タグ管理")
         .toolbar { EditButton() }
         .task { await load() }

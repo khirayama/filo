@@ -87,7 +87,7 @@ struct SubscriptionsScreen: View {
     var body: some View {
         List {
             if model.isLoading {
-                ProgressView("読み込み中…")
+                ProgressView(L10n.string("読み込み中…"))
             } else if let error = model.errorMessage {
                 ErrorBanner(message: error) { Task { await model.load() } }
             } else if model.subscriptions.isEmpty {
@@ -131,6 +131,7 @@ struct SubscriptionsScreen: View {
         }
         .scrollContentBackground(.hidden)
         .background(FiloPalette.background)
+        .listRowBackground(FiloPalette.background)
         .navigationTitle("購読管理")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {

@@ -242,7 +242,6 @@ struct SourcesDrawer: View {
     private func routeLink<Label: View>(_ route: AppRoute, @ViewBuilder label: () -> Label) -> some View {
         if let onRoute {
             Button {
-                onSelect()
                 onRoute(route)
             } label: {
                 label()

@@ -15,7 +15,7 @@ struct StatusScreen: View {
     var body: some View {
         List {
             if isLoading || status == nil {
-                ProgressView("読み込み中…")
+                ProgressView(L10n.string("読み込み中…"))
             } else if let status {
                 actionsSection(status)
                 listControls
@@ -27,6 +27,7 @@ struct StatusScreen: View {
         }
         .scrollContentBackground(.hidden)
         .background(FiloPalette.background)
+        .listRowBackground(FiloPalette.background)
         .navigationTitle("処理ステータス")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
