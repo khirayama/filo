@@ -61,10 +61,14 @@ enum class BadgeTone { Muted, Warn, Danger, Ok }
 @Composable
 fun StatusBadge(label: String, tone: BadgeTone = BadgeTone.Muted) {
     val color = when (tone) {
-        BadgeTone.Muted -> WirePalette.Muted
-        BadgeTone.Warn -> WirePalette.Warn
-        BadgeTone.Danger -> WirePalette.Danger
-        BadgeTone.Ok -> WirePalette.Ok
+        BadgeTone.Muted -> MaterialTheme.colorScheme.onSurfaceVariant
+        BadgeTone.Warn -> if (MaterialTheme.colorScheme.background == WirePalette.DarkBackground) {
+            WirePalette.DarkWarn
+        } else {
+            WirePalette.Warn
+        }
+        BadgeTone.Danger -> MaterialTheme.colorScheme.error
+        BadgeTone.Ok -> MaterialTheme.colorScheme.tertiary
     }
     Surface(
         shape = CircleShape,

@@ -512,7 +512,7 @@ fun AddFeedScreen(
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = Color.Transparent,
-                        border = BorderStroke(1.dp, WirePalette.Border),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(

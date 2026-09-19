@@ -14,8 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -146,6 +149,8 @@ internal object WirePalette {
     val DarkAccent = Color(0xFF6A9BFF)
     val DarkOnAccent = Color(0xFF10233F)
     val DarkDanger = Color(0xFFEF7B74)
+    val DarkOk = Color(0xFF7BCB8A)
+    val DarkWarn = Color(0xFFF2C46D)
 }
 
 @Composable
@@ -235,6 +240,8 @@ private fun FiloTheme(content: @Composable () -> Unit) {
                 darkColorScheme(
                     primary = WirePalette.DarkAccent,
                     onPrimary = WirePalette.DarkOnAccent,
+                    tertiary = WirePalette.DarkOk,
+                    onTertiary = WirePalette.DarkBackground,
                     secondary = WirePalette.DarkText,
                     onSecondary = WirePalette.DarkBackground,
                     background = WirePalette.DarkBackground,
@@ -256,6 +263,8 @@ private fun FiloTheme(content: @Composable () -> Unit) {
                 lightColorScheme(
                     primary = WirePalette.Accent,
                     onPrimary = WirePalette.OnAccent,
+                    tertiary = WirePalette.Ok,
+                    onTertiary = WirePalette.Background,
                     secondary = WirePalette.Text,
                     onSecondary = WirePalette.Background,
                     background = WirePalette.Background,
@@ -339,7 +348,10 @@ private fun AuthScreen(
         modifier =
             Modifier
                 .fillMaxSize()
+                .safeDrawingPadding()
+                .imePadding()
                 .background(MaterialTheme.colorScheme.background)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
@@ -442,7 +454,7 @@ private fun AuthScreen(
                 }
 
                 uiState.statusMessage?.let {
-                    Text(text = tr(it), color = Color(0xFF2F6A3D), style = MaterialTheme.typography.bodyMedium)
+                    Text(text = tr(it), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodyMedium)
                 }
                 uiState.errorMessage?.let {
                     Text(text = tr(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
@@ -467,13 +479,32 @@ private fun RssNavigation(
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     val isReadingBrowser = currentRoute?.startsWith("reading") == true
-    val hideGlobalNavigation = isReadingBrowser || currentRoute in setOf("subscriptions", "tags", "status", "drawer")
+    val hideGlobalNavigation = isReadingBrowser || currentRoute in setOf(
+        "subscriptions",
+        "tags",
+        "status",
+        "drawer",
+        "addFeed",
+        "addArticle",
+        "subscription/{id}",
+        "accountDeletion?token={token}",
+    )
+
+    fun navigateSingleTop(route: String) {
+        navController.navigate(route) {
+            launchSingleTop = true
+        }
+    }
+
+    fun navigateFromDrawer(route: String) {
+        navController.navigate(route) {
+            launchSingleTop = true
+        }
+    }
 
     fun openDrawer() {
         if (currentRoute != "drawer") {
-            navController.navigate("drawer") {
-                launchSingleTop = true
-            }
+            navigateSingleTop("drawer")
         }
     }
 
@@ -498,7 +529,7 @@ private fun RssNavigation(
     }
 
     LaunchedEffect(sharedUrl) {
-        if (sharedUrl != null) navController.navigate("addArticle")
+        if (sharedUrl != null) navigateSingleTop("addArticle")
     }
 
     Column(
@@ -529,25 +560,25 @@ private fun RssNavigation(
                         navController.popBackStack("articles", false)
                     },
                     onOpenSubscription = {
-                        navController.navigate("subscription/$it")
+                        navigateFromDrawer("subscription/$it")
                     },
                     onOpenAddFeed = {
-                        navController.navigate("addFeed")
+                        navigateFromDrawer("addFeed")
                     },
                     onOpenAddArticle = {
-                        navController.navigate("addArticle")
+                        navigateFromDrawer("addArticle")
                     },
                     onOpenSubscriptions = {
-                        navController.navigate("subscriptions")
+                        navigateFromDrawer("subscriptions")
                     },
                     onOpenTags = {
-                        navController.navigate("tags")
+                        navigateFromDrawer("tags")
                     },
                     onOpenStatus = {
-                        navController.navigate("status")
+                        navigateFromDrawer("status")
                     },
                     onOpenSettings = {
-                        navController.navigate("settings")
+                        navigateFromDrawer("settings")
                     },
                 )
             }
@@ -628,16 +659,16 @@ private fun RssNavigation(
                 onInitialReadingListConsumed = {
                     entry.savedStateHandle.remove<Boolean>("readingList")
                 },
-                onOpenSubscription = { navController.navigate("subscription/$it") },
-                onOpenSubscriptions = { navController.navigate("subscriptions") },
+                onOpenSubscription = { navigateSingleTop("subscription/$it") },
+                onOpenSubscriptions = { navigateSingleTop("subscriptions") },
                 onOpenAddFeed = {
-                    navController.navigate("addFeed")
+                    navigateSingleTop("addFeed")
                 },
                 onOpenAddArticle = {
-                    navController.navigate("addArticle")
+                    navigateSingleTop("addArticle")
                 },
                 onStartReading = { autoplay ->
-                    navController.navigate("reading/$autoplay")
+                    navigateSingleTop("reading/$autoplay")
                 },
                 onOpenArticle = { article ->
                     Analytics.track("select_item", mapOf("article_id" to article.id))
@@ -646,12 +677,12 @@ private fun RssNavigation(
                             "reading-article/${article.id}?url=${Uri.encode(url)}" +
                                 "&title=${Uri.encode(article.title)}" +
                                 "&language=${Uri.encode(article.sourceLanguage ?: "")}",
-                        )
+                        ) { launchSingleTop = true }
                     }
                 },
-                onOpenTags = { navController.navigate("tags") },
-                onOpenStatus = { navController.navigate("status") },
-                onOpenSettings = { navController.navigate("settings") },
+                onOpenTags = { navigateSingleTop("tags") },
+                onOpenStatus = { navigateSingleTop("status") },
+                onOpenSettings = { navigateSingleTop("settings") },
             )
         }
         composable("drawer") {
@@ -703,12 +734,13 @@ private fun RssNavigation(
         composable("subscriptions") {
             com.filo.app.ui.SubscriptionsScreen(
                 onBack = { navController.navigateUp() },
-                onOpenSubscription = { navController.navigate("subscription/$it") },
-                onOpenAddFeed = { navController.navigate("addFeed") },
-                onOpenTags = { navController.navigate("tags") },
+                onOpenSubscription = { navigateSingleTop("subscription/$it") },
+                onOpenAddFeed = { navigateSingleTop("addFeed") },
+                onOpenTags = { navigateSingleTop("tags") },
                 onSelectTag = { tagId ->
-                    navController.previousBackStackEntry?.savedStateHandle?.set("selectedTagId", tagId)
-                    navController.navigateUp()
+                    navController.getBackStackEntry("articles")
+                        .savedStateHandle["selectedTagId"] = tagId
+                    navController.popBackStack("articles", false)
                 },
             )
         }
@@ -729,7 +761,8 @@ private fun RssNavigation(
                 onSaved = {
                     onSharedUrlConsumed()
                     scope.launch { articlesModel.reload() }
-                    navController.previousBackStackEntry?.savedStateHandle?.set("readingList", true)
+                    navController.getBackStackEntry("articles")
+                        .savedStateHandle["readingList"] = true
                     navController.popBackStack("articles", false)
                 },
             )
@@ -738,7 +771,7 @@ private fun RssNavigation(
         composable("status") {
             com.filo.app.ui.StatusScreen(
                 onBack = { navController.navigateUp() },
-                onOpenSubscription = { navController.navigate("subscription/$it") },
+                onOpenSubscription = { navigateSingleTop("subscription/$it") },
             )
         }
         composable("settings") {
@@ -746,7 +779,9 @@ private fun RssNavigation(
                 translations = titleTranslations,
                 onBack = { navController.navigateUp() },
                 onSignOut = onSignOut,
-                onDeletionAccepted = { token -> navController.navigate("accountDeletion?token=$token") },
+                onDeletionAccepted = { token ->
+                    navigateSingleTop("accountDeletion?token=${Uri.encode(token)}")
+                },
             )
         }
         composable("subscription/{id}") { entry ->
@@ -761,7 +796,7 @@ private fun RssNavigation(
                             "reading-article/${article.id}?url=${Uri.encode(url)}" +
                                 "&title=${Uri.encode(article.title)}" +
                                 "&language=${Uri.encode(article.sourceLanguage ?: "")}",
-                        )
+                        ) { launchSingleTop = true }
                     }
                 },
             )
@@ -861,7 +896,7 @@ private fun SubmitButton(text: String, isLoading: Boolean, onClick: () -> Unit) 
 @Composable
 private fun CenteredLoading() {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().safeDrawingPadding(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
     ) {
@@ -876,7 +911,7 @@ private fun CenteredMessage(
     onAction: (() -> Unit)? = null,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
     ) {
