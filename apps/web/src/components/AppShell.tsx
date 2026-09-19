@@ -20,6 +20,10 @@ export function useIsDesktop(): boolean {
   return isDesktop;
 }
 
+function isDrawerHistoryEntry(location: ReturnType<typeof useLocation>): boolean {
+  return (location.state as { drawer?: boolean } | null)?.drawer === true;
+}
+
 const DRAWER_ANIMATION_MS = 200;
 
 export function AppShell({ children, mobileHeaderContent }: { children: ReactNode; mobileHeaderContent?: ReactNode }) {
@@ -33,12 +37,23 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
   // the scrim or ✕ just navigates back. Whether it is open derives entirely
   // from the current history entry.
   const drawerRequested = !isDesktop && (location.state as { drawer?: boolean } | null)?.drawer === true;
+  const wasDesktop = useRef(isDesktop);
   const previousFocus = useRef<HTMLElement | null>(null);
   const openDrawer = () => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     navigate(location.pathname + location.search, { state: { drawer: true } });
   };
-  const closeDrawer = () => navigate(-1);
+  const closeDrawer = () => {
+    if (location.key === "default") navigate(location.pathname + location.search, { replace: true });
+    else navigate(-1);
+  };
+
+  useEffect(() => {
+    if (!wasDesktop.current && isDesktop && isDrawerHistoryEntry(location)) {
+      navigate(location.pathname + location.search, { replace: true });
+    }
+    wasDesktop.current = isDesktop;
+  }, [isDesktop, location, navigate]);
 
   // Keep the drawer mounted while it slides out; `shown` drives the CSS
   // transition (false on mount → slide in on the next frame).
@@ -69,6 +84,7 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         closeDrawer();
         return;
       }
@@ -109,6 +125,7 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
           <SidebarNav />
         </aside>
         <div
+          data-filo-scroll-container="true"
           style={{
             height: "100vh",
             marginLeft: `${SIDEBAR_WIDTH}px`,
@@ -167,16 +184,18 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
           <div
             aria-hidden="true"
             onClick={closeDrawer}
+            data-filo-drawer-scrim="true"
             style={{
               background: palette.scrim,
               inset: 0,
               opacity: drawerShown ? 1 : 0,
               position: "absolute",
-              transition: `opacity ${DRAWER_ANIMATION_MS}ms ease`,
+              transition: `opacity ${DRAWER_ANIMATION_MS}ms var(--fl-ease-out)`,
             }}
           />
           <aside
             aria-label={t("サイドバー")}
+            data-filo-drawer-panel="true"
             style={{
               background: palette.surface,
               bottom: 0,
@@ -187,7 +206,7 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
               position: "absolute",
               top: 0,
               transform: drawerShown ? "translateX(0)" : "translateX(-100%)",
-              transition: `transform ${DRAWER_ANIMATION_MS}ms ease`,
+              transition: `transform ${DRAWER_ANIMATION_MS}ms var(--fl-ease-drawer)`,
               width: "100vw",
             }}
           >
@@ -218,6 +237,7 @@ function SidebarNav() {
   };
 
   const groups = groupSubscriptionsByTag(tags, subscriptions);
+  const navigateFromSidebar = (to: string) => navigate(to);
 
   return (
     <nav aria-label={t("メインナビゲーション")} style={{ display: "grid", gap: "2px", fontSize: "14px", minWidth: 0, overflow: "hidden" }}>
@@ -229,7 +249,7 @@ function SidebarNav() {
       </Link>
       <button
         type="button"
-        onClick={() => navigate("/feeds/new")}
+        onClick={() => navigateFromSidebar("/feeds/new")}
         style={{
           alignItems: "center",
           background: palette.accent,
@@ -251,7 +271,7 @@ function SidebarNav() {
       </button>
       <button
         type="button"
-        onClick={() => navigate("/articles/new")}
+        onClick={() => navigateFromSidebar("/articles/new")}
         style={{
           alignItems: "center",
           background: "transparent",

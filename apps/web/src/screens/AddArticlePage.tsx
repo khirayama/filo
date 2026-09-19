@@ -5,10 +5,12 @@ import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { Button, ErrorBox, palette } from "../components/ui";
 import { trackEvent } from "../lib/analytics";
+import { useBackOr } from "../lib/navigation";
 
 export function AddArticlePage() {
   const api = useApi();
   const navigate = useNavigate();
+  const goBack = useBackOr("/articles");
   const [searchParams] = useSearchParams();
   const { refreshUnreadCounts, t } = useAppData();
   const [url, setUrl] = useState(() => searchParams.get("url") ?? "");
@@ -39,7 +41,7 @@ export function AddArticlePage() {
 
   return (
     <AppShell>
-      <main style={{ maxWidth: "720px", padding: "24px", margin: "0 auto" }}>
+      <main style={{ maxWidth: "720px", padding: "24px var(--fl-page-gutter)", margin: "0 auto" }}>
         <h1 style={{ fontSize: "20px", marginTop: 0 }}>{t("記事を追加")}</h1>
         <p id="article-url-help" style={{ color: palette.muted }}>{t("URLをリーディングリストに保存します。")}</p>
         <form onSubmit={submit} style={{ display: "grid", gap: "12px" }}>
@@ -59,7 +61,7 @@ export function AddArticlePage() {
             <Button type="submit" kind="primary" disabled={isSubmitting || !url.trim()} ariaBusy={isSubmitting}>
               {isSubmitting ? t("保存中…") : t("追加")}
             </Button>
-            <Button onClick={() => navigate(-1)} disabled={isSubmitting}>{t("戻る")}</Button>
+            <Button onClick={goBack} disabled={isSubmitting}>{t("戻る")}</Button>
           </div>
         </form>
         {error ? <ErrorBox message={error} /> : null}

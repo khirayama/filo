@@ -12,11 +12,13 @@ import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
 import { enqueueFeedRefresh } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
+import { useBackOr } from "../lib/navigation";
 
 export function SubscriptionDetailPage() {
   const api = useApi();
   const isDesktop = useIsDesktop();
   const navigate = useNavigate();
+  const goBack = useBackOr("/subscriptions");
   const params = useParams();
   const subscriptionId = Number(params.subscriptionId);
 
@@ -190,13 +192,10 @@ export function SubscriptionDetailPage() {
                 display: "flex",
                 gap: "8px",
                 padding: "8px 0",
-                position: "sticky",
-                top: isDesktop ? 0 : "51px",
-                zIndex: 10,
-                background: palette.bg,
+                ...(isDesktop ? { background: palette.bg, position: "sticky" as const, top: 0, zIndex: 10 } : {}),
               }}
             >
-              <IconButton icon="back" label={t("戻る")} onClick={() => navigate(-1)} />
+              <IconButton icon="back" label={t("戻る")} onClick={goBack} />
               {subscription.feed.faviconUrl ? (
                 <img src={subscription.feed.faviconUrl} alt="" width={20} height={20} style={{ borderRadius: "4px" }} />
               ) : null}
@@ -349,5 +348,5 @@ export function SubscriptionDetailPage() {
 }
 
 const mainStyle = {
-  padding: "16px 24px 48px",
+  padding: "16px var(--fl-page-gutter) 48px",
 } as const;

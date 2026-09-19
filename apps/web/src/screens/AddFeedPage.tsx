@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { Subscription } from "../api/types";
 import { AppShell } from "../components/AppShell";
@@ -7,10 +7,11 @@ import { useAppData } from "../components/AppDataContext";
 import { Badge, Button, ErrorBox, IconButton, palette, sectionStyle } from "../components/ui";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
+import { useBackOr } from "../lib/navigation";
 
 export function AddFeedPage() {
   const api = useApi();
-  const navigate = useNavigate();
+  const goBack = useBackOr("/subscriptions");
   const { tags, refresh: refreshAppData, language, t } = useAppData();
   const [url, setUrl] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set());
@@ -74,7 +75,7 @@ export function AddFeedPage() {
 
   return (
     <AppShell>
-      <main style={{ padding: "16px 24px 48px" }}>
+      <main style={{ padding: "16px var(--fl-page-gutter) 48px" }}>
         <header
           style={{
             alignItems: "center",
@@ -84,7 +85,7 @@ export function AddFeedPage() {
             padding: "8px 0",
           }}
         >
-          <IconButton icon="back" label={t("戻る")} onClick={() => navigate(-1)} />
+          <IconButton icon="back" label={t("戻る")} onClick={goBack} />
           <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("フィードを追加")}</h1>
         </header>
         <form onSubmit={(event) => void submit(event)} style={{ ...sectionStyle, border: "none", padding: "16px 0" }}>

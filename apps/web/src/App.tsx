@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppDataProvider, useAppData } from "./components/AppDataContext";
 import { TitleTranslationProvider } from "./components/TitleTranslationContext";
@@ -72,10 +72,34 @@ function AnalyticsPageView() {
   return null;
 }
 
+function RouteScrollManager() {
+  const location = useLocation();
+  const previousRoute = useRef<string | null>(null);
+
+  useEffect(() => {
+    const route = `${location.pathname}${location.search}`;
+    if (previousRoute.current === null) {
+      previousRoute.current = route;
+      return;
+    }
+    if (previousRoute.current === route) return;
+    previousRoute.current = route;
+
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.querySelector<HTMLElement>("[data-filo-scroll-container]")?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [location.pathname, location.search]);
+
+  return null;
+}
+
 export function App() {
   return (
     <BrowserRouter>
       <AnalyticsPageView />
+      <RouteScrollManager />
       <AppDataProvider>
       <TitleTranslationProvider>
       <Routes>

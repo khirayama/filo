@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { FeedJob, StatusOverview, StatusSubscription } from "../api/types";
 import { AppShell } from "../components/AppShell";
@@ -17,6 +17,7 @@ import {
 } from "../components/ui";
 import { errorMessage } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
+import { useBackOr } from "../lib/navigation";
 
 // One busy marker for all manual operations: which operation, and for which
 // feed ("all" for the bulk buttons).
@@ -27,7 +28,7 @@ type StatusFilter = "all" | "attention" | "fetching" | "paused";
 
 export function StatusPage() {
   const api = useApi();
-  const navigate = useNavigate();
+  const goBack = useBackOr("/articles");
   const { language, t } = useAppData();
   const [status, setStatus] = useState<StatusOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,7 +121,7 @@ export function StatusPage() {
 
   return (
     <AppShell>
-      <main style={{ padding: "16px 24px 48px" }}>
+      <main style={{ padding: "16px var(--fl-page-gutter) 48px" }}>
         <header
           style={{
             alignItems: "center",
@@ -130,7 +131,7 @@ export function StatusPage() {
             padding: "8px 0",
           }}
         >
-          <IconButton icon="back" label={t("戻る")} onClick={() => navigate(-1)} />
+          <IconButton icon="back" label={t("戻る")} onClick={goBack} />
           <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("処理ステータス")}</h1>
           <IconButton icon="refresh" label={t("再読み込み")} onClick={() => void load(true)} />
         </header>

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { Tag } from "../api/types";
 import { AppShell } from "../components/AppShell";
@@ -14,10 +13,11 @@ import {
 } from "../components/ui";
 import { errorMessage } from "../lib/messages";
 import { moveItem } from "../lib/reorder";
+import { useBackOr } from "../lib/navigation";
 
 export function TagsPage() {
   const api = useApi();
-  const navigate = useNavigate();
+  const goBack = useBackOr("/subscriptions");
   const appData = useAppData();
   const { t, language } = appData;
   // Local copy allows optimistic reordering; refreshed from context after
@@ -105,7 +105,7 @@ export function TagsPage() {
 
   return (
     <AppShell>
-      <main style={{ padding: "16px 24px 48px" }}>
+      <main style={{ padding: "16px var(--fl-page-gutter) 48px" }}>
         <header
           style={{
             alignItems: "center",
@@ -115,7 +115,7 @@ export function TagsPage() {
             padding: "8px 0",
           }}
         >
-          <IconButton icon="back" label={t("戻る")} onClick={() => navigate(-1)} />
+          <IconButton icon="back" label={t("戻る")} onClick={goBack} />
           <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("タグ管理")}</h1>
         </header>
         <form

@@ -18,10 +18,12 @@ import {
 } from "../components/ui";
 import { errorMessage, LANGUAGE_NAMES, SUPPORTED_LANGUAGES } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
+import { useBackOr } from "../lib/navigation";
 
 export function SettingsPage() {
   const api = useApi();
   const navigate = useNavigate();
+  const goBack = useBackOr("/articles");
   const { settings, loading, error: loadError, refresh, setSettings, language, t } = useAppData();
   const { supported: translationSupported, setShowSetup } = useTitleTranslation();
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +121,7 @@ export function SettingsPage() {
 
   return (
     <AppShell>
-      <main style={{ padding: "16px 24px 48px" }}>
+      <main style={{ padding: "16px var(--fl-page-gutter) 48px" }}>
         <header
           style={{
             alignItems: "center",
@@ -129,7 +131,7 @@ export function SettingsPage() {
             padding: "8px 0",
           }}
         >
-          <IconButton icon="back" label={t("戻る")} onClick={() => navigate(-1)} />
+          <IconButton icon="back" label={t("戻る")} onClick={goBack} />
           <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("設定")}</h1>
         </header>
         {error ?? loadError ? <ErrorBox message={(error ?? loadError)!} onRetry={() => void refresh()} /> : null}

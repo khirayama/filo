@@ -11,6 +11,7 @@ import { detectReadingExtension, launchReadingExtension } from "../lib/extension
 import { errorMessage } from "../lib/messages";
 import { enqueueFeedRefresh } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
+import { useBackOr } from "../lib/navigation";
 
 function isArticleVisibleInViewport(articleId: number): boolean {
   const row = document.getElementById(`filo-article-${articleId}`);
@@ -47,6 +48,7 @@ function ArticlesListPage() {
   const isDesktop = useIsDesktop();
   const api = useApi();
   const { tags, subscriptions, settings, error: sideError, refresh: refreshAppData, refreshUnreadCounts, language, t } = useAppData();
+  const goBack = useBackOr("/articles");
   const { tagId, bookmarkedOnly, readingListOnly, read, sort, readOrder, setRead, setSort, setReadOrder, clearTag } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
@@ -301,7 +303,7 @@ function ArticlesListPage() {
         void refreshFeeds();
       } else if (event.key === "Escape") {
         event.preventDefault();
-        window.history.back();
+        goBack();
       } else if (event.key === "?") {
         event.preventDefault();
         setShowShortcutHelp(true);
@@ -309,7 +311,7 @@ function ArticlesListPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeArticleIndex, bookmarkedOnly, list, markAllRead, markingAllRead, readingListOnly, refreshFeeds, showShortcutHelp]);
+  }, [activeArticleIndex, bookmarkedOnly, goBack, list, markAllRead, markingAllRead, readingListOnly, refreshFeeds, showShortcutHelp]);
 
   useEffect(() => {
     const article = activeArticleIndex == null ? undefined : list.articles[activeArticleIndex];

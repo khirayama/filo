@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { authClient } from "../auth-client";
 import { useAppData } from "../components/AppDataContext";
+import { palette } from "../components/ui";
 
 export function AuthPage({ mode }: { mode: "sign-in" | "sign-up" }) {
   const [email, setEmail] = useState("");
@@ -33,15 +34,33 @@ export function AuthPage({ mode }: { mode: "sign-in" | "sign-up" }) {
   }
   return (
     <form onSubmit={submit} style={{ display: "grid", gap: 12, minWidth: 280 }}>
-      <label>{t("メールアドレス")}<input required type="email" value={email} onChange={e => setEmail(e.target.value)} /></label>
-      <label>{t("パスワード")}<input required minLength={8} type="password" value={password} onChange={e => setPassword(e.target.value)} /></label>
+      <label style={authLabelStyle}>{t("メールアドレス")}<input required type="email" value={email} onChange={e => setEmail(e.target.value)} style={authInputStyle} /></label>
+      <label style={authLabelStyle}>{t("パスワード")}<input required minLength={8} type="password" value={password} onChange={e => setPassword(e.target.value)} style={authInputStyle} /></label>
       {error && <p role="alert">{error}</p>}
-      <button disabled={busy}>{busy ? t("処理中…") : mode === "sign-in" ? t("サインイン") : t("アカウント作成")}</button>
+      <button type="submit" disabled={busy} style={authButtonStyle}>{busy ? t("処理中…") : mode === "sign-in" ? t("サインイン") : t("アカウント作成")}</button>
       {mode === "sign-in" && <a href="/forgot-password">{t("パスワードをお忘れですか？")}</a>}
       <a href={mode === "sign-in" ? "/sign-up" : "/sign-in"}>{mode === "sign-in" ? t("アカウントを作成") : t("サインインへ戻る")}</a>
     </form>
   );
 }
+
+const authLabelStyle = { display: "grid", gap: "6px" } as const;
+const authInputStyle = {
+  background: palette.surface,
+  border: `1px solid ${palette.border}`,
+  borderRadius: "6px",
+  color: palette.text,
+  padding: "10px 12px",
+  width: "100%",
+} as const;
+const authButtonStyle = {
+  background: palette.text,
+  border: `1px solid ${palette.text}`,
+  borderRadius: "6px",
+  color: palette.bg,
+  cursor: "pointer",
+  padding: "10px 14px",
+} as const;
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -83,9 +102,9 @@ export function ForgotPasswordPage() {
   return (
     <form onSubmit={submit} style={{ display: "grid", gap: 12, minWidth: 280 }}>
       <p>{t("登録済みのメールアドレスにパスワードリセット用のリンクを送信します。")}</p>
-      <label>{t("メールアドレス")}<input required type="email" value={email} onChange={e => setEmail(e.target.value)} /></label>
+      <label style={authLabelStyle}>{t("メールアドレス")}<input required type="email" value={email} onChange={e => setEmail(e.target.value)} style={authInputStyle} /></label>
       {error && <p role="alert">{error}</p>}
-      <button disabled={busy}>{busy ? t("送信中…") : t("リセットメールを送信")}</button>
+      <button type="submit" disabled={busy} style={authButtonStyle}>{busy ? t("送信中…") : t("リセットメールを送信")}</button>
       <a href="/sign-in">{t("サインインへ戻る")}</a>
     </form>
   );
@@ -134,10 +153,10 @@ export function ResetPasswordPage() {
 
   return (
     <form onSubmit={submit} style={{ display: "grid", gap: 12, minWidth: 280 }}>
-      <label>{t("新しいパスワード")}<input required minLength={8} type="password" value={password} onChange={e => setPassword(e.target.value)} /></label>
-      <label>{t("新しいパスワード（確認）")}<input required minLength={8} type="password" value={confirmation} onChange={e => setConfirmation(e.target.value)} /></label>
+      <label style={authLabelStyle}>{t("新しいパスワード")}<input required minLength={8} type="password" value={password} onChange={e => setPassword(e.target.value)} style={authInputStyle} /></label>
+      <label style={authLabelStyle}>{t("新しいパスワード（確認）")}<input required minLength={8} type="password" value={confirmation} onChange={e => setConfirmation(e.target.value)} style={authInputStyle} /></label>
       {error && <p role="alert">{error}</p>}
-      <button disabled={busy || !token}>{busy ? t("変更中…") : t("パスワードを変更")}</button>
+      <button type="submit" disabled={busy || !token} style={authButtonStyle}>{busy ? t("変更中…") : t("パスワードを変更")}</button>
       <a href="/sign-in">{t("サインインへ戻る")}</a>
     </form>
   );

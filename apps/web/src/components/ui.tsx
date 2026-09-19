@@ -68,7 +68,7 @@ export const pageStyle: CSSProperties = {
   color: palette.text,
   fontFamily: "system-ui, sans-serif",
   minHeight: "100vh",
-  padding: "24px",
+  padding: "24px var(--fl-page-gutter)",
 };
 
 export const shellStyle: CSSProperties = { margin: "0 auto", maxWidth: "720px" };

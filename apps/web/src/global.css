@@ -19,6 +19,9 @@
   --fl-hover: rgba(0, 0, 0, 0.03);
   --fl-scrim: rgba(0, 0, 0, 0.3);
   --fl-shadow: rgba(0, 0, 0, 0.12);
+  --fl-page-gutter: 24px;
+  --fl-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --fl-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   color-scheme: light;
 }
 
@@ -80,6 +83,23 @@ body {
   color: var(--fl-text);
 }
 
+html {
+  background: var(--fl-bg);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
 input,
 select,
 textarea {
@@ -88,13 +108,14 @@ textarea {
 }
 
 @media (max-width: 1023px) {
-  main {
-    padding-left: 8px !important;
-    padding-right: 8px !important;
+  :root {
+    --fl-page-gutter: 8px;
   }
+}
 
-  main.articles-page {
-    padding-left: 0 !important;
-    padding-right: 0 !important;
+@media (prefers-reduced-motion: reduce) {
+  [data-filo-drawer-scrim],
+  [data-filo-drawer-panel] {
+    transition: none !important;
   }
 }
