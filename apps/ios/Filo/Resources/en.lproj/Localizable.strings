@@ -104,6 +104,11 @@
 "サインイン" = "Sign in";
 "サインインが必要です。" = "Please sign in.";
 "サインインへ" = "To sign in";
+"8文字以上のパスワード" = "Password (8 or more characters)";
+"すでにアカウントをお持ちですか？" = "Already have an account?";
+"はじめてご利用ですか？" = "New to Filo?";
+"パスワードをリセット" = "Reset password";
+"新しいパスワードを入力してください。" = "Enter a new password.";
 "サーバーエラーが発生しました。時間をおいて再試行してください。" = "A server error occurred. Please try again later.";
 "シミュレータには翻訳用の言語モデルが用意されていません。実機でお試しください。" = "The simulator has no translation language model. Try on a physical device.";
 "ショートカット" = "Shortcuts";

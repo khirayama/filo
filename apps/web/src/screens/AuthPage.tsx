@@ -1,7 +1,6 @@
 import { FormEvent, useState } from "react";
 import { authClient } from "../auth-client";
 import { useAppData } from "../components/AppDataContext";
-import { palette } from "../components/ui";
 
 export function AuthPage({ mode }: { mode: "sign-in" | "sign-up" }) {
   const [email, setEmail] = useState("");
@@ -33,34 +32,35 @@ export function AuthPage({ mode }: { mode: "sign-in" | "sign-up" }) {
     }
   }
   return (
-    <form onSubmit={submit} style={{ display: "grid", gap: 12, minWidth: 280 }}>
-      <label style={authLabelStyle}>{t("メールアドレス")}<input required type="email" value={email} onChange={e => setEmail(e.target.value)} style={authInputStyle} /></label>
-      <label style={authLabelStyle}>{t("パスワード")}<input required minLength={8} type="password" value={password} onChange={e => setPassword(e.target.value)} style={authInputStyle} /></label>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={busy} style={authButtonStyle}>{busy ? t("処理中…") : mode === "sign-in" ? t("サインイン") : t("アカウント作成")}</button>
-      {mode === "sign-in" && <a href="/forgot-password">{t("パスワードをお忘れですか？")}</a>}
-      <a href={mode === "sign-in" ? "/sign-up" : "/sign-in"}>{mode === "sign-in" ? t("アカウントを作成") : t("サインインへ戻る")}</a>
+    <form className="auth-form" onSubmit={submit}>
+      <div className="auth-heading">
+        <p className="auth-kicker">{mode === "sign-in" ? t("サインイン") : t("アカウント作成")}</p>
+        <h1>{mode === "sign-in" ? t("サインイン") : t("アカウント作成")}</h1>
+        <p>{t("URLをリーディングリストに保存します。")}</p>
+      </div>
+      <div className="auth-fields">
+        <label className="auth-field" htmlFor="auth-email">
+          <span>{t("メールアドレス")}</span>
+          <input id="auth-email" required autoComplete="email" type="email" value={email} onChange={e => setEmail(e.target.value)} />
+        </label>
+        <label className="auth-field" htmlFor="auth-password">
+          <span>{t("パスワード")}</span>
+          <input id="auth-password" required minLength={8} autoComplete={mode === "sign-in" ? "current-password" : "new-password"} type="password" value={password} onChange={e => setPassword(e.target.value)} />
+          <small>{t("8文字以上のパスワード")}</small>
+        </label>
+      </div>
+      {error && <p className="auth-alert" role="alert">{error}</p>}
+      <button className="auth-primary-button" type="submit" disabled={busy}>
+        <span>{busy ? t("処理中…") : mode === "sign-in" ? t("サインイン") : t("アカウント作成")}</span>
+        <span aria-hidden="true">↗</span>
+      </button>
+      <div className="auth-links">
+        {mode === "sign-in" && <a href="/forgot-password">{t("パスワードをお忘れですか？")}</a>}
+        <a href={mode === "sign-in" ? "/sign-up" : "/sign-in"}>{mode === "sign-in" ? t("アカウントを作成") : t("サインインへ戻る")}</a>
+      </div>
     </form>
   );
 }
-
-const authLabelStyle = { display: "grid", gap: "6px" } as const;
-const authInputStyle = {
-  background: palette.surface,
-  border: `1px solid ${palette.border}`,
-  borderRadius: "6px",
-  color: palette.text,
-  padding: "10px 12px",
-  width: "100%",
-} as const;
-const authButtonStyle = {
-  background: palette.text,
-  border: `1px solid ${palette.text}`,
-  borderRadius: "6px",
-  color: palette.bg,
-  cursor: "pointer",
-  padding: "10px 14px",
-} as const;
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -92,20 +92,34 @@ export function ForgotPasswordPage() {
 
   if (sent) {
     return (
-      <section style={{ display: "grid", gap: 12, minWidth: 280 }}>
-        <p role="status">{t("パスワードリセット用のメールを送信しました。メール内のリンクを開いて新しいパスワードを設定してください。")}</p>
-        <a href="/sign-in">{t("サインインへ戻る")}</a>
+      <section className="auth-form auth-form-status">
+        <div className="auth-heading">
+          <p className="auth-kicker">{t("送信中…")}</p>
+          <h1>{t("メールを確認してください")}</h1>
+        </div>
+        <p className="auth-status" role="status">{t("パスワードリセット用のメールを送信しました。メール内のリンクを開いて新しいパスワードを設定してください。")}</p>
+        <a className="auth-secondary-link" href="/sign-in">{t("サインインへ戻る")}</a>
       </section>
     );
   }
 
   return (
-    <form onSubmit={submit} style={{ display: "grid", gap: 12, minWidth: 280 }}>
-      <p>{t("登録済みのメールアドレスにパスワードリセット用のリンクを送信します。")}</p>
-      <label style={authLabelStyle}>{t("メールアドレス")}<input required type="email" value={email} onChange={e => setEmail(e.target.value)} style={authInputStyle} /></label>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={busy} style={authButtonStyle}>{busy ? t("送信中…") : t("リセットメールを送信")}</button>
-      <a href="/sign-in">{t("サインインへ戻る")}</a>
+    <form className="auth-form" onSubmit={submit}>
+      <div className="auth-heading">
+        <p className="auth-kicker">{t("パスワードをリセット")}</p>
+        <h1>{t("パスワードをリセット")}</h1>
+        <p>{t("登録済みのメールアドレスにパスワードリセット用のリンクを送信します。")}</p>
+      </div>
+      <label className="auth-field" htmlFor="reset-email">
+        <span>{t("メールアドレス")}</span>
+        <input id="reset-email" required autoComplete="email" type="email" value={email} onChange={e => setEmail(e.target.value)} />
+      </label>
+      {error && <p className="auth-alert" role="alert">{error}</p>}
+      <button className="auth-primary-button" type="submit" disabled={busy}>
+        <span>{busy ? t("送信中…") : t("リセットメールを送信")}</span>
+        <span aria-hidden="true">↗</span>
+      </button>
+      <a className="auth-secondary-link" href="/sign-in">{t("サインインへ戻る")}</a>
     </form>
   );
 }
@@ -144,20 +158,40 @@ export function ResetPasswordPage() {
 
   if (completed) {
     return (
-      <section style={{ display: "grid", gap: 12, minWidth: 280 }}>
-        <p role="status">{t("パスワードを変更しました。新しいパスワードでサインインしてください。")}</p>
-        <a href="/sign-in">{t("サインインへ進む")}</a>
+      <section className="auth-form auth-form-status">
+        <div className="auth-heading">
+          <p className="auth-kicker">{t("パスワードを変更")}</p>
+          <h1>{t("変更が完了しました")}</h1>
+        </div>
+        <p className="auth-status" role="status">{t("パスワードを変更しました。新しいパスワードでサインインしてください。")}</p>
+        <a className="auth-secondary-link" href="/sign-in">{t("サインインへ進む")}</a>
       </section>
     );
   }
 
   return (
-    <form onSubmit={submit} style={{ display: "grid", gap: 12, minWidth: 280 }}>
-      <label style={authLabelStyle}>{t("新しいパスワード")}<input required minLength={8} type="password" value={password} onChange={e => setPassword(e.target.value)} style={authInputStyle} /></label>
-      <label style={authLabelStyle}>{t("新しいパスワード（確認）")}<input required minLength={8} type="password" value={confirmation} onChange={e => setConfirmation(e.target.value)} style={authInputStyle} /></label>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={busy || !token} style={authButtonStyle}>{busy ? t("変更中…") : t("パスワードを変更")}</button>
-      <a href="/sign-in">{t("サインインへ戻る")}</a>
+    <form className="auth-form" onSubmit={submit}>
+      <div className="auth-heading">
+        <p className="auth-kicker">{t("パスワードを変更")}</p>
+        <h1>{t("新しいパスワード")}</h1>
+        <p>{t("新しいパスワードを入力してください。")}</p>
+      </div>
+      <div className="auth-fields">
+        <label className="auth-field" htmlFor="new-password">
+          <span>{t("新しいパスワード")}</span>
+          <input id="new-password" required minLength={8} autoComplete="new-password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+        </label>
+        <label className="auth-field" htmlFor="confirm-password">
+          <span>{t("新しいパスワード（確認）")}</span>
+          <input id="confirm-password" required minLength={8} autoComplete="new-password" type="password" value={confirmation} onChange={e => setConfirmation(e.target.value)} />
+        </label>
+      </div>
+      {error && <p className="auth-alert" role="alert">{error}</p>}
+      <button className="auth-primary-button" type="submit" disabled={busy || !token}>
+        <span>{busy ? t("変更中…") : t("パスワードを変更")}</span>
+        <span aria-hidden="true">↗</span>
+      </button>
+      <a className="auth-secondary-link" href="/sign-in">{t("サインインへ戻る")}</a>
     </form>
   );
 }

@@ -3,7 +3,6 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { AppDataProvider, useAppData } from "./components/AppDataContext";
 import { TitleTranslationProvider } from "./components/TitleTranslationContext";
 import { TitleTranslationSetup } from "./components/TitleTranslationSetup";
-import { pageStyle, sectionStyle, shellStyle } from "./components/ui";
 import { AccountDeletionPage } from "./screens/AccountDeletionPage";
 import { AddFeedPage } from "./screens/AddFeedPage";
 import { ArticlesPage } from "./screens/ArticlesPage";
@@ -26,13 +25,35 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 }
 
 function AuthLayout({ children }: { children: ReactNode }) {
+  const { t } = useAppData();
+
   return (
-    <main style={pageStyle}>
-      <section style={{ ...shellStyle, ...sectionStyle, display: "grid", justifyContent: "center" }}>
-        <h1 style={{ textAlign: "center" }}>
-          <Brand size={64} />
-        </h1>
-        {children}
+    <main className="auth-page">
+      <section className="auth-layout">
+        <aside className="auth-story" aria-label="Filo">
+          <div className="auth-story-topline">
+            <Brand size={42} />
+            <span className="auth-story-status">FILO READER</span>
+          </div>
+          <div className="auth-story-copy">
+            <p className="auth-kicker">{t("リーディングリスト")}</p>
+            <h2>{t("リーディングリスト")}</h2>
+            <p className="auth-story-description">
+              {t("URLをリーディングリストに保存します。")}
+            </p>
+          </div>
+          <div className="auth-story-pills" aria-hidden="true">
+            <span>{t("リーディングリスト")}</span>
+            <span>{t("読み上げ")}</span>
+            <span>{t("翻訳")}</span>
+          </div>
+          <div className="auth-story-orbit auth-story-orbit-one" />
+          <div className="auth-story-orbit auth-story-orbit-two" />
+        </aside>
+        <section className="auth-panel">
+          <div className="auth-mobile-brand"><Brand size={40} /></div>
+          {children}
+        </section>
       </section>
     </main>
   );

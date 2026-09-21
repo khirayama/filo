@@ -105,6 +105,11 @@
 "サインイン" = "Iniciar sesión";
 "サインインが必要です。" = "Debes iniciar sesión.";
 "サインインへ" = "Ir a iniciar sesión";
+"8文字以上のパスワード" = "Contraseña (8 caracteres o más)";
+"すでにアカウントをお持ちですか？" = "¿Ya tienes una cuenta?";
+"はじめてご利用ですか？" = "¿Es tu primera vez en Filo?";
+"パスワードをリセット" = "Restablecer contraseña";
+"新しいパスワードを入力してください。" = "Introduce una nueva contraseña.";
 "サーバーエラーが発生しました。時間をおいて再試行してください。" = "Se produjo un error del servidor. Inténtalo más tarde.";
 "シミュレータには翻訳用の言語モデルが用意されていません。実機でお試しください。" = "El simulador no tiene modelos de traducción. Prueba en un dispositivo real.";
 "ショートカット" = "Atajos";

@@ -5,8 +5,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,11 +19,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -65,6 +72,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.animateContentSize
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.core.view.WindowCompat
@@ -344,25 +352,79 @@ private fun AuthScreen(
     onResetPassword: () -> Unit,
     onBackToSignIn: () -> Unit,
 ) {
-    Column(
+    Box(
         modifier =
             Modifier
                 .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            MaterialTheme.colorScheme.background,
+                        ),
+                    ),
+                )
                 .safeDrawingPadding()
-                .imePadding()
-                .background(MaterialTheme.colorScheme.background)
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
+                .imePadding(),
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth(),
-            shadowElevation = 0.dp,
-            tonalElevation = 0.dp,
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 96.dp, y = (-64).dp)
+                .size(250.dp)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+                            Color.Transparent,
+                        ),
+                    ),
+                    CircleShape,
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = (-110).dp, y = 74.dp)
+                .size(220.dp)
+                .background(Color(0xFFFF4DB8).copy(alpha = 0.10f), CircleShape),
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Text("Filo", style = MaterialTheme.typography.labelLarge)
+            AuthBrandMark()
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = "Filo",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = tr("リーディングリスト"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 520.dp)
+                    .animateContentSize(),
+                shape = RoundedCornerShape(28.dp),
+                shadowElevation = 18.dp,
+                tonalElevation = 2.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
+            ) {
+                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Text(
                     text =
                         when (uiState.mode) {
@@ -386,6 +448,14 @@ private fun AuthScreen(
                         },
                     style = MaterialTheme.typography.bodyMedium,
                 )
+
+                if (uiState.mode == AuthMode.SignIn || uiState.mode == AuthMode.SignUp) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AuthFeatureChip(tr("リーディングリスト"))
+                        AuthFeatureChip(tr("読み上げ"))
+                        AuthFeatureChip(tr("翻訳"))
+                    }
+                }
 
                 when (uiState.mode) {
                     AuthMode.SignIn -> {
@@ -461,6 +531,46 @@ private fun AuthScreen(
                 }
             }
         }
+        }
+    }
+}
+
+@Composable
+private fun AuthBrandMark() {
+    Box(
+        modifier = Modifier
+            .size(72.dp)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF4FC3FF), Color(0xFF7C5CFF), Color(0xFFFF4DB8)),
+                ),
+                RoundedCornerShape(22.dp),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        FiloIcon(
+            name = FiloIconName.Bookmark,
+            size = 32.dp,
+            tint = Color.White,
+            filled = true,
+        )
+    }
+}
+
+@Composable
+private fun AuthFeatureChip(label: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+        contentColor = MaterialTheme.colorScheme.primary,
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -859,6 +969,7 @@ private fun EmailField(value: String, onValueChange: (String) -> Unit, enabled: 
         modifier = Modifier.fillMaxWidth(),
         onValueChange = onValueChange,
         singleLine = true,
+        shape = RoundedCornerShape(16.dp),
         value = value,
     )
 }
@@ -869,6 +980,7 @@ private fun PasswordField(label: String, value: String, onValueChange: (String) 
         modifier = Modifier.fillMaxWidth(),
         onValueChange = onValueChange,
         singleLine = true,
+        shape = RoundedCornerShape(16.dp),
         value = value,
         visualTransformation = PasswordVisualTransformation(),
     )
@@ -880,12 +992,18 @@ private fun CodeField(value: String, onValueChange: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         onValueChange = onValueChange,
         singleLine = true,
+        shape = RoundedCornerShape(16.dp),
         value = value,
     )
 }
 @Composable
 private fun SubmitButton(text: String, isLoading: Boolean, onClick: () -> Unit) {
-    Button(modifier = Modifier.fillMaxWidth(), enabled = !isLoading, onClick = onClick) {
+    Button(
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !isLoading,
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+    ) {
         if (isLoading) {
             CircularProgressIndicator(color = Color.White, modifier = Modifier.height(18.dp))
         } else {

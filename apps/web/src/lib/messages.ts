@@ -85,6 +85,34 @@ const EXTRA_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
   },
 };
 
+const AUTH_DESIGN_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
+  ja: {},
+  en: {
+    "パスワードをリセット": "Reset password",
+    "メールを確認してください": "Check your email",
+    "変更が完了しました": "Your password is updated",
+    "新しいパスワードを入力してください。": "Enter a new password.",
+  },
+  zh: {
+    "パスワードをリセット": "重置密码",
+    "メールを確認してください": "请检查邮箱",
+    "変更が完了しました": "密码已更新",
+    "新しいパスワードを入力してください。": "请输入新密码。",
+  },
+  ko: {
+    "パスワードをリセット": "비밀번호 재설정",
+    "メールを確認してください": "이메일을 확인하세요",
+    "変更が完了しました": "비밀번호가 변경되었습니다",
+    "新しいパスワードを入力してください。": "새 비밀번호를 입력하세요.",
+  },
+  es: {
+    "パスワードをリセット": "Restablecer contraseña",
+    "メールを確認してください": "Comprueba tu correo",
+    "変更が完了しました": "Contraseña actualizada",
+    "新しいパスワードを入力してください。": "Introduce una nueva contraseña.",
+  },
+};
+
 const MORE_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
   ja: {},
   en: {
@@ -241,6 +269,7 @@ const CATALOGS: Record<SupportedLanguage, MessageCatalog> = {
   en: {
     ...COMPLETION_MESSAGES.en,
     ...EXTRA_MESSAGES.en,
+    ...AUTH_DESIGN_MESSAGES.en,
     ...MORE_MESSAGES.en,
     ...STATUS_MESSAGES.en,
     "閲覧開始": "Start reading", "読み上げ開始": "Start listening", "未読の記事がありません。": "There are no unread articles.",
@@ -281,6 +310,7 @@ const CATALOGS: Record<SupportedLanguage, MessageCatalog> = {
   zh: {
     ...COMPLETION_MESSAGES.zh,
     ...EXTRA_MESSAGES.zh,
+    ...AUTH_DESIGN_MESSAGES.zh,
     ...MORE_MESSAGES.zh,
     ...STATUS_MESSAGES.zh,
     ...TRANSLATION_PROGRESS_MESSAGES.zh,
@@ -294,6 +324,7 @@ const CATALOGS: Record<SupportedLanguage, MessageCatalog> = {
   ko: {
     ...COMPLETION_MESSAGES.ko,
     ...EXTRA_MESSAGES.ko,
+    ...AUTH_DESIGN_MESSAGES.ko,
     ...MORE_MESSAGES.ko,
     ...STATUS_MESSAGES.ko,
     ...TRANSLATION_PROGRESS_MESSAGES.ko,
@@ -304,6 +335,7 @@ const CATALOGS: Record<SupportedLanguage, MessageCatalog> = {
   es: {
     ...COMPLETION_MESSAGES.es,
     ...EXTRA_MESSAGES.es,
+    ...AUTH_DESIGN_MESSAGES.es,
     ...MORE_MESSAGES.es,
     ...STATUS_MESSAGES.es,
     ...TRANSLATION_PROGRESS_MESSAGES.es,
