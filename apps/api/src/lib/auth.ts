@@ -52,6 +52,15 @@ async function resolveUser(env: Env, authHeader?: string | Headers): Promise<Aut
   }
   if (!row) throw errors.internal();
 
+  // Better Auth owns the canonical email. Keep the application projection in
+  // sync when an authenticated identity changes its email outside this API.
+  if (row.email !== identity.email) {
+    await env.DB.prepare("UPDATE users SET email = ?, updated_at = ? WHERE id = ?")
+      .bind(identity.email, nowIso(), row.id)
+      .run();
+    row = { ...row, email: identity.email };
+  }
+
   // These rows are created once with the user projection. Running the
   // idempotent inserts on every authenticated request still makes D1 inspect
   // the conflict indexes on every request, so only the new-user path needs
