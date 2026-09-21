@@ -33,6 +33,11 @@ interface ExtractedPage {
   lang: string | null;
 }
 
+interface PreparedSpeech {
+  text: string;
+  lang: string | null;
+}
+
 function normalizeSelection(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -112,7 +117,15 @@ function splitText(text: string, maxLength = 3000): string[] {
   let rest = text.replace(/\s+/g, " ").trim();
   while (rest.length > maxLength) {
     const slice = rest.slice(0, maxLength);
-    const split = Math.max(slice.lastIndexOf("。"), slice.lastIndexOf("."), slice.lastIndexOf(" "));
+    const split = Math.max(
+      slice.lastIndexOf("。"),
+      slice.lastIndexOf("！"),
+      slice.lastIndexOf("？"),
+      slice.lastIndexOf("."),
+      slice.lastIndexOf("!"),
+      slice.lastIndexOf("?"),
+      slice.lastIndexOf(" "),
+    );
     const at = split > maxLength * 0.4 ? split + 1 : maxLength;
     chunks.push(rest.slice(0, at).trim());
     rest = rest.slice(at).trim();
@@ -121,19 +134,119 @@ function splitText(text: string, maxLength = 3000): string[] {
   return chunks;
 }
 
-async function translateBestEffort(text: string, source: string | null, target: string): Promise<string> {
-  if (!source || source.split("-")[0] === target.split("-")[0]) return text;
+async function translateBestEffort(text: string, source: string | null, target: string): Promise<PreparedSpeech> {
+  // Keep the source language when translation is unavailable. Passing the
+  // requested target language to TTS in that case makes (for example) English
+  // text use a Japanese voice, which is both hard to understand and prone to
+  // provider-specific TTS errors.
+  if (!source || source.split("-")[0] === target.split("-")[0]) {
+    return { text, lang: source || target || null };
+  }
   const api = (globalThis as unknown as {
     Translator?: { create(pair: { sourceLanguage: string; targetLanguage: string }): Promise<{ translate(value: string): Promise<string> }> };
   }).Translator;
-  if (!api) return text;
+  if (!api) return { text, lang: source };
   try {
-    const translator = await api.create({ sourceLanguage: source, targetLanguage: target });
+    const translator = await api.create({
+      sourceLanguage: source.split("-")[0],
+      targetLanguage: target.split("-")[0],
+    });
     const translated: string[] = [];
     for (const chunk of splitText(text)) translated.push(await translator.translate(chunk));
-    return translated.join("\n\n");
+    return { text: translated.join("\n\n"), lang: target };
   } catch {
-    return text;
+    return { text, lang: source };
+  }
+}
+
+function getVoices(): Promise<chrome.tts.TtsVoice[]> {
+  return new Promise((resolve) => chrome.tts.getVoices(resolve));
+}
+
+async function resolveVoiceName(preferred: string | null, lang: string | null): Promise<string | undefined> {
+  if (!preferred) return undefined;
+  const voices = await getVoices();
+  const selected = voices.find((voice) => voice.voiceName === preferred);
+  if (!selected) return undefined;
+  if (lang && selected.lang && selected.lang.split("-")[0] !== lang.split("-")[0]) return undefined;
+  return selected.voiceName;
+}
+
+function ttsErrorMessage(event: chrome.tts.TtsEvent): string {
+  const detail = (event as chrome.tts.TtsEvent & { error?: string }).error;
+  if (event.type === "error" && detail) return String(detail);
+  if (event.type === "cancelled") return "発話がキャンセルされました。";
+  if (event.type === "interrupted") return "発話が中断されました。";
+  return "読み上げ音声でエラーが発生しました。";
+}
+
+function speakChunk(
+  text: string,
+  options: chrome.tts.TtsOptions,
+  token: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    // A provider that accepts the request but never emits a terminal event
+    // must not leave the extension stuck in the playing state forever.
+    const rate = typeof options.rate === "number" && options.rate > 0 ? options.rate : 1;
+    const timeoutMs = Math.max(60_000, Math.min(300_000, 60_000 + (text.length * 120) / rate));
+    const timeoutId = setTimeout(() => finish(new Error("読み上げ音声から応答がありませんでした。")), timeoutMs);
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      if (error) reject(error);
+      else resolve();
+    };
+
+    chrome.tts.speak(text, {
+      ...options,
+      onEvent: (event) => {
+        if (token !== playToken) {
+          finish(new Error("読み上げが中断されました。"));
+          return;
+        }
+        if (event.type === "end") finish();
+        else if (event.type === "error" || event.type === "cancelled" || event.type === "interrupted") {
+          finish(new Error(ttsErrorMessage(event)));
+        }
+      },
+    }, () => {
+      const message = chrome.runtime.lastError?.message;
+      if (message) finish(new Error(message));
+      // A successful callback only means that the request was accepted. The
+      // promise intentionally remains pending until the terminal TTS event.
+    });
+  });
+}
+
+async function speakText(text: string, state: ReaderSession, lang: string | null, token: number): Promise<void> {
+  const speechLanguage = lang || state.targetLanguage || undefined;
+  let voiceName = await resolveVoiceName(state.voiceName, speechLanguage || null);
+  const chunks = splitText(text, 2400);
+  let index = 0;
+  while (index < chunks.length) {
+    if (token !== playToken) throw new Error("読み上げが中断されました。");
+    try {
+      await speakChunk(chunks[index], {
+        lang: speechLanguage,
+        rate: state.rate,
+        voiceName,
+        enqueue: index > 0,
+      }, token);
+      index += 1;
+    } catch (cause) {
+      // A voice can remain listed while its OS/provider backend is broken.
+      // Retry the first chunk once without the explicit voice; never restart
+      // in the middle of an article, where doing so would duplicate speech.
+      if (index === 0 && voiceName && token === playToken) {
+        voiceName = undefined;
+        chrome.tts.stop();
+        continue;
+      }
+      throw cause;
+    }
   }
 }
 
@@ -174,14 +287,28 @@ async function playCurrentImpl(): Promise<void> {
     } catch {
       throw new Error("ページ本文を読み込めませんでした。ページを再読み込みしてからもう一度お試しください。");
     }
+    // Readability is the preferred source, but some sites expose useful text
+    // only through their rendered DOM. Try that path automatically before
+    // failing the whole playback request.
+    if (!extracted?.text && state.extractionMode === "article") {
+      try {
+        extracted = await extractPage(state.tabId, "display");
+      } catch {
+        extracted = null;
+      }
+    }
     if (!extracted?.text) throw new Error("このページから読み上げる文章を取得できませんでした。");
 
     // Display mode intentionally trusts the text currently visible in the
     // page. This avoids translating an already browser-translated page again.
-    text = state.extractionMode === "display"
-      ? extracted.text
-      : await translateBestEffort(extracted.text, extracted.lang, state.targetLanguage);
-    lang = extracted.lang;
+    if (state.extractionMode === "display") {
+      text = extracted.text;
+      lang = extracted.lang;
+    } else {
+      const prepared = await translateBestEffort(extracted.text, extracted.lang, state.targetLanguage);
+      text = prepared.text;
+      lang = prepared.lang;
+    }
   }
   if (token !== playToken) return;
   if (!text) throw new Error("このページから読み上げる文章を取得できませんでした。");
@@ -190,36 +317,21 @@ async function playCurrentImpl(): Promise<void> {
   await saveState(state);
   chrome.tts.stop();
   try {
-    await new Promise<void>((resolve, reject) => {
-      chrome.tts.speak(text, {
-        lang: state.extractionMode === "selection"
-          ? lang || state.targetLanguage || undefined
-          : state.targetLanguage || lang || undefined,
-        rate: state.rate,
-        voiceName: state.voiceName ?? undefined,
-        enqueue: false,
-        onEvent: (event) => {
-          if (token !== playToken) return;
-          if (event.type !== "end" && event.type !== "error" && event.type !== "cancelled" && event.type !== "interrupted") return;
-          void loadState().then(async (latest) => {
-            if (!latest) return;
-            latest.playing = false;
-            await saveState(latest);
-            if (event.type === "end" && latest.articleId !== undefined) {
-              await readerApi.setArticleRead(latest.articleId, true).catch(() => undefined);
-            }
-          });
-        },
-      }, () => {
-        const message = chrome.runtime.lastError?.message;
-        if (message) reject(new Error(message));
-        else resolve();
-      });
-    });
-  } catch {
+    await speakText(text, state, lang, token);
+    if (token !== playToken) return;
+    const latest = await loadState();
+    if (!latest || token !== playToken) return;
+    latest.playing = false;
+    await saveState(latest);
+    if (latest.articleId !== undefined) {
+      await readerApi.setArticleRead(latest.articleId, true).catch(() => undefined);
+    }
+  } catch (cause) {
+    if (token !== playToken) return;
     state.playing = false;
     await saveState(state);
-    throw new Error("音声の再生を開始できませんでした。読み上げ音声の設定を確認してください。");
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`音声の再生に失敗しました。${detail}`);
   }
 }
 
@@ -415,6 +527,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           extractionMode: normalizeSettingsExtractionMode(state.extractionMode),
         });
         if (state.playing) {
+          playToken += 1;
           state.playing = false;
           await saveState(state);
           chrome.tts.stop();
