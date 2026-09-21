@@ -66,20 +66,20 @@ function articleDateOrder(sort: string): string {
 
 type SubscriptionFilter = "none" | "exists";
 
-function articleWithinCursor(sort: string, cursor: ArticleCursor): { sql: string; binds: unknown[] } {
+function articleWithinCursor(sort: string, cursor: ArticleCursor, alias = "a"): { sql: string; binds: unknown[] } {
   if (sort === "fetched_at_desc") {
     return {
-      sql: "(a.fetched_at < ? OR (a.fetched_at = ? AND a.id < ?))",
+      sql: `(${alias}.fetched_at < ? OR (${alias}.fetched_at = ? AND ${alias}.id < ?))`,
       binds: [cursor.ts, cursor.ts, cursor.id],
     };
   }
   if (cursor.ts !== null) {
     return {
-      sql: "(a.published_at IS NULL OR a.published_at < ? OR (a.published_at = ? AND a.id < ?))",
+      sql: `(${alias}.published_at IS NULL OR ${alias}.published_at < ? OR (${alias}.published_at = ? AND ${alias}.id < ?))`,
       binds: [cursor.ts, cursor.ts, cursor.id],
     };
   }
-  return { sql: "(a.published_at IS NULL AND a.id < ?)", binds: [cursor.id] };
+  return { sql: `(${alias}.published_at IS NULL AND ${alias}.id < ?)`, binds: [cursor.id] };
 }
 
 function articleListSelect(
@@ -115,6 +115,92 @@ function articleListSelect(
   `;
 }
 
+export function unreadArticleListSelect(
+  userId: number,
+  sort: string,
+  cursor: ArticleCursor | undefined,
+  limit: number,
+): { sql: string; binds: unknown[] } {
+  const cursorData = cursor ? articleWithinCursor(sort, cursor) : undefined;
+  const cursorCondition = cursorData?.sql ?? "";
+  const cursorBinds = cursorData?.binds ?? [];
+
+  // The normal article list used to walk the global article-order index and
+  // evaluate the user's subscription and effective read state for every row.
+  // For unread-first, derive the candidate ids from the two sources that can
+  // actually make an article unread instead:
+  //   1. articles after the user's per-feed read cursor, and
+  //   2. sparse explicit unread overrides.
+  // These branches are disjoint because the cursor branch excludes every
+  // explicit override, so UNION ALL cannot duplicate an article.
+  const sql = `
+    WITH unread_candidate_ids AS (
+      SELECT a.id
+      FROM subscriptions s
+      JOIN articles a ON a.feed_id = s.feed_id
+      LEFT JOIN feed_read_cursors frc
+        ON frc.user_id = ? AND frc.feed_id = a.feed_id
+      WHERE s.user_id = ?
+        AND a.id > COALESCE(frc.last_read_article_id, 0)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM article_read_states ars0
+          WHERE ars0.user_id = ? AND ars0.article_id = a.id
+        )
+        ${cursorCondition ? `AND ${cursorCondition}` : ""}
+
+      UNION ALL
+
+      SELECT a.id
+      FROM article_read_states ars
+      JOIN articles a ON a.id = ars.article_id
+      JOIN subscriptions s ON s.feed_id = a.feed_id AND s.user_id = ?
+      WHERE ars.user_id = ?
+        AND ars.is_read = 0
+        ${cursorCondition ? `AND ${cursorCondition}` : ""}
+    )
+    SELECT
+      a.id, a.title, a.canonical_url, a.rss_summary, a.rss_content_html,
+      a.published_at, a.fetched_at, a.source_language,
+      f.id AS feed_id, f.title AS feed_title, f.favicon_url AS feed_favicon_url,
+      (${EFFECTIVE_IS_READ}) AS is_read,
+      CASE WHEN rli.user_id IS NULL THEN 0 ELSE 1 END AS in_reading_list,
+      CASE WHEN ab.user_id IS NULL THEN 0 ELSE 1 END AS is_bookmarked
+    FROM unread_candidate_ids c
+    JOIN articles a ON a.id = c.id
+    JOIN feeds f ON f.id = a.feed_id
+    LEFT JOIN article_read_states ars ON ars.article_id = a.id AND ars.user_id = ?
+    LEFT JOIN article_user_collections rli
+      ON rli.article_id = a.id AND rli.user_id = ? AND rli.kind = 'reading_list'
+    LEFT JOIN article_user_collections ab
+      ON ab.article_id = a.id AND ab.user_id = ? AND ab.kind = 'bookmark'
+    LEFT JOIN feed_read_cursors frc ON frc.feed_id = a.feed_id AND frc.user_id = ?
+    ORDER BY ${articleDateOrder(sort)}
+    LIMIT ?
+  `;
+
+  return {
+    sql,
+    binds: [
+      // Cursor-tail branch.
+      userId,
+      userId,
+      userId,
+      ...cursorBinds,
+      // Explicit unread branch.
+      userId,
+      userId,
+      ...cursorBinds,
+      // Result decoration joins.
+      userId,
+      userId,
+      userId,
+      userId,
+      limit,
+    ],
+  };
+}
+
 async function articleRowsForGroup(
   db: D1Database,
   userId: number,
@@ -128,6 +214,19 @@ async function articleRowsForGroup(
   cursor: ArticleCursor | undefined,
   limit: number,
 ): Promise<ArticleListRow[]> {
+  const canUseUnreadCandidateQuery =
+    group === 0 &&
+    subscriptionFilter === "exists" &&
+    baseConditions.length === 0 &&
+    readingListJoin === "LEFT JOIN" &&
+    bookmarkJoin === "LEFT JOIN";
+
+  if (canUseUnreadCandidateQuery) {
+    const query = unreadArticleListSelect(userId, sort, cursor, limit);
+    const { results } = await db.prepare(query.sql).bind(...query.binds).all<ArticleListRow>();
+    return results;
+  }
+
   const conditions = [...baseConditions, readGroupCondition(group)];
   const binds = [...baseBinds];
   if (cursor) {
@@ -524,24 +623,37 @@ export const articleRoutes = new Hono<AppContext>()
       // The cursor only advances; a stale request never rewinds it.
       c.env.DB.prepare(
         `INSERT INTO feed_read_cursors (user_id, feed_id, last_read_article_id, updated_at)
-         SELECT s.user_id, s.feed_id, MAX(a.id), ?
+         SELECT
+           s.user_id,
+           s.feed_id,
+           (SELECT a.id
+            FROM articles a
+            WHERE a.feed_id = s.feed_id
+            ORDER BY a.id DESC
+            LIMIT 1),
+           ?
          FROM subscriptions s
-         JOIN articles a ON a.feed_id = s.feed_id
          WHERE s.user_id = ?${tagFilter}
-         GROUP BY s.feed_id
+           AND (SELECT a.id
+                FROM articles a
+                WHERE a.feed_id = s.feed_id
+                ORDER BY a.id DESC
+                LIMIT 1) IS NOT NULL
          ON CONFLICT (user_id, feed_id) DO UPDATE SET
            last_read_article_id = excluded.last_read_article_id, updated_at = excluded.updated_at
          WHERE excluded.last_read_article_id > feed_read_cursors.last_read_article_id`
       ).bind(now, user.id, ...tagBinds),
       // Explicit rows override the cursor, so flip the unread ones too.
       c.env.DB.prepare(
-        `UPDATE article_read_states SET is_read = 1, read_at = ?, updated_at = ?
-         WHERE user_id = ? AND is_read = 0
-         AND article_id IN (
-           SELECT a.id FROM articles a
-           JOIN subscriptions s ON s.feed_id = a.feed_id
-           WHERE s.user_id = ?${tagFilter}
-         )`
+        `UPDATE article_read_states AS ars SET is_read = 1, read_at = ?, updated_at = ?
+         WHERE ars.user_id = ? AND ars.is_read = 0
+           AND EXISTS (
+             SELECT 1
+             FROM articles a
+             JOIN subscriptions s ON s.feed_id = a.feed_id
+             WHERE a.id = ars.article_id
+               AND s.user_id = ?${tagFilter}
+           )`
       ).bind(now, now, user.id, user.id, ...tagBinds),
       // The cursor and explicit-state update above make every current article
       // in the selected subscriptions read. Reset the derived counters in

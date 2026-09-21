@@ -283,9 +283,12 @@ export const subscriptionRoutes = new Hono<AppContext>()
         ).bind(user.id, row.feed_id, target, now),
         // Explicit rows override the cursor, so flip the unread ones too.
         c.env.DB.prepare(
-          `UPDATE article_read_states SET is_read = 1, read_at = ?, updated_at = ?
-           WHERE user_id = ? AND is_read = 0
-           AND article_id IN (SELECT id FROM articles WHERE feed_id = ? AND id <= ?)`
+          `UPDATE article_read_states AS ars SET is_read = 1, read_at = ?, updated_at = ?
+           WHERE ars.user_id = ? AND ars.is_read = 0
+           AND EXISTS (
+             SELECT 1 FROM articles a
+             WHERE a.id = ars.article_id AND a.feed_id = ? AND a.id <= ?
+           )`
         ).bind(now, now, user.id, row.feed_id, target),
       ]);
     }
