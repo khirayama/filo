@@ -66,6 +66,98 @@ function articleDateOrder(sort: string): string {
 
 type SubscriptionFilter = "none" | "exists";
 
+export interface UnreadQueryStats {
+  unreadCount: number;
+  subscribedArticleCount: number;
+  totalArticleCount: number;
+}
+
+export type UnreadQueryStrategy = "candidate" | "global" | "empty";
+
+// The candidate query is bounded by the user's subscribed article history,
+// while the global query walks the shared article-order index until it finds
+// enough unread rows. Prefer the latter only when the user's subscriptions
+// cover a meaningful part of the shared corpus and the unread backlog is
+// large enough to make a candidate scan expensive.
+export function chooseUnreadQueryStrategy(
+  stats: UnreadQueryStats,
+  limit: number,
+): UnreadQueryStrategy {
+  if (stats.unreadCount <= 0) return "empty";
+  if (stats.subscribedArticleCount <= 0) return "candidate";
+  if (stats.totalArticleCount <= 0) return "candidate";
+
+  const coverage = stats.subscribedArticleCount / stats.totalArticleCount;
+  if (coverage < 0.25) return "candidate";
+
+  const estimatedGlobalRows = Math.ceil(
+    (stats.totalArticleCount * (limit + 1)) / stats.unreadCount,
+  );
+  return estimatedGlobalRows < stats.subscribedArticleCount ? "global" : "candidate";
+}
+
+async function unreadQueryStats(
+  db: D1Database,
+  userId: number,
+  unreadCount: number,
+): Promise<UnreadQueryStats> {
+  interface UnreadQueryStatsRow {
+    subscribed_article_count: number | null;
+    total_article_count: number | null;
+  }
+
+  // article_count is only a planning estimate. The maintained unread count
+  // controls the empty fast path; these corpus sizes only choose a query
+  // shape and cannot change which rows are returned.
+  const row = await db.prepare(
+    `SELECT
+       COALESCE((SELECT SUM(f.article_count)
+                 FROM feeds f
+                 JOIN subscriptions s ON s.feed_id = f.id
+                 WHERE s.user_id = ?), 0) AS subscribed_article_count,
+       COALESCE((SELECT SUM(article_count) FROM feeds), 0) AS total_article_count`,
+  ).bind(userId).first<UnreadQueryStatsRow>();
+
+  return {
+    unreadCount,
+    subscribedArticleCount: Number(row?.subscribed_article_count ?? 0),
+    totalArticleCount: Number(row?.total_article_count ?? 0),
+  };
+}
+
+async function hasUnreadSourceRows(db: D1Database, userId: number): Promise<boolean> {
+  const row = await db.prepare(
+    `SELECT (
+       EXISTS (
+         SELECT 1
+         FROM subscriptions s
+         LEFT JOIN feed_read_cursors frc
+           ON frc.user_id = ? AND frc.feed_id = s.feed_id
+         WHERE s.user_id = ?
+           AND EXISTS (
+             SELECT 1
+             FROM articles a
+             WHERE a.feed_id = s.feed_id
+               AND a.id > COALESCE(frc.last_read_article_id, 0)
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM article_read_states ars
+                 WHERE ars.user_id = ? AND ars.article_id = a.id
+               )
+           )
+       )
+       OR EXISTS (
+         SELECT 1
+         FROM article_read_states ars
+         JOIN articles a ON a.id = ars.article_id
+         JOIN subscriptions s ON s.feed_id = a.feed_id AND s.user_id = ?
+         WHERE ars.user_id = ? AND ars.is_read = 0
+       )
+     ) AS has_unread`,
+  ).bind(userId, userId, userId, userId, userId).first<{ has_unread: number }>();
+  return row?.has_unread === 1;
+}
+
 function articleWithinCursor(sort: string, cursor: ArticleCursor, alias = "a"): { sql: string; binds: unknown[] } {
   if (sort === "fetched_at_desc") {
     return {
@@ -213,15 +305,18 @@ async function articleRowsForGroup(
   group: ReadGroup,
   cursor: ArticleCursor | undefined,
   limit: number,
+  unreadStrategy: UnreadQueryStrategy | undefined,
 ): Promise<ArticleListRow[]> {
-  const canUseUnreadCandidateQuery =
+  const isUnreadQueryEligible =
     group === 0 &&
     subscriptionFilter === "exists" &&
     baseConditions.length === 0 &&
     readingListJoin === "LEFT JOIN" &&
     bookmarkJoin === "LEFT JOIN";
 
-  if (canUseUnreadCandidateQuery) {
+  if (isUnreadQueryEligible && unreadStrategy === "empty") return [];
+
+  if (isUnreadQueryEligible && unreadStrategy === "candidate") {
     const query = unreadArticleListSelect(userId, sort, cursor, limit);
     const { results } = await db.prepare(query.sql).bind(...query.binds).all<ArticleListRow>();
     return results;
@@ -259,6 +354,7 @@ async function splitArticleRows(
   readOrder: string,
   cursor: ArticleCursor | undefined,
   limit: number,
+  unreadStrategy: UnreadQueryStrategy | undefined,
 ): Promise<{ page: ArticleListRow[]; hasMore: boolean }> {
   const firstGroup: ReadGroup = readOrder === "read_first" ? 1 : 0;
   const secondGroup: ReadGroup = firstGroup === 0 ? 1 : 0;
@@ -269,6 +365,7 @@ async function splitArticleRows(
     const rows = await articleRowsForGroup(
       db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
       subscriptionFilter, sort, secondGroup, cursor, limit + 1,
+      unreadStrategy,
     );
     return { page: rows.slice(0, limit), hasMore: rows.length > limit };
   }
@@ -276,6 +373,7 @@ async function splitArticleRows(
   const firstRows = await articleRowsForGroup(
     db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
     subscriptionFilter, sort, firstGroup, cursor, limit + 1,
+    unreadStrategy,
   );
   if (firstRows.length > limit) return { page: firstRows.slice(0, limit), hasMore: true };
 
@@ -285,6 +383,7 @@ async function splitArticleRows(
     const secondProbe = await articleRowsForGroup(
       db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
       subscriptionFilter, sort, secondGroup, undefined, 1,
+      unreadStrategy,
     );
     return { page: firstRows, hasMore: secondProbe.length > 0 };
   }
@@ -292,6 +391,7 @@ async function splitArticleRows(
   const secondRows = await articleRowsForGroup(
     db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
     subscriptionFilter, sort, secondGroup, undefined, limit - firstRows.length + 1,
+    unreadStrategy,
   );
   const page = [...firstRows, ...secondRows.slice(0, limit - firstRows.length)];
   return { page, hasMore: secondRows.length > limit - firstRows.length };
@@ -491,6 +591,36 @@ export const articleRoutes = new Hono<AppContext>()
       ? undefined
       : await decodeCursor(cursorSecret, sort, cursorRaw, readOrder);
     const useSplitReadQuery = read === undefined && readOrder !== "none";
+    const canUseUnreadFastPath =
+      (read === false || useSplitReadQuery) &&
+      subscriptionFilter === "exists" &&
+      baseConditions.length === 0 &&
+      readingListJoin === "LEFT JOIN" &&
+      bookmarkJoin === "LEFT JOIN";
+    let unreadStrategy: UnreadQueryStrategy | undefined;
+    if (canUseUnreadFastPath) {
+      const unreadCounts = await unreadCountsForUser(c.env.DB, user.id, "all");
+      if (unreadCounts.all_articles === 0) {
+        // The default mixed list still needs the read group. Keep the
+        // cursor-aware candidate query there. For read=false, verify the
+        // source-of-truth rows before returning an empty page so a stale
+        // derived counter cannot hide an unread article.
+        unreadStrategy = read === false
+          ? (await hasUnreadSourceRows(c.env.DB, user.id) ? "candidate" : "empty")
+          : "candidate";
+      } else {
+        unreadStrategy = chooseUnreadQueryStrategy(
+          await unreadQueryStats(c.env.DB, user.id, unreadCounts.all_articles),
+          limit,
+        );
+      }
+    }
+
+    // Once the source-of-truth check has passed, avoid scanning the entire
+    // article-order index just to prove that an empty unread view is empty.
+    if (read === false && unreadStrategy === "empty") {
+      return c.json({ data: [], meta: { nextCursor: null } });
+    }
 
     let results: ArticleListRow[];
     let hasMore: boolean;
@@ -507,41 +637,49 @@ export const articleRoutes = new Hono<AppContext>()
         readOrder,
         cursor,
         limit,
+        unreadStrategy,
       );
       results = split.page;
       hasMore = split.hasMore;
     } else {
-      // Read state combines explicit rows with the per-feed read cursor.
-      if (read === true) conditions.push(`(${EFFECTIVE_IS_READ}) = 1`);
-      if (read === false) conditions.push(`(${EFFECTIVE_IS_READ}) = 0`);
-      if (cursor) {
-        const within = articleWithinCursor(sort, cursor);
-        if (readOrder === "none") {
-          conditions.push(within.sql);
-          binds.push(...within.binds);
-        } else {
-          // The selected read state group comes first; later pages continue
-          // within that group and then move to the other group.
-          const laterReadState = readOrder === "read_first" ? "<" : ">";
-          conditions.push(`((${EFFECTIVE_IS_READ}) ${laterReadState} ? OR ((${EFFECTIVE_IS_READ}) = ? AND ${within.sql}))`);
-          binds.push(cursor.r, cursor.r, ...within.binds);
+      if (read === false && unreadStrategy === "candidate") {
+        const query = unreadArticleListSelect(user.id, sort, cursor, limit + 1);
+        const unreadRows = await c.env.DB.prepare(query.sql).bind(...query.binds).all<ArticleListRow>();
+        results = unreadRows.results;
+        hasMore = results.length > limit;
+      } else {
+        // Read state combines explicit rows with the per-feed read cursor.
+        if (read === true) conditions.push(`(${EFFECTIVE_IS_READ}) = 1`);
+        if (read === false) conditions.push(`(${EFFECTIVE_IS_READ}) = 0`);
+        if (cursor) {
+          const within = articleWithinCursor(sort, cursor);
+          if (readOrder === "none") {
+            conditions.push(within.sql);
+            binds.push(...within.binds);
+          } else {
+            // The selected read state group comes first; later pages continue
+            // within that group and then move to the other group.
+            const laterReadState = readOrder === "read_first" ? "<" : ">";
+            conditions.push(`((${EFFECTIVE_IS_READ}) ${laterReadState} ? OR ((${EFFECTIVE_IS_READ}) = ? AND ${within.sql}))`);
+            binds.push(cursor.r, cursor.r, ...within.binds);
+          }
         }
+        const orderBy = readOrder === "none"
+          ? articleDateOrder(sort)
+          : `${EFFECTIVE_IS_READ} ${readOrder === "read_first" ? "DESC" : "ASC"}, ${articleDateOrder(sort)}`;
+        const sql = articleListSelect(
+          readingListJoin,
+          bookmarkJoin,
+          subscriptionFilter,
+          conditions.length > 0 ? conditions.join(" AND ") : "1 = 1",
+          orderBy,
+        );
+        const query = await c.env.DB.prepare(sql)
+          .bind(user.id, user.id, user.id, user.id, ...(subscriptionFilter === "exists" ? [user.id] : []), ...binds, limit + 1)
+          .all<ArticleListRow>();
+        results = query.results;
+        hasMore = results.length > limit;
       }
-      const orderBy = readOrder === "none"
-        ? articleDateOrder(sort)
-        : `${EFFECTIVE_IS_READ} ${readOrder === "read_first" ? "DESC" : "ASC"}, ${articleDateOrder(sort)}`;
-      const sql = articleListSelect(
-        readingListJoin,
-        bookmarkJoin,
-        subscriptionFilter,
-        conditions.length > 0 ? conditions.join(" AND ") : "1 = 1",
-        orderBy,
-      );
-      const query = await c.env.DB.prepare(sql)
-        .bind(user.id, user.id, user.id, user.id, ...(subscriptionFilter === "exists" ? [user.id] : []), ...binds, limit + 1)
-        .all<ArticleListRow>();
-      results = query.results;
-      hasMore = results.length > limit;
     }
 
     const page = hasMore ? results.slice(0, limit) : results;

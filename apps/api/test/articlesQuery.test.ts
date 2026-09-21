@@ -1,7 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { unreadArticleListSelect } from "../src/routes/articles";
+import { chooseUnreadQueryStrategy, unreadArticleListSelect } from "../src/routes/articles";
 
 describe("unread article query", () => {
+  it("skips the article scan when the maintained unread count is zero", () => {
+    expect(chooseUnreadQueryStrategy({
+      unreadCount: 0,
+      subscribedArticleCount: 10_205,
+      totalArticleCount: 11_466,
+    }, 20)).toBe("empty");
+  });
+
+  it("uses the global article order for a large backlog with broad coverage", () => {
+    expect(chooseUnreadQueryStrategy({
+      unreadCount: 10_000,
+      subscribedArticleCount: 10_205,
+      totalArticleCount: 11_466,
+    }, 20)).toBe("global");
+  });
+
+  it("keeps the feed candidate scan for sparse subscriptions", () => {
+    expect(chooseUnreadQueryStrategy({
+      unreadCount: 1_000,
+      subscribedArticleCount: 1_000,
+      totalArticleCount: 100_000,
+    }, 20)).toBe("candidate");
+  });
+
   it("derives unread candidates without scanning the global article order", () => {
     const query = unreadArticleListSelect(7, "published_at_desc", undefined, 50);
 
