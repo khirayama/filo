@@ -1,2 +1,6 @@
-extensionの読み上げが失敗するケースが多い気がする
 extensionの公開
+iosのbuild高速化
+androidのbuild高速化
+androidの証明書周りの整理
+
+rows_readがよく引っかかる状態。ユーザが増えたら死なない？
