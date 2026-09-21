@@ -1,6 +1,6 @@
 # filo Database Design
 
-Cloudflare D1 を利用する。ORM は使用せず、SQL を直接書く。
+Cloudflare D1 を利用する。アプリケーションテーブルは SQL を直接書き、Better Auth の認証テーブルだけは Drizzle adapter 経由で扱う。
 
 スキーマの正は `apps/api/migrations/` にある migration 一式とする。本書は DDL を再掲せず、DDL では表現できない意図・不変条件・クエリ期待値だけを書く。列や制約を知りたい場合は migration を読む。
 
@@ -56,6 +56,15 @@ account deletion 専用:
 | `deleted_user_tombstones` | 削除受付済み `auth_user_id` の再作成防止 |
 | `account_deletion_jobs` | cleanup の再試行管理 |
 
+認証（Better Auth 管理。アプリケーションの `users` projection とは別）:
+
+| テーブル | 役割 |
+| --- | --- |
+| `user` | 認証ユーザー本体 |
+| `session` | セッション |
+| `account` | credential / provider account |
+| `verification` | メール等の検証トークン |
+
 ## Data Rules
 
 ### 所有境界
@@ -63,12 +72,14 @@ account deletion 専用:
 - `subscriptions` がユーザー操作の主語であり、`feeds` は共有リソースとして扱う
 - `articles` は feed 単位で共有し、ユーザーごとの既読上書きは `article_read_states`、リーディングリスト／ブックマーク所属は `article_user_collections` に保持する
 - `tags` は feed ではなく `subscriptions` に紐づく
-- `subscription_tags` は DB の FK だけでは同一 user 制約を表現できないため、application 層で `subscription.user_id == tag.user_id` を必須検証する
+- `subscription_tags` は通常の FK だけでは同一 user 制約を表現できないため、application 層で検証し、DB trigger でも不一致を拒否する
 - `article_user_collections` は `subscription` から独立して保持し、unsubscribe 後も `reading_list` または `bookmark` membership がある記事の参照権を維持する（retained article）
-- ブラウザ／共有から保存した任意URLは、購読を持たない `paused` な `feeds` / `articles` として登録し、`article_user_collections` の membership だけでユーザーから参照できる。既存の本文抽出・再生テーブルを共用する
+- ブラウザ／共有から保存した任意URLは、購読を持たない `paused` な `feeds` / `articles` として登録し、`article_user_collections` の membership だけでユーザーから参照できる。既存の本文抽出パイプラインを共用する
 - unsubscribe 済み記事は最後の collection membership が削除された時点で参照不可に戻る
 - `feed_read_cursors` は subscription ではなく user × feed に紐づき、購読解除・再購読後も維持される
 - `subscription_unread_counts` と `user_unread_counts` は導出値であり、実効既読状態の source of truth ではない。新着、単体の既読変更、collection 変更、購読追加で差分更新し、一括既読では source of truth から再計算する
+- `subscription_unread_counts` の `user_id` / `feed_id` は高速な feed・user 集計のためのキャッシュ列であり、`subscription_id` と一致しない行を DB trigger で拒否する
+- `feed_read_cursors.last_read_article_id` は同じ `feed_id` の記事だけを指せるよう DB trigger で検証する
 - `feeds.article_count` は `articles` の件数を保持する共有導出値であり、feed fetch または保存記事の作成時に新規行数だけ加算する。初期値は migration で再構築し、status の表示用集計に使う
 - 導出カウンターが欠落した場合も API は `0` として動作し、購読追加・一括既読の再計算で復旧できる
 
