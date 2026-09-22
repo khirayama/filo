@@ -1,4 +1,3 @@
 extensionの公開
-iosのbuild高速化
 androidのbuild高速化
 androidの証明書周りの整理
