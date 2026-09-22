@@ -1,3 +1,4 @@
+import { recordD1BatchMeta } from "./observability";
 import { nowIso, toIso } from "./util";
 
 // feed_jobs tracks user-requested feed fetches only.
@@ -16,11 +17,23 @@ export interface FeedJobRow {
   updated_at: string;
 }
 
-function isStalledFeedJob(status: string, updatedAt: string | null, now = Date.now()): boolean {
+export function isStalledFeedJob(status: string, updatedAt: string | null, now = Date.now()): boolean {
   if (status !== "pending" && status !== "running") return false;
   const updated = updatedAt ? Date.parse(updatedAt) : Number.NaN;
   if (Number.isNaN(updated)) return true;
   return now - updated > FEED_JOB_STALL_MS;
+}
+
+export function shouldEnqueueFeedJob(
+  status: string | null | undefined,
+  updatedAt: string | null | undefined,
+  now = Date.now(),
+): boolean {
+  if (!status) return true;
+  if (status === "pending" || status === "running") {
+    return isStalledFeedJob(status, updatedAt ?? null, now);
+  }
+  return true;
 }
 
 export function serializeFeedJob(row: FeedJobRow | null | undefined) {
@@ -44,7 +57,18 @@ export async function upsertFeedJob(
   fields: { startedAt?: string | null; finishedAt?: string | null; lastError?: string | null } = {},
 ): Promise<void> {
   const now = nowIso();
-  await db.prepare(
+  await upsertFeedJobMutation(db, userId, feedId, status, fields, now).run();
+}
+
+function upsertFeedJobMutation(
+  db: D1Database,
+  userId: number,
+  feedId: number,
+  status: FeedJobStatus,
+  fields: { startedAt?: string | null; finishedAt?: string | null; lastError?: string | null },
+  now: string,
+): D1PreparedStatement {
+  return db.prepare(
     `INSERT INTO feed_jobs
        (user_id, feed_id, status, requested_at, started_at, finished_at, last_error, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -65,8 +89,24 @@ export async function upsertFeedJob(
       fields.finishedAt ?? null,
       fields.lastError ?? null,
       now,
-    )
-    .run();
+    );
+}
+
+/** Keep the per-feed rows, but send the mutations in D1 batches. */
+export async function upsertFeedJobs(
+  db: D1Database,
+  userId: number,
+  feedIds: readonly number[],
+): Promise<void> {
+  const unique = [...new Set(feedIds)];
+  const now = nowIso();
+  for (let i = 0; i < unique.length; i += 50) {
+    const statements = unique.slice(i, i + 50).map((feedId) =>
+      upsertFeedJobMutation(db, userId, feedId, "pending", {}, now),
+    );
+    const results = await db.batch(statements);
+    recordD1BatchMeta("feed_jobs.bulk_upsert", results, { feed_count: statements.length });
+  }
 }
 
 // A fetch is feed-scoped on the worker side: one queue message serves every

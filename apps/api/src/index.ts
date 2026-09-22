@@ -13,6 +13,7 @@ import { createBetterAuth } from "./betterAuth";
 import { accountRoutes } from "./routes/account";
 import { adminRoutes } from "./routes/admin";
 import { articleRoutes } from "./routes/articles";
+import { bootstrapRoutes } from "./routes/bootstrap";
 import { contentRoutes } from "./routes/content";
 import { opmlRoutes } from "./routes/opml";
 import { settingsRoutes } from "./routes/settings";
@@ -82,6 +83,7 @@ app.route("/api/v1/account", accountRoutes);
 // Core routes — require user auth
 const authed = new Hono<AppContext>();
 authed.use("*", requireUser);
+authed.route("/bootstrap", bootstrapRoutes);
 authed.route("/settings", settingsRoutes);
 authed.route("/subscriptions", subscriptionRoutes);
 authed.route("/tags", tagRoutes);
@@ -140,29 +142,50 @@ export default {
         // Refresh active feeds whose per-feed cooldown has elapsed. The
         // cooldown is calculated by runFetchFeed from each feed's cadence.
         const now = nowIso();
+        const activeJobFreshAfter = new Date(Date.now() - 10 * 60 * 1000).toISOString();
         const { results: dueFeeds } = await env.DB.prepare(
           `SELECT f.id
            FROM feeds f
            LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
            WHERE f.status = 'active'
              AND (fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?)
+             AND NOT EXISTS (
+               SELECT 1 FROM feed_jobs fj
+               WHERE fj.feed_id = f.id
+                 AND fj.status IN ('pending', 'running')
+                 AND fj.updated_at > ?
+             )
            ORDER BY fs.next_fetch_after IS NOT NULL, fs.next_fetch_after
            LIMIT 200`,
         )
-          .bind(now)
+          .bind(now, activeJobFreshAfter)
           .all<{ id: number }>();
 
-        for (const feed of dueFeeds) {
-          await env.JOBS.send({ jobType: "fetch_feed", feedId: feed.id, reason: "refresh", attempt: 1 });
+        const feedMessages = dueFeeds.map((feed) => ({
+          body: { jobType: "fetch_feed" as const, feedId: feed.id, reason: "refresh" as const, attempt: 1 },
+        }));
+        for (let i = 0; i < feedMessages.length; i += 100) {
+          await env.JOBS.sendBatch(feedMessages.slice(i, i + 100));
         }
 
         // Retry recoverable account deletion jobs (max 5 attempts).
         const { results: failedDeletions } = await env.DB.prepare(
           "SELECT id FROM account_deletion_jobs WHERE status = 'failed' AND attempt_count < 5 LIMIT 10",
         ).all<{ id: number }>();
-        for (const job of failedDeletions) {
-          await env.JOBS.send({ jobType: "account_deletion", deletionJobId: job.id, attempt: 1 });
+        const deletionMessages = failedDeletions.map((job) => ({
+          body: { jobType: "account_deletion" as const, deletionJobId: job.id, attempt: 1 },
+        }));
+        for (let i = 0; i < deletionMessages.length; i += 100) {
+          await env.JOBS.sendBatch(deletionMessages.slice(i, i + 100));
         }
+
+        // Operational logs are useful for diagnosis, but must not grow with
+        // every scheduled fetch forever. Delete in bounded batches so the
+        // cleanup itself cannot create a large D1 read/write spike.
+        const logRetentionBefore = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+        await env.DB.prepare(
+          "DELETE FROM feed_fetch_logs WHERE started_at < ? LIMIT 500",
+        ).bind(logRetentionBefore).run();
       })(),
     );
   },

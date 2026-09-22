@@ -1,5 +1,6 @@
 import { errors } from "./errors";
 import { hasArticleCollection } from "./articleState";
+import { recordD1Meta } from "./observability";
 
 export interface ArticleRow {
   id: number;
@@ -55,10 +56,12 @@ export async function subscriptionContextsForFeeds(
   for (let i = 0; i < unique.length; i += CHUNK) {
     const chunk = unique.slice(i, i + CHUNK);
     const placeholders = chunk.map(() => "?").join(",");
-    const { results } = await db
+    const result = await db
       .prepare(`SELECT id, feed_id FROM subscriptions WHERE user_id = ? AND feed_id IN (${placeholders}) ORDER BY id ASC`)
       .bind(userId, ...chunk)
       .all<{ id: number; feed_id: number }>();
+    recordD1Meta("articles.context_subscriptions", result.meta, { feed_count: chunk.length });
+    const { results } = result;
     for (const row of results) {
       map.get(row.feed_id)?.subscriptionIds.push(row.id);
       subToFeed.set(row.id, row.feed_id);
@@ -69,12 +72,14 @@ export async function subscriptionContextsForFeeds(
   for (let i = 0; i < subscriptionIds.length; i += CHUNK) {
     const chunk = subscriptionIds.slice(i, i + CHUNK);
     const placeholders = chunk.map(() => "?").join(",");
-    const { results } = await db
+    const result = await db
       .prepare(
         `SELECT DISTINCT subscription_id, tag_id FROM subscription_tags WHERE subscription_id IN (${placeholders}) ORDER BY tag_id ASC`
       )
       .bind(...chunk)
       .all<{ subscription_id: number; tag_id: number }>();
+    recordD1Meta("articles.context_tags", result.meta, { subscription_count: chunk.length });
+    const { results } = result;
     for (const row of results) {
       const feedId = subToFeed.get(row.subscription_id);
       if (feedId === undefined) continue;

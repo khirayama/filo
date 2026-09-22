@@ -12,7 +12,7 @@ import {
   readCursorFor,
   recomputeReadingListUnreadCount,
 } from "../lib/readCursor";
-import { attachTags, resolveTagIdsByNames, tagIdsForSubscriptions } from "../lib/tagops";
+import { attachTags, ownedTagIds, resolveTagIdsByNames, tagIdsForSubscriptions } from "../lib/tagops";
 import { nowIso, parseId, parseLimit, toIso } from "../lib/util";
 
 async function loadSubscription(db: D1Database, userId: number, subscriptionId: number): Promise<SubscriptionRow> {
@@ -146,16 +146,13 @@ export const subscriptionRoutes = new Hono<AppContext>()
       .first<{ id: number }>();
     if (!inserted) throw errors.internal();
 
-    const ownedTagIds: number[] = [];
-    for (const tagId of tagIds as number[]) {
-      const tag = await c.env.DB.prepare("SELECT id FROM tags WHERE id = ? AND user_id = ?")
-        .bind(tagId, user.id)
-        .first();
-      if (!tag) throw errors.validation(`tag ${tagId} not found`);
-      ownedTagIds.push(tagId);
+    const requestedTagIds = [...new Set(tagIds as number[])];
+    const owned = await ownedTagIds(c.env.DB, user.id, requestedTagIds);
+    for (const tagId of requestedTagIds) {
+      if (!owned.has(tagId)) throw errors.validation(`tag ${tagId} not found`);
     }
     const namedTagIds = await resolveTagIdsByNames(c.env.DB, user.id, tagNames as string[]);
-    await attachTags(c.env.DB, inserted.id, [...ownedTagIds, ...namedTagIds]);
+    await attachTags(c.env.DB, inserted.id, [...requestedTagIds, ...namedTagIds]);
     await initializeSubscriptionUnreadCount(c.env.DB, inserted.id, user.id, feed.id, now);
 
     if (!isReady) {
@@ -319,14 +316,13 @@ export const subscriptionRoutes = new Hono<AppContext>()
     if (!body || !Array.isArray(body.tagIds) || body.tagIds.some((id) => typeof id !== "number")) {
       throw errors.validation("tagIds is required");
     }
-    for (const tagId of body.tagIds as number[]) {
-      const tag = await c.env.DB.prepare("SELECT id FROM tags WHERE id = ? AND user_id = ?")
-        .bind(tagId, user.id)
-        .first();
-      if (!tag) throw errors.validation(`tag ${tagId} not found`);
+    const requestedTagIds = [...new Set(body.tagIds as number[])];
+    const owned = await ownedTagIds(c.env.DB, user.id, requestedTagIds);
+    for (const tagId of requestedTagIds) {
+      if (!owned.has(tagId)) throw errors.validation(`tag ${tagId} not found`);
     }
     await c.env.DB.prepare("DELETE FROM subscription_tags WHERE subscription_id = ?").bind(subscriptionId).run();
-    await attachTags(c.env.DB, subscriptionId, body.tagIds as number[]);
+    await attachTags(c.env.DB, subscriptionId, requestedTagIds);
     const row = await loadSubscription(c.env.DB, user.id, subscriptionId);
     return c.json({ data: await serializeOne(c.env.DB, row) });
   });

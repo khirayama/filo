@@ -3,10 +3,13 @@ import type { OpsContext } from "../lib/auth";
 import { errors } from "../lib/errors";
 import {
   serializeFeedJob,
-  upsertFeedJob,
+  shouldEnqueueFeedJob,
+  upsertFeedJobs,
   type FeedJobRow,
   type FeedJobStatus,
 } from "../lib/feedJobs";
+import type { JobMessage } from "../env";
+import { recordD1Meta } from "../lib/observability";
 import { nowIso, parseId, toIso } from "../lib/util";
 
 interface FeedAggRow {
@@ -95,7 +98,7 @@ export const statusRoutes = new Hono<OpsContext>()
       .bind(userId)
       .first<{ n: number }>();
 
-    const { results: subStatusRows } = await c.env.DB.prepare(
+    const subStatusResult = await c.env.DB.prepare(
       `SELECT s.id AS subscription_id, COALESCE(s.custom_title, f.title) AS feed_title,
               f.id AS feed_id, f.status AS feed_status,
               fs.last_result, fs.last_error, fs.last_fetched_at,
@@ -114,6 +117,8 @@ export const statusRoutes = new Hono<OpsContext>()
     )
       .bind(userId)
       .all<SubscriptionStatusRow>();
+    recordD1Meta("status.subscription_statuses", subStatusResult.meta, { returned: subStatusResult.results.length });
+    const { results: subStatusRows } = subStatusResult;
 
     return c.json({
       data: {
@@ -170,16 +175,29 @@ export const statusRoutes = new Hono<OpsContext>()
       binds.push(now);
     }
 
-    const { results } = await c.env.DB
-      .prepare(`SELECT f.id FROM feeds f ${joins.join(" ")} WHERE ${conditions.join(" AND ")} LIMIT 200`)
-      .bind(...binds)
-      .all<{ id: number }>();
+    if (user) {
+      joins.push("LEFT JOIN feed_jobs fj ON fj.feed_id = f.id AND fj.user_id = ?");
+      binds.push(user.id);
+    }
 
-    for (const row of results) {
-      if (user) {
-        await upsertFeedJob(c.env.DB, user.id, row.id, "pending");
-      }
-      await c.env.JOBS.send({ jobType: "fetch_feed", feedId: row.id, reason: "refresh", attempt: 1 });
+    const jobColumns = user
+      ? "fj.status AS fetch_status, fj.updated_at AS fetch_updated_at"
+      : "NULL AS fetch_status, NULL AS fetch_updated_at";
+    const { results } = await c.env.DB
+      .prepare(`SELECT f.id, ${jobColumns}
+                FROM feeds f ${joins.join(" ")} WHERE ${conditions.join(" AND ")} LIMIT 200`)
+      .bind(...binds)
+      .all<{ id: number; fetch_status: string | null; fetch_updated_at: string | null }>();
+
+    const queueRows = results.filter((row) =>
+      !user || shouldEnqueueFeedJob(row.fetch_status, row.fetch_updated_at),
+    );
+    if (user) await upsertFeedJobs(c.env.DB, user.id, queueRows.map((row) => row.id));
+    const messages: Array<{ body: JobMessage }> = queueRows.map((row) => ({
+      body: { jobType: "fetch_feed", feedId: row.id, reason: "refresh", attempt: 1 },
+    }));
+    for (let i = 0; i < messages.length; i += 100) {
+      await c.env.JOBS.sendBatch(messages.slice(i, i + 100));
     }
 
     // surface how many active feeds were skipped by the fetch cooldown so
@@ -191,14 +209,21 @@ export const statusRoutes = new Hono<OpsContext>()
         .prepare(`SELECT COUNT(*) AS n FROM feeds f ${scope} WHERE f.status = 'active'`)
         .bind(...(user ? [user.id] : []))
         .first<{ n: number }>();
-      skipped = Math.max((active?.n ?? 0) - results.length, 0);
+      skipped = Math.max((active?.n ?? 0) - queueRows.length, 0);
     }
 
-    return c.json({ data: { accepted: true, enqueued: results.length, skipped, queuedAt: now } }, 202);
+    if (force && user) skipped = Math.max(results.length - queueRows.length, 0);
+    return c.json({ data: { accepted: true, enqueued: queueRows.length, skipped, queuedAt: now } }, 202);
   })
   .post("/refresh/:feedId", async (c) => {
     const { userId, feedId } = await subscribedFeedId(c);
-    await upsertFeedJob(c.env.DB, userId, feedId, "pending");
-    await c.env.JOBS.send({ jobType: "fetch_feed", feedId, reason: "refresh", attempt: 1 });
+    const existing = await c.env.DB.prepare(
+      "SELECT status, updated_at FROM feed_jobs WHERE user_id = ? AND feed_id = ?",
+    ).bind(userId, feedId).first<{ status: string; updated_at: string | null }>();
+    if (!shouldEnqueueFeedJob(existing?.status, existing?.updated_at)) {
+      return c.json({ data: { accepted: true, enqueued: 0, skipped: 1, queuedAt: nowIso() } }, 202);
+    }
+    await upsertFeedJobs(c.env.DB, userId, [feedId]);
+    await c.env.JOBS.sendBatch([{ body: { jobType: "fetch_feed", feedId, reason: "refresh", attempt: 1 } }]);
     return c.json({ data: { accepted: true, enqueued: 1, skipped: 0, queuedAt: nowIso() } }, 202);
   });

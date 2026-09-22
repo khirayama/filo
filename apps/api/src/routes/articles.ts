@@ -15,6 +15,7 @@ import {
   type UnreadCountScope,
 } from "../lib/readCursor";
 import { serializeUserState } from "../lib/serialize";
+import { recordD1Meta } from "../lib/observability";
 import { htmlToText, nowIso, parseId, parseLimit, previewFrom, sanitizeHtml, toIso } from "../lib/util";
 
 function parseBoolQuery(raw: string | undefined, name: string): boolean | undefined {
@@ -70,6 +71,23 @@ export interface UnreadQueryStats {
   unreadCount: number;
   subscribedArticleCount: number;
   totalArticleCount: number;
+}
+
+export interface UnreadFeedCursor {
+  feed_id: number;
+  last_read_article_id: number | null;
+}
+
+export async function unreadFeedCursors(db: D1Database, userId: number): Promise<UnreadFeedCursor[]> {
+  const result = await db.prepare(
+    `SELECT s.feed_id, frc.last_read_article_id
+     FROM subscriptions s
+     LEFT JOIN feed_read_cursors frc
+       ON frc.user_id = ? AND frc.feed_id = s.feed_id
+     WHERE s.user_id = ?`,
+  ).bind(userId, userId).all<UnreadFeedCursor>();
+  recordD1Meta("articles.unread_feed_cursors", result.meta, { feed_count: result.results.length });
+  return result.results;
 }
 
 export type UnreadQueryStrategy = "candidate" | "global" | "empty";
@@ -212,6 +230,7 @@ export function unreadArticleListSelect(
   sort: string,
   cursor: ArticleCursor | undefined,
   limit: number,
+  feedCursors?: readonly UnreadFeedCursor[],
 ): { sql: string; binds: unknown[] } {
   const cursorData = cursor ? articleWithinCursor(sort, cursor) : undefined;
   const cursorCondition = cursorData?.sql ?? "";
@@ -225,21 +244,56 @@ export function unreadArticleListSelect(
   //   2. sparse explicit unread overrides.
   // These branches are disjoint because the cursor branch excludes every
   // explicit override, so UNION ALL cannot duplicate an article.
+  const useIndexedCursorTail = feedCursors !== undefined
+    && feedCursors.length > 0
+    && feedCursors.some((row) => row.last_read_article_id !== null);
+  const cursorTailSql = useIndexedCursorTail
+    ? `SELECT a.id
+       FROM subscriptions s
+       JOIN feed_read_cursors frc
+         ON frc.user_id = ? AND frc.feed_id = s.feed_id
+       JOIN articles a
+         ON a.feed_id = frc.feed_id AND a.id > frc.last_read_article_id
+       WHERE s.user_id = ?
+         AND NOT EXISTS (
+           SELECT 1
+           FROM article_read_states ars0
+           WHERE ars0.user_id = ? AND ars0.article_id = a.id
+         )
+         ${cursorCondition ? `AND ${cursorCondition}` : ""}`
+    : `SELECT a.id
+       FROM subscriptions s
+       JOIN articles a ON a.feed_id = s.feed_id
+       LEFT JOIN feed_read_cursors frc
+         ON frc.user_id = ? AND frc.feed_id = a.feed_id
+       WHERE s.user_id = ?
+         AND a.id > COALESCE(frc.last_read_article_id, 0)
+         AND NOT EXISTS (
+           SELECT 1
+           FROM article_read_states ars0
+           WHERE ars0.user_id = ? AND ars0.article_id = a.id
+         )
+         ${cursorCondition ? `AND ${cursorCondition}` : ""}`;
+  const missingCursorTailSql = useIndexedCursorTail
+    && feedCursors?.some((row) => row.last_read_article_id === null)
+    ? `SELECT a.id
+       FROM subscriptions s
+       JOIN articles a ON a.feed_id = s.feed_id
+       LEFT JOIN feed_read_cursors frc
+         ON frc.user_id = ? AND frc.feed_id = s.feed_id
+       WHERE s.user_id = ?
+         AND frc.feed_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM article_read_states ars0
+           WHERE ars0.user_id = ? AND ars0.article_id = a.id
+         )
+         ${cursorCondition ? `AND ${cursorCondition}` : ""}`
+    : "";
+  const candidateBranches = [cursorTailSql, missingCursorTailSql].filter(Boolean);
   const sql = `
     WITH unread_candidate_ids AS (
-      SELECT a.id
-      FROM subscriptions s
-      JOIN articles a ON a.feed_id = s.feed_id
-      LEFT JOIN feed_read_cursors frc
-        ON frc.user_id = ? AND frc.feed_id = a.feed_id
-      WHERE s.user_id = ?
-        AND a.id > COALESCE(frc.last_read_article_id, 0)
-        AND NOT EXISTS (
-          SELECT 1
-          FROM article_read_states ars0
-          WHERE ars0.user_id = ? AND ars0.article_id = a.id
-        )
-        ${cursorCondition ? `AND ${cursorCondition}` : ""}
+      ${candidateBranches.join("\n\n      UNION ALL\n\n      ")}
 
       UNION ALL
 
@@ -279,6 +333,9 @@ export function unreadArticleListSelect(
       userId,
       userId,
       ...cursorBinds,
+      // Subscriptions without a cursor are uncommon (usually just a new
+      // subscription), so isolate their fallback scan to those feeds.
+      ...(missingCursorTailSql ? [userId, userId, userId, ...cursorBinds] : []),
       // Explicit unread branch.
       userId,
       userId,
@@ -306,6 +363,7 @@ async function articleRowsForGroup(
   cursor: ArticleCursor | undefined,
   limit: number,
   unreadStrategy: UnreadQueryStrategy | undefined,
+  unreadFeedCursorRows: readonly UnreadFeedCursor[] | undefined,
 ): Promise<ArticleListRow[]> {
   const isUnreadQueryEligible =
     group === 0 &&
@@ -317,9 +375,10 @@ async function articleRowsForGroup(
   if (isUnreadQueryEligible && unreadStrategy === "empty") return [];
 
   if (isUnreadQueryEligible && unreadStrategy === "candidate") {
-    const query = unreadArticleListSelect(userId, sort, cursor, limit);
-    const { results } = await db.prepare(query.sql).bind(...query.binds).all<ArticleListRow>();
-    return results;
+    const query = unreadArticleListSelect(userId, sort, cursor, limit, unreadFeedCursorRows);
+    const result = await db.prepare(query.sql).bind(...query.binds).all<ArticleListRow>();
+    recordD1Meta("articles.unread_candidates", result.meta, { returned: result.results.length });
+    return result.results;
   }
 
   const conditions = [...baseConditions, readGroupCondition(group)];
@@ -336,10 +395,11 @@ async function articleRowsForGroup(
     conditions.join(" AND "),
     articleDateOrder(sort),
   );
-  const { results } = await db.prepare(sql)
+  const result = await db.prepare(sql)
     .bind(userId, userId, userId, userId, ...(subscriptionFilter === "exists" ? [userId] : []), ...binds, limit)
     .all<ArticleListRow>();
-  return results;
+  recordD1Meta("articles.list_group", result.meta, { returned: result.results.length, group });
+  return result.results;
 }
 
 async function splitArticleRows(
@@ -355,6 +415,7 @@ async function splitArticleRows(
   cursor: ArticleCursor | undefined,
   limit: number,
   unreadStrategy: UnreadQueryStrategy | undefined,
+  unreadFeedCursorRows: readonly UnreadFeedCursor[] | undefined,
 ): Promise<{ page: ArticleListRow[]; hasMore: boolean }> {
   const firstGroup: ReadGroup = readOrder === "read_first" ? 1 : 0;
   const secondGroup: ReadGroup = firstGroup === 0 ? 1 : 0;
@@ -365,7 +426,7 @@ async function splitArticleRows(
     const rows = await articleRowsForGroup(
       db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
       subscriptionFilter, sort, secondGroup, cursor, limit + 1,
-      unreadStrategy,
+      unreadStrategy, unreadFeedCursorRows,
     );
     return { page: rows.slice(0, limit), hasMore: rows.length > limit };
   }
@@ -373,7 +434,7 @@ async function splitArticleRows(
   const firstRows = await articleRowsForGroup(
     db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
     subscriptionFilter, sort, firstGroup, cursor, limit + 1,
-    unreadStrategy,
+    unreadStrategy, unreadFeedCursorRows,
   );
   if (firstRows.length > limit) return { page: firstRows.slice(0, limit), hasMore: true };
 
@@ -383,7 +444,7 @@ async function splitArticleRows(
     const secondProbe = await articleRowsForGroup(
       db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
       subscriptionFilter, sort, secondGroup, undefined, 1,
-      unreadStrategy,
+      unreadStrategy, unreadFeedCursorRows,
     );
     return { page: firstRows, hasMore: secondProbe.length > 0 };
   }
@@ -391,7 +452,7 @@ async function splitArticleRows(
   const secondRows = await articleRowsForGroup(
     db, userId, baseConditions, baseBinds, readingListJoin, bookmarkJoin,
     subscriptionFilter, sort, secondGroup, undefined, limit - firstRows.length + 1,
-    unreadStrategy,
+    unreadStrategy, unreadFeedCursorRows,
   );
   const page = [...firstRows, ...secondRows.slice(0, limit - firstRows.length)];
   return { page, hasMore: secondRows.length > limit - firstRows.length };
@@ -465,12 +526,12 @@ async function saveArticleFromUrl(
      WHERE user_id = ? AND article_id = ? AND kind = 'reading_list'`,
   ).bind(userId, article.id).first();
   const articleState = membership === null
-    ? await effectiveArticleState(db, userId, article.id, feed.id)
+    ? await effectiveArticleState(db, userId, article.id)
     : null;
   const collectionMutations: D1PreparedStatement[] = [db.prepare(
-    `INSERT INTO article_user_collections (user_id, article_id, kind, added_at, updated_at)
+     `INSERT INTO article_user_collections (user_id, article_id, kind, added_at, updated_at)
      VALUES (?, ?, 'reading_list', ?, ?)
-     ON CONFLICT (user_id, article_id, kind) DO UPDATE SET updated_at = excluded.updated_at`,
+     ON CONFLICT (user_id, article_id, kind) DO NOTHING`,
   ).bind(userId, article.id, now, now)];
   if (membership === null && articleState?.is_read === 0) {
     collectionMutations.push(adjustReadingListUnreadMutation(db, userId, 1, now));
@@ -598,21 +659,25 @@ export const articleRoutes = new Hono<AppContext>()
       readingListJoin === "LEFT JOIN" &&
       bookmarkJoin === "LEFT JOIN";
     let unreadStrategy: UnreadQueryStrategy | undefined;
+    let unreadFeedCursorRows: UnreadFeedCursor[] | undefined;
     if (canUseUnreadFastPath) {
       const unreadCounts = await unreadCountsForUser(c.env.DB, user.id, "all");
       if (unreadCounts.all_articles === 0) {
-        // The default mixed list still needs the read group. Keep the
-        // cursor-aware candidate query there. For read=false, verify the
-        // source-of-truth rows before returning an empty page so a stale
-        // derived counter cannot hide an unread article.
+        // The maintained counter is authoritative for the normal mixed list:
+        // skip the unread candidate scan and go straight to the read group.
+        // For read=false, verify the source-of-truth rows before returning an
+        // empty page so a stale derived counter cannot hide an unread article.
         unreadStrategy = read === false
           ? (await hasUnreadSourceRows(c.env.DB, user.id) ? "candidate" : "empty")
-          : "candidate";
+          : "empty";
       } else {
         unreadStrategy = chooseUnreadQueryStrategy(
           await unreadQueryStats(c.env.DB, user.id, unreadCounts.all_articles),
           limit,
         );
+      }
+      if (unreadStrategy === "candidate") {
+        unreadFeedCursorRows = await unreadFeedCursors(c.env.DB, user.id);
       }
     }
 
@@ -638,13 +703,15 @@ export const articleRoutes = new Hono<AppContext>()
         cursor,
         limit,
         unreadStrategy,
+        unreadFeedCursorRows,
       );
       results = split.page;
       hasMore = split.hasMore;
     } else {
       if (read === false && unreadStrategy === "candidate") {
-        const query = unreadArticleListSelect(user.id, sort, cursor, limit + 1);
+        const query = unreadArticleListSelect(user.id, sort, cursor, limit + 1, unreadFeedCursorRows);
         const unreadRows = await c.env.DB.prepare(query.sql).bind(...query.binds).all<ArticleListRow>();
+        recordD1Meta("articles.unread_candidates", unreadRows.meta, { returned: unreadRows.results.length });
         results = unreadRows.results;
         hasMore = results.length > limit;
       } else {
@@ -677,6 +744,7 @@ export const articleRoutes = new Hono<AppContext>()
         const query = await c.env.DB.prepare(sql)
           .bind(user.id, user.id, user.id, user.id, ...(subscriptionFilter === "exists" ? [user.id] : []), ...binds, limit + 1)
           .all<ArticleListRow>();
+        recordD1Meta("articles.list", query.meta, { returned: query.results.length });
         results = query.results;
         hasMore = results.length > limit;
       }
@@ -829,29 +897,29 @@ export const articleRoutes = new Hono<AppContext>()
   .put("/:articleId/reading-list", async (c) => {
     const user = c.get("user");
     const articleId = parseId(c.req.param("articleId"));
-    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
-    const state = await setArticleCollection(c.env.DB, user.id, articleId, article.feed_id, "reading_list", true);
+    await requireArticleAccess(c.env.DB, user.id, articleId);
+    const state = await setArticleCollection(c.env.DB, user.id, articleId, "reading_list", true);
     return c.json({ data: serializeUserState(state) });
   })
   .delete("/:articleId/reading-list", async (c) => {
     const user = c.get("user");
     const articleId = parseId(c.req.param("articleId"));
-    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
-    const state = await setArticleCollection(c.env.DB, user.id, articleId, article.feed_id, "reading_list", false);
+    await requireArticleAccess(c.env.DB, user.id, articleId);
+    const state = await setArticleCollection(c.env.DB, user.id, articleId, "reading_list", false);
     return c.json({ data: serializeUserState(state) });
   })
   .put("/:articleId/bookmark", async (c) => {
     const user = c.get("user");
     const articleId = parseId(c.req.param("articleId"));
-    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
-    const state = await setArticleCollection(c.env.DB, user.id, articleId, article.feed_id, "bookmark", true);
+    await requireArticleAccess(c.env.DB, user.id, articleId);
+    const state = await setArticleCollection(c.env.DB, user.id, articleId, "bookmark", true);
     return c.json({ data: serializeUserState(state) });
   })
   .delete("/:articleId/bookmark", async (c) => {
     const user = c.get("user");
     const articleId = parseId(c.req.param("articleId"));
-    const { article } = await requireArticleAccess(c.env.DB, user.id, articleId);
-    const state = await setArticleCollection(c.env.DB, user.id, articleId, article.feed_id, "bookmark", false);
+    await requireArticleAccess(c.env.DB, user.id, articleId);
+    const state = await setArticleCollection(c.env.DB, user.id, articleId, "bookmark", false);
     return c.json({ data: serializeUserState(state) });
   })
   .patch("/:articleId/state", async (c) => {

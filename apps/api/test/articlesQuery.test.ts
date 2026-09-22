@@ -56,4 +56,39 @@ describe("unread article query", () => {
       7, 7, 7, 7, 50,
     ]);
   });
+
+  it("uses the feed/id range index for subscribed feeds that have a cursor", () => {
+    const query = unreadArticleListSelect(
+      7,
+      "published_at_desc",
+      undefined,
+      50,
+      [
+        { feed_id: 11, last_read_article_id: 100 },
+        { feed_id: 12, last_read_article_id: 200 },
+      ],
+    );
+
+    expect(query.sql).toContain("JOIN feed_read_cursors frc");
+    expect(query.sql).toContain("a.id > frc.last_read_article_id");
+    expect(query.sql).not.toContain("a.id > COALESCE(frc.last_read_article_id, 0)");
+  });
+
+  it("isolates subscriptions without a cursor to the fallback branch", () => {
+    const query = unreadArticleListSelect(
+      7,
+      "published_at_desc",
+      undefined,
+      50,
+      [
+        { feed_id: 11, last_read_article_id: 100 },
+        { feed_id: 12, last_read_article_id: null },
+      ],
+    );
+
+    expect(query.sql).toContain("a.id > frc.last_read_article_id");
+    expect(query.sql).toContain("frc.feed_id IS NULL");
+    expect(query.sql).not.toContain("a.id > COALESCE(frc.last_read_article_id, 0)");
+    expect(query.binds).toEqual([7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 50]);
+  });
 });

@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { faviconUrlFor, resolveCanonicalFeedUrl } from "../lib/discovery";
 import { dedupeKeyFor, parseFeed, type ParsedFeed } from "../lib/feed";
 import { settleFetchJobs } from "../lib/feedJobs";
+import { recordD1BatchMeta } from "../lib/observability";
 import { CADENCE_SAMPLE_SIZE, refreshIntervalMinutes } from "../lib/fetchSchedule";
 import { detectArticleLanguage, detectFeedLanguage } from "../lib/languageDetect";
 import {
@@ -204,6 +205,176 @@ async function backfillArticleLanguages(
   }
 }
 
+interface PreparedArticle {
+  dedupeKey: string;
+  guid: string | null;
+  canonicalUrl: string | null;
+  title: string;
+  author: string | null;
+  summary: string | null;
+  contentHtml: string | null;
+  sourceLanguage: string | null;
+  publishedAt: string | null;
+}
+
+/**
+ * Feed items are shared data. A fetch can contain up to 200 items, so doing a
+ * SELECT followed by an UPDATE/INSERT for each item creates hundreds of D1
+ * round trips. Read existing keys in one batch, then apply conditional
+ * updates and conflict-safe inserts in bounded batches. The conditional
+ * UPDATE keeps the existing write-saving behavior for unchanged articles.
+ */
+async function ingestArticles(
+  env: Env,
+  feedId: number,
+  items: ParsedFeed["items"],
+  feedLanguage: string | null,
+  now: string,
+): Promise<number[]> {
+  const byDedupeKey = new Map<string, PreparedArticle>();
+  for (const item of items.slice(0, 200)) {
+    const dedupeKey = await dedupeKeyFor(item);
+    const canonicalUrl = item.url
+      ? (() => {
+          try {
+            return canonicalizeUrl(item.url);
+          } catch {
+            return item.url;
+          }
+        })()
+      : null;
+    const sourceLanguage = detectArticleLanguage(
+      `${item.title} ${item.summary ?? ""}`,
+      feedLanguage,
+    ).language;
+    byDedupeKey.set(dedupeKey, {
+      dedupeKey,
+      guid: item.guid,
+      canonicalUrl,
+      title: item.title,
+      author: item.author,
+      summary: item.summary,
+      contentHtml: item.contentHtml,
+      sourceLanguage,
+      publishedAt: item.publishedAt,
+    });
+  }
+
+  const prepared = [...byDedupeKey.values()];
+  const existing = new Map<string, number>();
+  const lookupStatements: D1PreparedStatement[] = [];
+  for (let i = 0; i < prepared.length; i += 80) {
+    const chunk = prepared.slice(i, i + 80);
+    const placeholders = chunk.map(() => "?").join(",");
+    lookupStatements.push(
+      env.DB.prepare(
+        `SELECT id, dedupe_key
+         FROM articles
+         WHERE feed_id = ? AND dedupe_key IN (${placeholders})`,
+      ).bind(feedId, ...chunk.map((item) => item.dedupeKey)),
+    );
+  }
+  if (lookupStatements.length > 0) {
+    const lookupResults = await env.DB.batch(lookupStatements);
+    recordD1BatchMeta("feed_ingest.lookup_keys", lookupResults, { item_count: prepared.length });
+    for (const result of lookupResults) {
+      for (const row of result.results as unknown as Array<{
+        id: number;
+        dedupe_key: string;
+      }>) {
+        existing.set(row.dedupe_key, row.id);
+      }
+    }
+  }
+
+  const updates: D1PreparedStatement[] = [];
+  const inserts: D1PreparedStatement[] = [];
+  for (const item of prepared) {
+    const currentId = existing.get(item.dedupeKey);
+    if (currentId !== undefined) {
+      // The source language is only filled once for an existing article.
+      updates.push(
+        env.DB.prepare(
+          `UPDATE articles SET title = ?, author = ?, rss_summary = ?, rss_content_html = ?,
+             canonical_url = COALESCE(?, canonical_url), published_at = COALESCE(?, published_at),
+             source_language = COALESCE(source_language, ?), updated_at = ?
+           WHERE id = ?
+             AND (
+               title IS NOT ?
+               OR author IS NOT ?
+               OR rss_summary IS NOT ?
+               OR rss_content_html IS NOT ?
+               OR (? IS NOT NULL AND canonical_url IS NOT ?)
+               OR (? IS NOT NULL AND published_at IS NOT ?)
+               OR (source_language IS NULL AND ? IS NOT NULL)
+             )`,
+        ).bind(
+          item.title,
+          item.author,
+          item.summary,
+          item.contentHtml,
+          item.canonicalUrl,
+          item.publishedAt,
+          item.sourceLanguage,
+          now,
+          currentId,
+          item.title,
+          item.author,
+          item.summary,
+          item.contentHtml,
+          item.canonicalUrl,
+          item.canonicalUrl,
+          item.publishedAt,
+          item.publishedAt,
+          item.sourceLanguage,
+        ),
+      );
+      continue;
+    }
+    inserts.push(
+      env.DB.prepare(
+        `INSERT INTO articles
+           (feed_id, guid, canonical_url, dedupe_key, title, author, rss_summary,
+            rss_content_html, source_language, published_at, fetched_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (feed_id, dedupe_key) DO NOTHING
+         RETURNING id`,
+      ).bind(
+        feedId,
+        item.guid,
+        item.canonicalUrl,
+        item.dedupeKey,
+        item.title,
+        item.author,
+        item.summary,
+        item.contentHtml,
+        item.sourceLanguage,
+        item.publishedAt,
+        now,
+        now,
+        now,
+      ),
+    );
+  }
+
+  for (let i = 0; i < updates.length; i += 50) {
+    const results = await env.DB.batch(updates.slice(i, i + 50));
+    recordD1BatchMeta("feed_ingest.update_articles", results, { item_count: results.length });
+  }
+
+  const newArticleIds: number[] = [];
+  for (let i = 0; i < inserts.length; i += 50) {
+    const chunk = inserts.slice(i, i + 50);
+    const results = await env.DB.batch(chunk);
+    recordD1BatchMeta("feed_ingest.insert_articles", results, { item_count: chunk.length });
+    for (const result of results) {
+      const inserted = (result.results?.[0] ?? null) as { id?: number } | null;
+      if (inserted?.id !== undefined) newArticleIds.push(inserted.id);
+    }
+  }
+  return newArticleIds;
+}
+
 export async function runFetchFeed(
   env: Env,
   feedId: number,
@@ -301,81 +472,29 @@ export async function runFetchFeed(
       `UPDATE feeds SET title = ?, site_url = COALESCE(?, site_url), description = ?,
        favicon_url = COALESCE(?, favicon_url), language = COALESCE(?, language),
        language_source = COALESCE(?, language_source), updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ?
+         AND (
+           title IS NOT ?
+           OR description IS NOT ?
+           OR (? IS NOT NULL AND site_url IS NOT ?)
+           OR (? IS NOT NULL AND favicon_url IS NOT ?)
+           OR (? IS NOT NULL AND language IS NOT ?)
+           OR (? IS NOT NULL AND language_source IS NOT ?)
+         )`,
     )
       .bind(
         parsed.title, parsed.siteUrl, parsed.description, faviconUrl,
         nextLanguage, nextLanguageSource, now, feedId,
+        parsed.title, parsed.description,
+        parsed.siteUrl, parsed.siteUrl,
+        faviconUrl, faviconUrl,
+        nextLanguage, nextLanguage,
+        nextLanguageSource, nextLanguageSource,
       )
       .run();
     const feedLanguage = nextLanguage ?? feed.language;
 
-    const newArticleIds: number[] = [];
-    for (const item of parsed.items.slice(0, 200)) {
-      const dedupeKey = await dedupeKeyFor(item);
-      const canonicalUrl = item.url
-        ? (() => {
-            try {
-              return canonicalizeUrl(item.url);
-            } catch {
-              return item.url;
-            }
-          })()
-        : null;
-      // 記事の言語はフィード言語を事前確率とし、明確に違うときだけ上書きする。
-      // 判定材料はタイトルだけでは短すぎるので、説明文まで含める(lib/languageDetect.ts)
-      const articleLanguage = detectArticleLanguage(
-        `${item.title} ${item.summary ?? ""}`,
-        feedLanguage,
-      ).language;
-      const existing = await env.DB.prepare("SELECT id, source_language FROM articles WHERE feed_id = ? AND dedupe_key = ?")
-        .bind(feedId, dedupeKey)
-        .first<{ id: number; source_language: string | null }>();
-      if (existing) {
-        // 既存記事の言語は、まだ入っていないときだけ埋める。判定規則を変えるたびに
-        // 全記事を書き換えると、既読などの下流状態が理由なく揺れる
-        await env.DB.prepare(
-          `UPDATE articles SET title = ?, author = ?, rss_summary = ?, rss_content_html = ?,
-             canonical_url = COALESCE(?, canonical_url), published_at = COALESCE(?, published_at),
-             source_language = COALESCE(source_language, ?), updated_at = ?
-           WHERE id = ?`
-        )
-          .bind(
-            item.title,
-            item.author,
-            item.summary,
-            item.contentHtml,
-            canonicalUrl,
-            item.publishedAt,
-            articleLanguage,
-            now,
-            existing.id,
-          )
-          .run();
-      } else {
-        const inserted = await env.DB.prepare(
-          `INSERT INTO articles (feed_id, guid, canonical_url, dedupe_key, title, author, rss_summary, rss_content_html, source_language, published_at, fetched_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
-        )
-          .bind(
-            feedId,
-            item.guid,
-            canonicalUrl,
-            dedupeKey,
-            item.title,
-            item.author,
-            item.summary,
-            item.contentHtml,
-            articleLanguage,
-            item.publishedAt,
-            now,
-            now,
-            now,
-          )
-          .first<{ id: number }>();
-        if (inserted) newArticleIds.push(inserted.id);
-      }
-    }
+    const newArticleIds = await ingestArticles(env, feedId, parsed.items, feedLanguage, now);
 
     // New articles are unread for every subscription of this feed. Updating
     // the derived counters once per fetch avoids rescanning the feed whenever
