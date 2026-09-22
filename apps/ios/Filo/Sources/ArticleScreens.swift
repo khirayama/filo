@@ -68,25 +68,20 @@ final class ArticlesViewModel: ObservableObject {
         errorMessage = nil
         do {
             async let articlesTask = APIClient.shared.listArticles(filters: filters)
-            async let tagsTask = APIClient.shared.listTags()
-            async let subscriptionsTask = APIClient.shared.listSubscriptions()
-            async let unreadCountsTask = APIClient.shared.getUnreadCounts()
-            async let settingsTask = APIClient.shared.getSettings()
+            async let bootstrapTask = APIClient.shared.getBootstrap()
             let result = try await articlesTask
             if articleGeneration == currentArticleGeneration {
                 articles = result.articles
                 nextCursor = result.nextCursor
             }
-            let loadedTags = try? await tagsTask
-            let loadedSubscriptions = try? await subscriptionsTask
-            let loadedSettings = try? await settingsTask
+            let loadedBootstrap = try? await bootstrapTask
             guard loadGeneration == currentLoadGeneration else { return }
-            tags = loadedTags ?? tags
-            subscriptions = loadedSubscriptions ?? subscriptions
-            unreadCounts = (try? await unreadCountsTask) ?? unreadCounts
-            settings = loadedSettings ?? settings
-            if let loadedSettings {
-                if sort != loadedSettings.articleSortOrder { sort = loadedSettings.articleSortOrder }
+            if let loadedBootstrap {
+                tags = loadedBootstrap.tags
+                subscriptions = loadedBootstrap.subscriptions
+                unreadCounts = loadedBootstrap.unreadCounts
+                settings = loadedBootstrap.settings
+                if sort != loadedBootstrap.settings.articleSortOrder { sort = loadedBootstrap.settings.articleSortOrder }
             }
             // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
             if let settings { ThemeManager.shared.theme = settings.theme }
@@ -201,6 +196,7 @@ final class ArticlesViewModel: ObservableObject {
 
     func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
         do {
+            let before = articles.first(where: { $0.id == articleId })
             if let isRead {
                 FiloAnalytics.track(isRead ? "mark_article_read" : "mark_article_unread", parameters: ["article_id": articleId])
             } else if let inReadingList {
@@ -228,10 +224,27 @@ final class ArticlesViewModel: ObservableObject {
                     articles[index].userState = state
                 }
             }
-            await refreshUnreadCounts()
+            if let before {
+                applyUnreadDelta(
+                    before: before.userState,
+                    after: state,
+                    isSubscribed: !before.subscriptionContext.subscriptionIds.isEmpty,
+                )
+            }
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
+    }
+
+    private func applyUnreadDelta(before: ArticleUserState, after: ArticleUserState, isSubscribed: Bool) {
+        let beforeUnread = before.isRead ? 0 : 1
+        let afterUnread = after.isRead ? 0 : 1
+        let beforeReadingListUnread = (!before.isRead && before.inReadingList) ? 1 : 0
+        let afterReadingListUnread = (!after.isRead && after.inReadingList) ? 1 : 0
+        let allDelta = isSubscribed ? afterUnread - beforeUnread : 0
+        let readingListDelta = afterReadingListUnread - beforeReadingListUnread
+        unreadCounts.allArticles = max(0, unreadCounts.allArticles + allDelta)
+        unreadCounts.readingList = max(0, unreadCounts.readingList + readingListDelta)
     }
 
     func refreshUnreadCounts() async {

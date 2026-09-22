@@ -103,25 +103,17 @@ class ArticlesViewModel : ViewModel() {
             if (requestGeneration != articleGeneration || requestFilters != filters()) return
             articles = page.articles
             nextCursor = page.nextCursor
-            runCatching { ApiClient.listTags() }.getOrNull()?.let {
-                if (requestGeneration == articleGeneration) tags = it
-            }
-            runCatching { ApiClient.listSubscriptions() }.getOrNull()?.let {
-                if (requestGeneration == articleGeneration) subscriptions = it
-            }
-            runCatching { ApiClient.getUnreadCounts() }.getOrNull()?.let {
-                if (requestGeneration == articleGeneration) unreadCounts = it
-            }
-            runCatching {
-                ApiClient.getSettings()
-            }.getOrNull()?.let { settings ->
+            runCatching { ApiClient.getBootstrap() }.getOrNull()?.let { bootstrap ->
                 if (requestGeneration == articleGeneration) {
-                    openInBrowserByDefault = settings.openInBrowserByDefault
-                    theme = settings.theme
-                    language = settings.language
-                    LanguagePreference.set(FiloApplication.context, settings.language)
-                    readableLanguages = settings.readableLanguages
-                    sort = settings.articleSortOrder
+                    tags = bootstrap.tags
+                    subscriptions = bootstrap.subscriptions
+                    unreadCounts = bootstrap.unreadCounts
+                    openInBrowserByDefault = bootstrap.settings.openInBrowserByDefault
+                    theme = bootstrap.settings.theme
+                    language = bootstrap.settings.language
+                    LanguagePreference.set(FiloApplication.context, bootstrap.settings.language)
+                    readableLanguages = bootstrap.settings.readableLanguages
+                    sort = bootstrap.settings.articleSortOrder
                 }
             }
         } catch (e: Exception) {
@@ -216,6 +208,7 @@ class ArticlesViewModel : ViewModel() {
     fun patchState(article: ArticleListItem, isRead: Boolean? = null, inReadingList: Boolean? = null, isBookmarked: Boolean? = null) {
         viewModelScope.launch {
             try {
+                val before = article.userState
                 com.filo.app.Analytics.track(
                     when {
                         isRead != null -> if (isRead) "mark_article_read" else "mark_article_unread"
@@ -240,11 +233,32 @@ class ArticlesViewModel : ViewModel() {
                     ) null
                     else it.copy(userState = state)
                 }
-                runCatching { ApiClient.getUnreadCounts() }.getOrNull()?.let { unreadCounts = it }
+                applyUnreadDelta(
+                    before = before,
+                    after = state,
+                    isSubscribed = article.subscriptionIds.isNotEmpty(),
+                )
             } catch (e: Exception) {
                 errorMessage = ErrorMessages.forErrorText(e)
             }
         }
+    }
+
+    private fun applyUnreadDelta(
+        before: com.filo.app.api.ArticleUserState,
+        after: com.filo.app.api.ArticleUserState,
+        isSubscribed: Boolean,
+    ) {
+        val beforeUnread = if (!before.isRead) 1 else 0
+        val afterUnread = if (!after.isRead) 1 else 0
+        val beforeReadingListUnread = if (!before.isRead && before.inReadingList) 1 else 0
+        val afterReadingListUnread = if (!after.isRead && after.inReadingList) 1 else 0
+        val allDelta = if (isSubscribed) afterUnread - beforeUnread else 0
+        val readingListDelta = afterReadingListUnread - beforeReadingListUnread
+        unreadCounts = unreadCounts.copy(
+            allArticles = maxOf(0, unreadCounts.allArticles + allDelta),
+            readingList = maxOf(0, unreadCounts.readingList + readingListDelta),
+        )
     }
 
     suspend fun refreshUnreadCounts() {

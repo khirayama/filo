@@ -45,6 +45,13 @@ struct UnreadCounts: Codable, Hashable {
     var readingList: Int
 }
 
+struct BootstrapData: Codable, Hashable {
+    var tags: [Tag]
+    var subscriptions: [Subscription]
+    var settings: UserSettings
+    var unreadCounts: UnreadCounts
+}
+
 struct Tag: Codable, Identifiable, Hashable {
     let id: Int
     var name: String

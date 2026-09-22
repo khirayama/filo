@@ -1,8 +1,16 @@
 set shell := ["zsh", "-cu"]
 
 build:
+  #!/usr/bin/env zsh
+  set -euo pipefail
+
+  arch_args=()
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    arch_args+=(ARCHS=arm64 ONLY_ACTIVE_ARCH=YES)
+  fi
+
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodegen generate
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -skipPackagePluginValidation -project Filo.xcodeproj -scheme Filo -configuration Debug -derivedDataPath build -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY="-" build
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -skipPackageUpdates -skipPackagePluginValidation -parallelizeTargets -project Filo.xcodeproj -scheme Filo -configuration Debug -derivedDataPath build -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY="-" COMPILER_INDEX_STORE_ENABLE=NO "${arch_args[@]}" build
 
 test target='iPhone 17':
   #!/usr/bin/env zsh
@@ -27,7 +35,12 @@ test target='iPhone 17':
   )
 
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodegen generate
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -skipPackagePluginValidation -project Filo.xcodeproj -scheme Filo -destination "platform=iOS Simulator,id=$device_udid" CODE_SIGN_IDENTITY="-"
+  arch_args=()
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    arch_args+=(ARCHS=arm64 ONLY_ACTIVE_ARCH=YES)
+  fi
+
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -skipPackageUpdates -skipPackagePluginValidation -parallelizeTargets -project Filo.xcodeproj -scheme Filo -derivedDataPath build -destination "platform=iOS Simulator,id=$device_udid" CODE_SIGN_IDENTITY="-" COMPILER_INDEX_STORE_ENABLE=NO "${arch_args[@]}"
 
 build-release:
   #!/usr/bin/env zsh
@@ -45,8 +58,13 @@ build-release:
     exit 1
   fi
 
+  arch_args=()
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    arch_args+=(ARCHS=arm64 ONLY_ACTIVE_ARCH=YES)
+  fi
+
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodegen generate
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -skipPackagePluginValidation -project Filo.xcodeproj -scheme Filo -configuration Release -derivedDataPath build-release -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY="-" build
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -skipPackageUpdates -skipPackagePluginValidation -parallelizeTargets -project Filo.xcodeproj -scheme Filo -configuration Release -derivedDataPath build-release -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY="-" COMPILER_INDEX_STORE_ENABLE=NO "${arch_args[@]}" build
 
 run:
   xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/Filo.app

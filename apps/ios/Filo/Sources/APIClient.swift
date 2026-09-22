@@ -27,8 +27,50 @@ private struct ErrorEnvelope: Decodable {
     let error: Body
 }
 
+private actor APIResponseCache {
+    private struct Entry {
+        let data: Data
+        let expiresAt: Date
+    }
+
+    private var entries: [String: Entry] = [:]
+    private var inFlight: [String: Task<Data, Error>] = [:]
+    private var generation = 0
+
+    func data(
+        for key: String,
+        ttl: TimeInterval,
+        loader: @escaping @Sendable () async throws -> Data,
+    ) async throws -> Data {
+        if let entry = entries[key], entry.expiresAt > Date() { return entry.data }
+        if let task = inFlight[key] { return try await task.value }
+
+        let taskGeneration = generation
+        let task = Task { try await loader() }
+        inFlight[key] = task
+        do {
+            let data = try await task.value
+            if generation == taskGeneration {
+                inFlight[key] = nil
+                entries[key] = Entry(data: data, expiresAt: Date().addingTimeInterval(ttl))
+            }
+            return data
+        } catch {
+            if generation == taskGeneration { inFlight[key] = nil }
+            throw error
+        }
+    }
+
+    func clear() {
+        generation += 1
+        entries.removeAll(keepingCapacity: true)
+        inFlight.removeAll(keepingCapacity: true)
+    }
+}
+
 final class APIClient: Sendable {
     static let shared = APIClient()
+    private let cache = APIResponseCache()
 
     private func token() async -> String? {
         await BetterAuth.shared.token
@@ -67,6 +109,23 @@ final class APIClient: Sendable {
         try JSONDecoder().decode(DataEnvelope<T>.self, from: await request("GET", path)).data
     }
 
+    private func cacheScope() async -> String {
+        guard let token = await token() else { return "anonymous" }
+        return "\(token.count):\(token.prefix(16))"
+    }
+
+    private func cachedGet<T: Decodable>(_ key: String, ttl: TimeInterval, _ path: String) async throws -> T {
+        let scopedKey = "\(await cacheScope()):\(key)"
+        let data = try await cache.data(for: scopedKey, ttl: ttl) { [self] in
+            try await request("GET", path)
+        }
+        return try JSONDecoder().decode(DataEnvelope<T>.self, from: data).data
+    }
+
+    private func invalidateCaches() async {
+        await cache.clear()
+    }
+
     private func send<T: Decodable>(_ method: String, _ path: String, json: [String: Any?]? = nil) async throws -> T {
         var body: Data?
         if let json {
@@ -87,22 +146,30 @@ final class APIClient: Sendable {
     // MARK: Status
 
     func getStatus() async throws -> StatusOverview {
-        try await get("/api/v1/status")
+        try await cachedGet("status", ttl: 3, "/api/v1/status")
     }
 
     func refreshFeeds(force: Bool = false) async throws -> RefreshResult {
-        try await send("POST", "/api/v1/status/refresh", json: ["force": force])
+        let result: RefreshResult = try await send("POST", "/api/v1/status/refresh", json: ["force": force])
+        await invalidateCaches()
+        return result
     }
 
     func refreshFeed(_ feedId: Int) async throws -> RefreshResult {
-        try await send("POST", "/api/v1/status/refresh/\(feedId)", json: [:])
+        let result: RefreshResult = try await send("POST", "/api/v1/status/refresh/\(feedId)", json: [:])
+        await invalidateCaches()
+        return result
     }
 
 
     // MARK: Settings
 
     func getSettings() async throws -> UserSettings {
-        try await get("/api/v1/settings")
+        try await getBootstrap().settings
+    }
+
+    func getBootstrap() async throws -> BootstrapData {
+        try await cachedGet("bootstrap", ttl: 30, "/api/v1/bootstrap")
     }
 
     func updateSettings(theme: String? = nil, language: String? = nil, readableLanguages: [String]? = nil, articleSortOrder: String? = nil, openInBrowserByDefault: Bool? = nil) async throws -> UserSettings {
@@ -113,28 +180,15 @@ final class APIClient: Sendable {
             "articleSortOrder": articleSortOrder,
             "openInBrowserByDefault": openInBrowserByDefault,
         ]
-        return try await send("PATCH", "/api/v1/settings", json: json)
+        let result: UserSettings = try await send("PATCH", "/api/v1/settings", json: json)
+        await invalidateCaches()
+        return result
     }
 
     // MARK: Subscriptions
 
     func listSubscriptions() async throws -> [Subscription] {
-        var all: [Subscription] = []
-        var cursor: String?
-        repeat {
-            var components = URLComponents()
-            components.path = "/api/v1/subscriptions"
-            components.queryItems = [URLQueryItem(name: "limit", value: "100")]
-            if let cursor { components.queryItems?.append(URLQueryItem(name: "cursor", value: cursor)) }
-            // URLComponents は query value 内の "+" をそのまま残すが、server 側の
-            // URLSearchParams は space として解釈するため明示的に escape する。
-            components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-            guard let path = components.string else { throw APIError.network }
-            let envelope = try JSONDecoder().decode(ListEnvelope<Subscription>.self, from: await request("GET", path))
-            all.append(contentsOf: envelope.data)
-            cursor = envelope.meta?.nextCursor
-        } while cursor != nil
-        return all
+        try await getBootstrap().subscriptions
     }
 
     func getSubscription(_ id: Int) async throws -> Subscription {
@@ -142,66 +196,88 @@ final class APIClient: Sendable {
     }
 
     func createSubscription(feedUrl: String, tagIds: [Int], tagNames: [String]) async throws -> Subscription {
-        try await send("POST", "/api/v1/subscriptions", json: ["feedUrl": feedUrl, "tagIds": tagIds, "tagNames": tagNames])
+        let result: Subscription = try await send("POST", "/api/v1/subscriptions", json: ["feedUrl": feedUrl, "tagIds": tagIds, "tagNames": tagNames])
+        await invalidateCaches()
+        return result
     }
 
     func updateSubscription(_ id: Int, customTitle: String?) async throws -> Subscription {
-        try await send("PATCH", "/api/v1/subscriptions/\(id)", json: ["customTitle": customTitle ?? NSNull()])
+        let result: Subscription = try await send("PATCH", "/api/v1/subscriptions/\(id)", json: ["customTitle": customTitle ?? NSNull()])
+        await invalidateCaches()
+        return result
     }
 
 
     func deleteSubscription(_ id: Int) async throws {
         try await sendIgnoringResponse("DELETE", "/api/v1/subscriptions/\(id)")
+        await invalidateCaches()
     }
 
     func markAllRead(_ id: Int) async throws -> MarkAllReadResult {
-        try await send("POST", "/api/v1/subscriptions/\(id)/mark-all-read", json: [:])
+        let result: MarkAllReadResult = try await send("POST", "/api/v1/subscriptions/\(id)/mark-all-read", json: [:])
+        await invalidateCaches()
+        return result
     }
 
     func retryInitialFetch(_ id: Int) async throws -> Subscription {
-        try await send("POST", "/api/v1/subscriptions/\(id)/retry-initial-fetch")
+        let result: Subscription = try await send("POST", "/api/v1/subscriptions/\(id)/retry-initial-fetch")
+        await invalidateCaches()
+        return result
     }
 
     func setSubscriptionTags(_ id: Int, tagIds: [Int]) async throws -> Subscription {
-        try await send("PUT", "/api/v1/subscriptions/\(id)/tags", json: ["tagIds": tagIds])
+        let result: Subscription = try await send("PUT", "/api/v1/subscriptions/\(id)/tags", json: ["tagIds": tagIds])
+        await invalidateCaches()
+        return result
     }
 
     func reorderSubscriptions(_ ids: [Int]) async throws {
         try await sendIgnoringResponse("PUT", "/api/v1/subscriptions/order", json: ["subscriptionIds": ids])
+        await invalidateCaches()
     }
 
     // MARK: Tags
 
     func listTags() async throws -> [Tag] {
-        try await get("/api/v1/tags")
+        try await getBootstrap().tags
     }
 
     func createTag(name: String) async throws -> Tag {
-        try await send("POST", "/api/v1/tags", json: ["name": name])
+        let result: Tag = try await send("POST", "/api/v1/tags", json: ["name": name])
+        await invalidateCaches()
+        return result
     }
 
     func updateTag(_ id: Int, name: String, color: String? = nil, clearColor: Bool = false) async throws -> Tag {
         var json: [String: Any?] = ["name": name]
         if clearColor { json["color"] = NSNull() } else if let color { json["color"] = color }
-        return try await send("PATCH", "/api/v1/tags/\(id)", json: json)
+        let result: Tag = try await send("PATCH", "/api/v1/tags/\(id)", json: json)
+        await invalidateCaches()
+        return result
     }
 
     func deleteTag(_ id: Int) async throws {
         try await sendIgnoringResponse("DELETE", "/api/v1/tags/\(id)")
+        await invalidateCaches()
     }
 
     func reorderTags(_ ids: [Int]) async throws {
         try await sendIgnoringResponse("PUT", "/api/v1/tags/order", json: ["tagIds": ids])
+        await invalidateCaches()
     }
 
     // MARK: Articles
 
     func markAllArticlesRead(tagId: Int? = nil) async throws -> MarkAllArticlesReadResult {
-        try await send("POST", "/api/v1/articles/mark-all-read", json: ["tagId": tagId])
+        let result: MarkAllArticlesReadResult = try await send("POST", "/api/v1/articles/mark-all-read", json: ["tagId": tagId])
+        await invalidateCaches()
+        return result
     }
 
     func removeReadArticlesFromReadingList() async throws -> RemoveReadArticlesResult {
-        try await send("DELETE", "/api/v1/articles/reading-list/read")
+        let result: RemoveReadArticlesResult = try await send("DELETE", "/api/v1/articles/reading-list/read")
+        await invalidateCaches()
+        return result
     }
 
     func listArticles(filters: ArticleListFilters, cursor: String? = nil, limit: Int = 20) async throws -> (articles: [ArticleListItem], nextCursor: String?) {
@@ -217,28 +293,40 @@ final class APIClient: Sendable {
         if let cursor { items.append(.init(name: "cursor", value: cursor)) }
         components.queryItems = items
         let query = components.percentEncodedQuery ?? ""
-        let envelope = try JSONDecoder().decode(ListEnvelope<ArticleListItem>.self, from: await request("GET", "/api/v1/articles?\(query)"))
+        let path = "/api/v1/articles?\(query)"
+        let data = try await cache.data(for: "\(await cacheScope()):articles:\(path)", ttl: 5) { [self] in
+            try await request("GET", path)
+        }
+        let envelope = try JSONDecoder().decode(ListEnvelope<ArticleListItem>.self, from: data)
         return (envelope.data, envelope.meta?.nextCursor)
     }
 
     func getUnreadCounts() async throws -> UnreadCounts {
-        try await get("/api/v1/articles/unread-counts")
+        try await cachedGet("unread-counts", ttl: 10, "/api/v1/articles/unread-counts")
     }
 
     func importArticle(url: String, title: String? = nil) async throws -> SavedArticleResult {
-        try await send("POST", "/api/v1/articles/import", json: ["url": url, "title": title])
+        let result: SavedArticleResult = try await send("POST", "/api/v1/articles/import", json: ["url": url, "title": title])
+        await invalidateCaches()
+        return result
     }
 
     func setArticleRead(_ id: Int, isRead: Bool) async throws -> ArticleUserState {
-        try await send("PATCH", "/api/v1/articles/\(id)/state", json: ["isRead": isRead])
+        let result: ArticleUserState = try await send("PATCH", "/api/v1/articles/\(id)/state", json: ["isRead": isRead])
+        await invalidateCaches()
+        return result
     }
 
     func setReadingListMembership(_ id: Int, active: Bool) async throws -> ArticleUserState {
-        try await send(active ? "PUT" : "DELETE", "/api/v1/articles/\(id)/reading-list")
+        let result: ArticleUserState = try await send(active ? "PUT" : "DELETE", "/api/v1/articles/\(id)/reading-list")
+        await invalidateCaches()
+        return result
     }
 
     func setBookmarkMembership(_ id: Int, active: Bool) async throws -> ArticleUserState {
-        try await send(active ? "PUT" : "DELETE", "/api/v1/articles/\(id)/bookmark")
+        let result: ArticleUserState = try await send(active ? "PUT" : "DELETE", "/api/v1/articles/\(id)/bookmark")
+        await invalidateCaches()
+        return result
     }
 
     func requestArticleContent(_ id: Int, force: Bool = false) async throws -> ArticleContent {

@@ -47,6 +47,13 @@ data class UnreadCounts(
     val readingList: Int,
 )
 
+data class BootstrapData(
+    val tags: List<Tag>,
+    val subscriptions: List<Subscription>,
+    val settings: UserSettings,
+    val unreadCounts: UnreadCounts,
+)
+
 data class ArticleUserState(
     val isRead: Boolean,
     val inReadingList: Boolean,
@@ -214,6 +221,17 @@ internal fun parseUnreadCounts(json: JSONObject): UnreadCounts =
         allArticles = json.optInt("allArticles", 0),
         readingList = json.optInt("readingList", 0),
     )
+
+internal fun parseBootstrap(json: JSONObject): BootstrapData {
+    val tagsJson = json.optJSONArray("tags") ?: JSONArray()
+    val subscriptionsJson = json.optJSONArray("subscriptions") ?: JSONArray()
+    return BootstrapData(
+        tags = (0 until tagsJson.length()).map { parseTag(tagsJson.getJSONObject(it)) },
+        subscriptions = (0 until subscriptionsJson.length()).map { parseSubscription(subscriptionsJson.getJSONObject(it)) },
+        settings = parseSettings(json.getJSONObject("settings")),
+        unreadCounts = parseUnreadCounts(json.getJSONObject("unreadCounts")),
+    )
+}
 
 internal fun parseTag(json: JSONObject): Tag =
     Tag(
