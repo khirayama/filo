@@ -2,6 +2,7 @@ import type {
   ArticleListFilters,
   ArticleListItem,
   ArticleUserState,
+  BootstrapData,
   RefreshResult,
   DeletionAccepted,
   DeletionStatus,
@@ -18,6 +19,15 @@ import type {
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
+
+interface CacheEntry {
+  expiresAt: number;
+  value?: unknown;
+  inFlight?: Promise<unknown>;
+}
+
+const responseCache = new Map<string, CacheEntry>();
+const cacheEpoch = new Map<string, number>();
 
 export class ApiRequestError extends Error {
   constructor(
@@ -72,60 +82,156 @@ async function request<T>(
   return json as T;
 }
 
-export function createApiClient(getToken: TokenGetter) {
+export function createApiClient(getToken: TokenGetter, cacheScope = "default") {
   const get = <T>(path: string) => request<{ data: T; meta?: ListMeta }>(getToken, "GET", path);
   const send = <T>(method: string, path: string, body?: unknown) =>
     request<{ data: T }>(getToken, method, path, body);
+  const cacheKey = (path: string) => `${cacheScope}:${path}`;
+  const invalidate = (prefixes: readonly string[]) => {
+    for (const key of responseCache.keys()) {
+      if (key.startsWith(`${cacheScope}:`) && prefixes.some((prefix) => key.slice(cacheScope.length + 1).startsWith(prefix))) {
+        responseCache.delete(key);
+        cacheEpoch.set(key, (cacheEpoch.get(key) ?? 0) + 1);
+      }
+    }
+  };
+  const cached = async <T>(path: string, ttlMs: number, loader: () => Promise<T>): Promise<T> => {
+    const key = cacheKey(path);
+    const now = Date.now();
+    const existing = responseCache.get(key);
+    if (existing?.inFlight) return existing.inFlight as Promise<T>;
+    if (existing && existing.expiresAt > now && existing.value !== undefined) return existing.value as T;
+    const epoch = cacheEpoch.get(key) ?? 0;
+    const inFlight = loader().then((value) => {
+      if ((cacheEpoch.get(key) ?? 0) === epoch) {
+        responseCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+      }
+      return value;
+    }).finally(() => {
+      const current = responseCache.get(key);
+      if (current?.inFlight === inFlight) {
+        responseCache.set(key, { value: current.value, expiresAt: current.expiresAt });
+      }
+    });
+    responseCache.set(key, { value: existing?.value, expiresAt: existing?.expiresAt ?? 0, inFlight });
+    return inFlight;
+  };
+  const invalidateArticles = () => invalidate([
+    "/api/v1/articles",
+    "/api/v1/bootstrap",
+    "/api/v1/subscriptions",
+    "/api/v1/status",
+  ]);
+  const invalidateShell = () => invalidate([
+    "/api/v1/bootstrap",
+    "/api/v1/settings",
+    "/api/v1/subscriptions",
+    "/api/v1/tags",
+    "/api/v1/articles/unread-counts",
+  ]);
 
   return {
-    getSettings: async () => (await get<Settings>("/api/v1/settings")).data,
-    updateSettings: async (patch: Partial<Pick<Settings, "theme" | "language" | "readableLanguages" | "articleSortOrder" | "openInBrowserByDefault">>) =>
-      (await send<Settings>("PATCH", "/api/v1/settings", patch)).data,
-    getStatus: async () => (await get<StatusOverview>("/api/v1/status")).data,
-    refreshFeeds: async (force = false) =>
-      (await send<RefreshResult>("POST", "/api/v1/status/refresh", { force })).data,
-    refreshFeed: async (feedId: number) =>
-      (await send<RefreshResult>("POST", `/api/v1/status/refresh/${feedId}`)).data,
+    getBootstrap: async () => cached("/api/v1/bootstrap", 30_000, async () =>
+      (await get<BootstrapData>("/api/v1/bootstrap")).data,
+    ),
+    getSettings: async () => (await cached("/api/v1/bootstrap", 30_000, async () =>
+      (await get<BootstrapData>("/api/v1/bootstrap")).data,
+    )).settings,
+    updateSettings: async (patch: Partial<Pick<Settings, "theme" | "language" | "readableLanguages" | "articleSortOrder" | "openInBrowserByDefault">>) => {
+      const value = (await send<Settings>("PATCH", "/api/v1/settings", patch)).data;
+      invalidateShell();
+      return value;
+    },
+    getStatus: async () => cached("/api/v1/status", 3_000, async () =>
+      (await get<StatusOverview>("/api/v1/status")).data,
+    ),
+    refreshFeeds: async (force = false) => {
+      const value = (await send<RefreshResult>("POST", "/api/v1/status/refresh", { force })).data;
+      invalidateArticles();
+      return value;
+    },
+    refreshFeed: async (feedId: number) => {
+      const value = (await send<RefreshResult>("POST", `/api/v1/status/refresh/${feedId}`)).data;
+      invalidateArticles();
+      return value;
+    },
     listSubscriptions: async (tagId?: number) => {
-      const all: Subscription[] = [];
-      let cursor: string | null = null;
-      do {
-        const params = new URLSearchParams({ limit: "100" });
-        if (tagId !== undefined) params.set("tagId", String(tagId));
-        if (cursor) params.set("cursor", cursor);
-        const res = await get<Subscription[]>(`/api/v1/subscriptions?${params}`);
-        all.push(...res.data);
-        cursor = res.meta?.nextCursor ?? null;
-      } while (cursor);
-      return all;
+      if (tagId === undefined) return (await cached("/api/v1/bootstrap", 30_000, async () =>
+        (await get<BootstrapData>("/api/v1/bootstrap")).data,
+      )).subscriptions;
+      return cached(
+        `/api/v1/subscriptions?tagId=${tagId}`,
+        30_000,
+        async () => {
+          const all: Subscription[] = [];
+          let cursor: string | null = null;
+          do {
+            const params = new URLSearchParams({ limit: "100" });
+            params.set("tagId", String(tagId));
+            if (cursor) params.set("cursor", cursor);
+            const res = await get<Subscription[]>(`/api/v1/subscriptions?${params}`);
+            all.push(...res.data);
+            cursor = res.meta?.nextCursor ?? null;
+          } while (cursor);
+          return all;
+        },
+      );
     },
     getSubscription: async (id: number) => (await get<Subscription>(`/api/v1/subscriptions/${id}`)).data,
-    createSubscription: async (input: { feedUrl: string; customTitle?: string; tagIds?: number[]; tagNames?: string[] }) =>
-      (await send<Subscription>("POST", "/api/v1/subscriptions", input)).data,
-    updateSubscription: async (id: number, customTitle: string | null) =>
-      (await send<Subscription>("PATCH", `/api/v1/subscriptions/${id}`, { customTitle })).data,
+    createSubscription: async (input: { feedUrl: string; customTitle?: string; tagIds?: number[]; tagNames?: string[] }) => {
+      const value = (await send<Subscription>("POST", "/api/v1/subscriptions", input)).data;
+      invalidateShell();
+      return value;
+    },
+    updateSubscription: async (id: number, customTitle: string | null) => {
+      const value = (await send<Subscription>("PATCH", `/api/v1/subscriptions/${id}`, { customTitle })).data;
+      invalidateShell();
+      return value;
+    },
     deleteSubscription: async (id: number) => {
       await send<unknown>("DELETE", `/api/v1/subscriptions/${id}`);
+      invalidateShell();
     },
-    markAllRead: async (id: number) =>
-      (await send<MarkAllReadResult>("POST", `/api/v1/subscriptions/${id}/mark-all-read`)).data,
-    retryInitialFetch: async (id: number) =>
-      (await send<Subscription>("POST", `/api/v1/subscriptions/${id}/retry-initial-fetch`)).data,
-    setSubscriptionTags: async (id: number, tagIds: number[]) =>
-      (await send<Subscription>("PUT", `/api/v1/subscriptions/${id}/tags`, { tagIds })).data,
+    markAllRead: async (id: number) => {
+      const value = (await send<MarkAllReadResult>("POST", `/api/v1/subscriptions/${id}/mark-all-read`)).data;
+      invalidateArticles();
+      return value;
+    },
+    retryInitialFetch: async (id: number) => {
+      const value = (await send<Subscription>("POST", `/api/v1/subscriptions/${id}/retry-initial-fetch`)).data;
+      invalidateShell();
+      return value;
+    },
+    setSubscriptionTags: async (id: number, tagIds: number[]) => {
+      const value = (await send<Subscription>("PUT", `/api/v1/subscriptions/${id}/tags`, { tagIds })).data;
+      invalidateShell();
+      return value;
+    },
     reorderSubscriptions: async (subscriptionIds: number[]) => {
       await send<unknown>("PUT", "/api/v1/subscriptions/order", { subscriptionIds });
+      invalidateShell();
     },
 
-    listTags: async () => (await get<Tag[]>("/api/v1/tags")).data,
-    createTag: async (name: string, color?: string) => (await send<Tag>("POST", "/api/v1/tags", { name, color })).data,
-    updateTag: async (id: number, patch: { name?: string; color?: string | null }) =>
-      (await send<Tag>("PATCH", `/api/v1/tags/${id}`, patch)).data,
+    listTags: async () => (await cached("/api/v1/bootstrap", 30_000, async () =>
+      (await get<BootstrapData>("/api/v1/bootstrap")).data,
+    )).tags,
+    createTag: async (name: string, color?: string) => {
+      const value = (await send<Tag>("POST", "/api/v1/tags", { name, color })).data;
+      invalidateShell();
+      return value;
+    },
+    updateTag: async (id: number, patch: { name?: string; color?: string | null }) => {
+      const value = (await send<Tag>("PATCH", `/api/v1/tags/${id}`, patch)).data;
+      invalidateShell();
+      return value;
+    },
     deleteTag: async (id: number) => {
       await send<unknown>("DELETE", `/api/v1/tags/${id}`);
+      invalidateShell();
     },
     reorderTags: async (tagIds: number[]) => {
       await send<Tag[]>("PUT", "/api/v1/tags/order", { tagIds });
+      invalidateShell();
     },
 
     listArticles: async (filters: ArticleListFilters = {}) => {
@@ -139,25 +245,49 @@ export function createApiClient(getToken: TokenGetter) {
       if (filters.readOrder) params.set("readOrder", filters.readOrder);
       if (filters.cursor) params.set("cursor", filters.cursor);
       params.set("limit", String(filters.limit ?? 20));
-      const res = await get<ArticleListItem[]>(`/api/v1/articles?${params}`);
-      return { articles: res.data, nextCursor: res.meta?.nextCursor ?? null };
+      const path = `/api/v1/articles?${params}`;
+      return cached(path, 5_000, async () => {
+        const res = await get<ArticleListItem[]>(path);
+        return { articles: res.data, nextCursor: res.meta?.nextCursor ?? null };
+      });
     },
     getUnreadCounts: async (scope: UnreadCountScope = "both") => {
-      const params = scope === "both" ? "" : `?scope=${scope}`;
-      return (await get<UnreadCounts>(`/api/v1/articles/unread-counts${params}`)).data;
+      return cached(
+        `/api/v1/articles/unread-counts?scope=${scope}`,
+        10_000,
+        async () => (await get<UnreadCounts>(`/api/v1/articles/unread-counts?scope=${scope}`)).data,
+      );
     },
-    markAllArticlesRead: async (tagId?: number) =>
-      (await send<{ updatedFeeds: number }>("POST", "/api/v1/articles/mark-all-read", tagId === undefined ? {} : { tagId })).data,
-    removeReadArticlesFromReadingList: async () =>
-      (await send<{ removedCount: number }>("DELETE", "/api/v1/articles/reading-list/read")).data,
-    setArticleRead: async (id: number, isRead: boolean) =>
-      (await send<ArticleUserState>("PATCH", `/api/v1/articles/${id}/state`, { isRead })).data,
-    setReadingListMembership: async (id: number, active: boolean) =>
-      (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/reading-list`)).data,
-    importArticle: async (input: { url: string; title?: string; summary?: string }) =>
-      (await send<SavedArticleResult>("POST", "/api/v1/articles/import", input)).data,
-    setBookmarkMembership: async (id: number, active: boolean) =>
-      (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/bookmark`)).data,
+    markAllArticlesRead: async (tagId?: number) => {
+      const value = (await send<{ updatedFeeds: number }>("POST", "/api/v1/articles/mark-all-read", tagId === undefined ? {} : { tagId })).data;
+      invalidateArticles();
+      return value;
+    },
+    removeReadArticlesFromReadingList: async () => {
+      const value = (await send<{ removedCount: number }>("DELETE", "/api/v1/articles/reading-list/read")).data;
+      invalidateArticles();
+      return value;
+    },
+    setArticleRead: async (id: number, isRead: boolean) => {
+      const value = (await send<ArticleUserState>("PATCH", `/api/v1/articles/${id}/state`, { isRead })).data;
+      invalidateArticles();
+      return value;
+    },
+    setReadingListMembership: async (id: number, active: boolean) => {
+      const value = (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/reading-list`)).data;
+      invalidateArticles();
+      return value;
+    },
+    importArticle: async (input: { url: string; title?: string; summary?: string }) => {
+      const value = (await send<SavedArticleResult>("POST", "/api/v1/articles/import", input)).data;
+      invalidateArticles();
+      return value;
+    },
+    setBookmarkMembership: async (id: number, active: boolean) => {
+      const value = (await send<ArticleUserState>(active ? "PUT" : "DELETE", `/api/v1/articles/${id}/bookmark`)).data;
+      invalidateArticles();
+      return value;
+    },
     importOpml: async (file: File) => {
       const formData = new FormData();
       formData.append("file", file);

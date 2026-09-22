@@ -54,12 +54,49 @@ export function createExtensionApi(getToken: TokenGetter) {
   const get = <T>(path: string) => request<{ data: T; meta?: { nextCursor?: string | null } }>(getToken, "GET", path);
   const send = <T>(method: string, path: string, body?: unknown) =>
     request<{ data: T }>(getToken, method, path, body);
+  const cache = new Map<string, { expiresAt: number; value?: unknown; inFlight?: Promise<unknown> }>();
+  let authMarker: string | null | undefined;
+  let cacheGeneration = 0;
+  const prepareCache = async () => {
+    const token = await getToken();
+    const nextMarker = token ? `${token.length}:${token.slice(0, 8)}` : null;
+    if (authMarker !== nextMarker) {
+      authMarker = nextMarker;
+      cacheGeneration += 1;
+      cache.clear();
+    }
+  };
+  const cached = async <T>(key: string, ttlMs: number, loader: () => Promise<T>): Promise<T> => {
+    await prepareCache();
+    const current = cache.get(key);
+    if (current?.inFlight) return current.inFlight as Promise<T>;
+    if (current && current.expiresAt > Date.now() && current.value !== undefined) return current.value as T;
+    const generation = cacheGeneration;
+    const inFlight = loader().then((value) => {
+      if (cacheGeneration === generation) cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+      return value;
+    }).finally(() => {
+      const entry = cache.get(key);
+      if (entry?.inFlight === inFlight) cache.set(key, { value: entry.value, expiresAt: entry.expiresAt });
+    });
+    cache.set(key, { value: current?.value, expiresAt: current?.expiresAt ?? 0, inFlight });
+    return inFlight;
+  };
+  const invalidate = () => {
+    cacheGeneration += 1;
+    cache.clear();
+  };
 
   return {
-    getSettings: async () => (await get<ExtensionUserSettings>("/api/v1/settings")).data,
-    updateSettings: async (patch: { language: SupportedLanguage }) =>
-      (await send<ExtensionUserSettings>("PATCH", "/api/v1/settings", patch)).data,
-    listReadingArticles: async () => {
+    getSettings: async () => cached("settings", 30_000, async () =>
+      (await get<ExtensionUserSettings>("/api/v1/settings")).data,
+    ),
+    updateSettings: async (patch: { language: SupportedLanguage }) => {
+      const value = (await send<ExtensionUserSettings>("PATCH", "/api/v1/settings", patch)).data;
+      invalidate();
+      return value;
+    },
+    listReadingArticles: async () => cached("reading-articles", 5_000, async () => {
       const articles: ReadingArticle[] = [];
       let cursor: string | null = null;
       do {
@@ -70,17 +107,30 @@ export function createExtensionApi(getToken: TokenGetter) {
         cursor = response.meta?.nextCursor ?? null;
       } while (cursor);
       return articles;
+    }),
+    importArticle: async (input: { url: string; title?: string }) => {
+      const value = (await send<SavedArticleResult>("POST", "/api/v1/articles/import", input)).data;
+      invalidate();
+      return value;
     },
-    importArticle: async (input: { url: string; title?: string }) =>
-      (await send<SavedArticleResult>("POST", "/api/v1/articles/import", input)).data,
     removeFromReadingList: async (articleId: number) => {
       await send<unknown>("DELETE", `/api/v1/articles/${articleId}/reading-list`);
+      invalidate();
     },
-    setArticleRead: async (articleId: number, isRead: boolean) =>
-      (await send<ReadingArticle["userState"]>("PATCH", `/api/v1/articles/${articleId}/state`, { isRead })).data,
-    setReadingListMembership: async (articleId: number, active: boolean) =>
-      (await send<ReadingArticle["userState"]>(active ? "PUT" : "DELETE", `/api/v1/articles/${articleId}/reading-list`)).data,
-    setBookmarkMembership: async (articleId: number, active: boolean) =>
-      (await send<ReadingArticle["userState"]>(active ? "PUT" : "DELETE", `/api/v1/articles/${articleId}/bookmark`)).data,
+    setArticleRead: async (articleId: number, isRead: boolean) => {
+      const value = (await send<ReadingArticle["userState"]>("PATCH", `/api/v1/articles/${articleId}/state`, { isRead })).data;
+      invalidate();
+      return value;
+    },
+    setReadingListMembership: async (articleId: number, active: boolean) => {
+      const value = (await send<ReadingArticle["userState"]>(active ? "PUT" : "DELETE", `/api/v1/articles/${articleId}/reading-list`)).data;
+      invalidate();
+      return value;
+    },
+    setBookmarkMembership: async (articleId: number, active: boolean) => {
+      const value = (await send<ReadingArticle["userState"]>(active ? "PUT" : "DELETE", `/api/v1/articles/${articleId}/bookmark`)).data;
+      invalidate();
+      return value;
+    },
   };
 }

@@ -17,6 +17,7 @@ interface AppData {
   error: string | null;
   refresh: () => Promise<void>;
   refreshUnreadCounts: (options?: { force?: boolean }) => Promise<void>;
+  adjustUnreadCounts: (delta: { allArticles: number; readingList: number }) => void;
   setSettings: (settings: Settings) => void;
   language: SupportedLanguage;
   t: (source: string, values?: Record<string, string | number>) => string;
@@ -107,18 +108,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const refreshUserId = userId;
     const gen = ++generation.current;
     try {
-      const [tagList, subscriptionList, userSettings, readingListCounts] = await Promise.all([
-        api.listTags(),
-        api.listSubscriptions(),
-        api.getSettings(),
-        api.getUnreadCounts("reading_list"),
-      ]);
-      const nextUnreadCounts: UnreadCounts = {
-        // Each article belongs to at most one subscription for a user, so the
-        // subscription badges are an exact and cheaper source for this total.
-        allArticles: subscriptionList.reduce((total, subscription) => total + subscription.unreadCount, 0),
-        readingList: readingListCounts.readingList,
-      };
+      const bootstrap = await api.getBootstrap();
+      const { tags: tagList, subscriptions: subscriptionList, settings: userSettings } = bootstrap;
+      const nextUnreadCounts: UnreadCounts = bootstrap.unreadCounts;
       if (generation.current !== gen || activeUserId.current !== refreshUserId) return;
       setTags(tagList);
       setSubscriptions(subscriptionList);
@@ -145,6 +137,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const nextUnreadCounts = await fetchUnreadCounts(options.force === true);
     if (nextUnreadCounts && activeUserId.current === userId) setUnreadCounts(nextUnreadCounts);
   }, [fetchUnreadCounts, userId]);
+
+  const adjustUnreadCounts = useCallback((delta: { allArticles: number; readingList: number }) => {
+    if (!userId || activeUserId.current !== userId) return;
+    setUnreadCounts((current) => ({
+      allArticles: Math.max(0, current.allArticles + delta.allArticles),
+      readingList: Math.max(0, current.readingList + delta.readingList),
+    }));
+  }, [userId]);
 
   useEffect(() => {
     const userChanged = activeUserId.current !== userId;
@@ -194,11 +194,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       error: visibleError,
       refresh,
       refreshUnreadCounts,
+      adjustUnreadCounts,
       setSettings,
       language,
       t,
     }),
-    [visibleTags, visibleSubscriptions, visibleSettings, visibleUnreadCounts, visibleLoading, visibleError, refresh, refreshUnreadCounts, setSettings, language, t],
+    [visibleTags, visibleSubscriptions, visibleSettings, visibleUnreadCounts, visibleLoading, visibleError, refresh, refreshUnreadCounts, adjustUnreadCounts, setSettings, language, t],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

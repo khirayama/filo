@@ -99,6 +99,13 @@ export interface UnreadCounts {
   readingList: number;
 }
 
+export interface BootstrapData {
+  tags: Tag[];
+  subscriptions: Subscription[];
+  settings: Settings;
+  unreadCounts: UnreadCounts;
+}
+
 export type UnreadCountScope = "all" | "reading_list" | "both";
 
 export interface RefreshResult {
