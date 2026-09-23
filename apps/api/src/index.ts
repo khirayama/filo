@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import type { Env, JobMessage } from "./env";
 import { runAccountDeletion } from "./jobs/accountDeletion";
@@ -8,6 +8,7 @@ import { runOpmlImport } from "./jobs/opmlImport";
 import { requireAdmin, requireUser, requireUserOrSystem, type AppContext, type OpsContext } from "./lib/auth";
 import { ApiError, errors } from "./lib/errors";
 import { resolveCorsOrigin } from "./lib/origin";
+import { enforceRateLimit, rateLimitRoute } from "./lib/rateLimit";
 import { nowIso } from "./lib/util";
 import { createBetterAuth } from "./betterAuth";
 import { accountRoutes } from "./routes/account";
@@ -22,6 +23,16 @@ import { subscriptionRoutes } from "./routes/subscriptions";
 import { tagRoutes } from "./routes/tags";
 
 const app = new Hono<{ Bindings: Env; Variables: { requestId: string } }>();
+
+const rateLimitUserRequests: MiddlewareHandler<AppContext> = async (c, next) => {
+  const user = c.get("user");
+  await enforceRateLimit(c.env.API_RATE_LIMITER, [
+    c.req.header("CF-Connecting-IP") ?? "unknown-ip",
+    String(user.id),
+    rateLimitRoute(c.req.method, c.req.path),
+  ]);
+  await next();
+};
 
 const ALLOWED_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 const ALLOWED_HEADERS = ["Authorization", "Content-Type", "X-Request-Id"];
@@ -72,6 +83,14 @@ app.notFound((c) => c.json({ error: { code: "resource_not_found", message: "Reso
 
 app.get("/api/v1/health", (c) => c.json({ data: { status: "ok", environment: c.env.APP_ENV, time: nowIso() } }));
 
+app.use("/api/auth/*", async (c, next) => {
+  await enforceRateLimit(c.env.AUTH_RATE_LIMITER, [
+    "auth",
+    c.req.header("CF-Connecting-IP") ?? "unknown-ip",
+    rateLimitRoute(c.req.method, c.req.path),
+  ]);
+  await next();
+});
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   const auth = createBetterAuth(c.env);
   return auth.handler(c.req.raw);
@@ -83,6 +102,7 @@ app.route("/api/v1/account", accountRoutes);
 // Core routes — require user auth
 const authed = new Hono<AppContext>();
 authed.use("*", requireUser);
+authed.use("*", rateLimitUserRequests);
 authed.route("/bootstrap", bootstrapRoutes);
 authed.route("/settings", settingsRoutes);
 authed.route("/subscriptions", subscriptionRoutes);
@@ -100,7 +120,15 @@ app.route("/api/v1", authed);
 
 // Ops routes — accept user auth or system (cron) auth
 const ops = new Hono<OpsContext>();
-ops.use("*", requireUserOrSystem);
+ops.use("*", requireUserOrSystem, async (c, next) => {
+  const user = c.get("user");
+  await enforceRateLimit(c.env.API_RATE_LIMITER, [
+    c.req.header("CF-Connecting-IP") ?? "unknown-ip",
+    user ? String(user.id) : "system",
+    rateLimitRoute(c.req.method, c.req.path),
+  ]);
+  await next();
+});
 ops.route("/status", statusRoutes);
 app.route("/api/v1", ops);
 

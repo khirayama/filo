@@ -35,6 +35,8 @@ Bindings（`wrangler.jsonc`）:
 
 - `DB`: D1 database `filo-db`
 - `JOBS`: Queue `filo-jobs`（feed fetch、本文抽出、OPML import、account deletion）
+- `API_RATE_LIMITER`: API route ごとに IP と authenticated user を組み合わせて 120 requests / 60 seconds
+- `AUTH_RATE_LIMITER`: Better Auth route ごとに IP を使って 30 requests / 60 seconds
 
 Vars（`wrangler.jsonc`）:
 
@@ -246,10 +248,8 @@ shared data の自動 retention 削除は `article_contents` を除いて導入�
 
 - staging 環境、および staging smoke test を挟む二段階 deploy
 - CI（typecheck / lint / test / migration dry-run はローカル実行のみ）
-- rate limiting。`rate_limited` error code は定義済みだが、返す経路がない
 - 構造化ログ（`jobId` / `userId` / `route` / `durationMs` / `errorCode` などの共通フィールド）
 - メトリクスとアラート（5xx rate、queue backlog、paused feed の増加など）
 - D1 の定期 backup と復旧手順の検証
 - Better Auth user の作成は API 呼び出し時の upsert のみ
-- `article_contents` の 7 日 retention 削除。cron は失敗ジョブ復旧のみという方針との整合を含めて実行手段が未決（`READING.md` Q4）
 - 本文抽出の publisher 尊重ルール（User-Agent、`noarchive` 判定、paywall 判定、feed 単位の抽出無効化）

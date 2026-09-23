@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { verifyAuthUserId, type AppContext } from "../lib/auth";
 import { errors } from "../lib/errors";
+import { enforceRateLimit, rateLimitRoute } from "../lib/rateLimit";
 import { nowIso, randomToken, toIso } from "../lib/util";
 
 interface DeletionJobRow {
@@ -17,6 +18,11 @@ interface DeletionJobRow {
 export const accountRoutes = new Hono<AppContext>()
   .delete("/", async (c) => {
     const authUserId = await verifyAuthUserId(c.env, c.req.raw.headers);
+    await enforceRateLimit(c.env.API_RATE_LIMITER, [
+      c.req.header("CF-Connecting-IP") ?? "unknown-ip",
+      authUserId,
+      rateLimitRoute(c.req.method, c.req.path),
+    ]);
 
     const now = nowIso();
 
@@ -60,6 +66,11 @@ export const accountRoutes = new Hono<AppContext>()
     let job: DeletionJobRow | null = null;
 
     if (token) {
+      await enforceRateLimit(c.env.API_RATE_LIMITER, [
+        c.req.header("CF-Connecting-IP") ?? "unknown-ip",
+        "anonymous",
+        rateLimitRoute(c.req.method, c.req.path),
+      ]);
       job = await c.env.DB.prepare(
         "SELECT id, status, deletion_token, last_error, attempt_count, created_at FROM account_deletion_jobs WHERE deletion_token = ?"
       )
@@ -68,6 +79,11 @@ export const accountRoutes = new Hono<AppContext>()
       if (!job) throw errors.notFound();
     } else {
       const authUserId = await verifyAuthUserId(c.env, c.req.raw.headers);
+      await enforceRateLimit(c.env.API_RATE_LIMITER, [
+        c.req.header("CF-Connecting-IP") ?? "unknown-ip",
+        authUserId,
+        rateLimitRoute(c.req.method, c.req.path),
+      ]);
       job = await c.env.DB.prepare(
         "SELECT id, status, deletion_token, last_error, attempt_count, created_at FROM account_deletion_jobs WHERE auth_user_id = ? ORDER BY id DESC LIMIT 1"
       )

@@ -1,6 +1,8 @@
 export interface Env {
   DB: D1Database;
   JOBS: Queue<JobMessage>;
+  API_RATE_LIMITER: RateLimit;
+  AUTH_RATE_LIMITER: RateLimit;
   APP_ENV: "development" | "production";
   BETTER_AUTH_SECRET?: string;
   RESEND_API_KEY?: string;

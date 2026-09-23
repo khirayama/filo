@@ -705,4 +705,4 @@ Returns fetch logs for a feed.
 - `opml_import_not_found`: current user から対象 OPML import job が不可視
 - `account_deletion_failed`: Better Auth identity または app data cleanup が失敗し、削除 job が `failed` になった
 
-`rate_limited` は client 側の文言だけ用意してある予約コードで、server から返す経路はまだ無い（`OPERATIONS.md` の `Not yet implemented` を参照）。
+`rate_limited` は API のレート制限を超過した場合に server が返す。

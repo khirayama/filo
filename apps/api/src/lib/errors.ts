@@ -19,4 +19,5 @@ export const errors = {
   invalidCursor: () => new ApiError(400, "invalid_cursor", "Invalid cursor"),
   internal: (message = "Unexpected server error") => new ApiError(500, "internal_error", message),
   tooLarge: (message = "Request entity too large") => new ApiError(413, "validation_error", message),
+  rateLimited: () => new ApiError(429, "rate_limited", "Too many requests"),
 };
