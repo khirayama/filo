@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { requireArticleAccess } from "../lib/articleAccess";
 import type { AppContext } from "../lib/auth";
+import { enqueueArticleContent } from "../lib/articleContentJobs";
+import { errors } from "../lib/errors";
 import { nowIso, parseId } from "../lib/util";
 
 interface ContentRow {
@@ -16,28 +18,29 @@ export const contentRoutes = new Hono<AppContext>()
     const user = c.get("user");
     const articleId = parseId(c.req.param("articleId"));
     await requireArticleAccess(c.env.DB, user.id, articleId);
-    const body = await c.req.json<{ force?: unknown }>().catch(() => ({} as { force?: unknown }));
+    const rawBody = await c.req.text();
+    let body: { force?: unknown } = {};
+    if (rawBody.trim()) {
+      try {
+        const parsed: unknown = JSON.parse(rawBody);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid body");
+        if (Object.keys(parsed).some((key) => key !== "force")) throw new Error("unknown field");
+        body = parsed as { force?: unknown };
+      } catch {
+        throw errors.validation("Invalid JSON body");
+      }
+    }
+    if (body.force !== undefined && typeof body.force !== "boolean") throw errors.validation("force must be a boolean");
     const force = body.force === true;
-    const existing = await c.env.DB.prepare(
-      "SELECT status FROM article_contents WHERE article_id = ?",
-    ).bind(articleId).first<{ status: string }>();
-    if (!force && existing?.status === "ready") return c.json({ data: { status: "ready" } });
-    if (!force && existing?.status === "pending") return c.json({ data: { status: "pending" } }, 202);
-
-    const now = nowIso();
-    await c.env.DB.prepare(
-      `INSERT INTO article_contents (article_id, status, created_at, updated_at)
-       VALUES (?, 'pending', ?, ?)
-       ON CONFLICT (article_id) DO UPDATE SET status = 'pending', text = NULL, html = NULL,
-         error_message = NULL, updated_at = excluded.updated_at`,
-    ).bind(articleId, now, now).run();
-    await c.env.JOBS.send({ jobType: "extract_content", articleId });
-    return c.json({ data: { status: "pending" } }, 202);
+    const result = await enqueueArticleContent(c.env.DB, c.env.JOBS, articleId, force);
+    return c.json({ data: { status: result.status } }, result.status === "ready" ? 200 : 202);
   })
   .get("/:articleId/content", async (c) => {
     const user = c.get("user");
     const articleId = parseId(c.req.param("articleId"));
     await requireArticleAccess(c.env.DB, user.id, articleId);
+    await c.env.DB.prepare("UPDATE article_contents SET updated_at = ? WHERE article_id = ? AND status = 'ready'")
+      .bind(nowIso(), articleId).run().catch(() => undefined);
     const content = await c.env.DB.prepare(
       `SELECT ac.text, ac.html, a.source_language, ac.status, ac.error_message
        FROM article_contents ac JOIN articles a ON a.id = ac.article_id

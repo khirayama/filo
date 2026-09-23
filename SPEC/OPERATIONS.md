@@ -122,7 +122,7 @@ Pagesへアップロードしない。Pages deployは `--branch` を付けずpro
 
 すべてのジョブは少なくとも1回実行される前提で冪等にする。キューの `max_retries` は `5`、リトライは `60` 秒遅延で再投入する。
 
-cron（毎時）は失敗した account deletion job の再投入だけを行う。**feed fetch を cron が起動することはない**。コンテンツの取得・生成はすべてユーザーの明示操作から始まる。
+cron（毎時）は due な active feed の refresh、失敗した account deletion job の再投入、10 分以上停滞した本文抽出 job の再投入、operational log と本文抽出 cache の retention を行う。新しい feed fetch の初回取得はユーザーの購読操作から始まる。
 
 ### feed fetch
 
@@ -144,6 +144,7 @@ cron（毎時）は失敗した account deletion job の再投入だけを行う
 
 - `POST /api/v1/articles/{articleId}/content` で起動する
 - `article_contents` の行の存在自体が「抽出を要求済み」を意味する。`pending` 行があれば重複 job を作らない
+- 記事 import でも同じ冪等な enqueue 処理を使う。Queue 送信失敗時は `error` に戻し、停滞した `pending` は毎時最大 100 件再投入する
 - RSS 本文からの抽出を先に試し、取れなければ canonical URL を fetch して Readability で抽出する
 - 抽出できなければ `status='error'` を確定する。指数バックオフによる自動再試行は行わず、`force=true` の再要求で回復する
 
@@ -198,7 +199,7 @@ publisher 尊重ルール:
 
 shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 使用量が `80GB`、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、feed 単位 retention の追加を次リリース優先事項として扱う。
 
-`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。削除の実行手段は未定（`Not yet implemented` を参照）。
+`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。Hourly cron が `updated_at` を最終利用時刻として扱い、1 回あたり最大 500 行を削除する。
 
 ## Incident Runbooks
 

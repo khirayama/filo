@@ -175,6 +175,6 @@ account deletion 専用:
 
 shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 使用量が `80GB`、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、feed 単位 retention の追加を次リリース優先事項として扱う。
 
-`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。削除の実行手段は未定（`Not yet implemented` を参照）。
+`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。Hourly cron が `updated_at` を最終利用時刻として扱い、1 回あたり最大 500 行を削除する。
 
 ## Incident Runbooks

@@ -214,6 +214,33 @@ export default {
         await env.DB.prepare(
           "DELETE FROM feed_fetch_logs WHERE started_at < ? LIMIT 500",
         ).bind(logRetentionBefore).run();
+
+        // Re-enqueue extraction jobs left pending if an API request stopped
+        // between reserving the row and successfully sending to Queues.
+        const extractionRecoveryBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const extractionRecoveryAt = nowIso();
+        const recoveredExtractions = await env.DB.prepare(
+          `UPDATE article_contents
+           SET updated_at = ?
+           WHERE article_id IN (
+             SELECT article_id FROM article_contents
+             WHERE status = 'pending' AND updated_at < ?
+             ORDER BY updated_at ASC
+             LIMIT 100
+           )
+           RETURNING article_id`,
+        ).bind(extractionRecoveryAt, extractionRecoveryBefore).all<{ article_id: number }>();
+        const extractionMessages = recoveredExtractions.results.map((row) => ({
+          body: { jobType: "extract_content" as const, articleId: row.article_id },
+        }));
+        if (extractionMessages.length > 0) await env.JOBS.sendBatch(extractionMessages);
+
+        // Article content is a short-lived fallback cache. Touching updated_at
+        // on reads lets this remove entries seven days after their last use.
+        const contentRetentionBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        await env.DB.prepare(
+          "DELETE FROM article_contents WHERE status IN ('ready', 'error') AND updated_at < ? LIMIT 500",
+        ).bind(contentRetentionBefore).run();
       })(),
     );
   },

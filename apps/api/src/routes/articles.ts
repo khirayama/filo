@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { requireArticleAccess, subscriptionContextsForFeeds } from "../lib/articleAccess";
+import { enqueueArticleContent } from "../lib/articleContentJobs";
 import { effectiveArticleState, setArticleCollection, setArticleReadState } from "../lib/articleState";
 import type { AppContext } from "../lib/auth";
 import { decodeCursor, encodeCursor, type ArticleCursor } from "../lib/cursor";
@@ -545,15 +546,6 @@ async function saveArticleFromUrl(
   }
   await db.batch(collectionMutations);
 
-  const content = await db.prepare("SELECT status FROM article_contents WHERE article_id = ?").bind(article.id).first<{ status: string }>();
-  if (!content || content.status === "error") {
-    await db.prepare(
-      `INSERT INTO article_contents (article_id, status, created_at, updated_at)
-       VALUES (?, 'pending', ?, ?)
-       ON CONFLICT (article_id) DO UPDATE SET status = 'pending', error_message = NULL, updated_at = excluded.updated_at`,
-    ).bind(article.id, now, now).run();
-  }
-
   return {
     articleId: article.id,
     title: article.title,
@@ -795,12 +787,7 @@ export const articleRoutes = new Hono<AppContext>()
 
     // Content extraction is best effort. The browser/reader can still use the
     // live page when the remote server blocks this worker.
-    const articleContent = await c.env.DB.prepare(
-      "SELECT status FROM article_contents WHERE article_id = ?",
-    ).bind(saved.articleId).first<{ status: string }>();
-    if (articleContent?.status === "pending") {
-      await c.env.JOBS.send({ jobType: "extract_content", articleId: saved.articleId });
-    }
+    await enqueueArticleContent(c.env.DB, c.env.JOBS, saved.articleId);
     return c.json({ data: saved }, saved.created ? 201 : 200);
   })
   .post("/mark-all-read", async (c) => {
