@@ -15,6 +15,15 @@ import { IconButton } from "./ui";
 const STORAGE_KEY = "filo.translateTitles";
 const DEFAULT_READABLE_LANGUAGES = ["ja"];
 
+function loadTranslationEnabled(): boolean {
+  if (!titleTranslationSupported) return false;
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 export interface TitleTranslationLanguage {
   code: string;
   status: TitleTranslationStatus;
@@ -46,9 +55,7 @@ const TitleTranslationContext = createContext<TitleTranslation | null>(null);
 export function TitleTranslationProvider({ children }: { children: ReactNode }) {
   const { language, settings, subscriptions, t } = useAppData();
   const readableLanguages = settings?.readableLanguages ?? DEFAULT_READABLE_LANGUAGES;
-  const [enabled, setEnabled] = useState(
-    () => titleTranslationSupported && localStorage.getItem(STORAGE_KEY) !== "0",
-  );
+  const [enabled, setEnabled] = useState(loadTranslationEnabled);
   const [titles, setTitles] = useState<Map<number, string>>(new Map());
   const [translating, setTranslating] = useState(false);
   const [languages, setLanguages] = useState<TitleTranslationLanguage[]>([]);
@@ -133,7 +140,11 @@ export function TitleTranslationProvider({ children }: { children: ReactNode }) 
   const toggle = useCallback(() => {
     setEnabled((prev) => {
       const next = !prev;
-      localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
+      try {
+        localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // Keep the in-memory preference for this session if storage is blocked.
+      }
       if (!next) requested.current = new Set();
       // ON にした時点で準備状況を確かめ、1 つも使えないなら準備画面へ誘導する
       if (next) {

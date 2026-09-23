@@ -10,7 +10,6 @@ interface ReaderSettings {
   targetLanguage: string;
   rate: number;
   voiceName: string | null;
-  extractionMode: "article" | "display";
 }
 
 interface Voice {
@@ -36,7 +35,7 @@ interface ReaderSession {
   targetLanguage: string;
   rate: number;
   voiceName: string | null;
-  extractionMode: "article" | "display" | "selection";
+  extractionMode: "article" | "selection";
   selectionText?: string;
   selectionLang?: string | null;
   playing: boolean;
@@ -94,7 +93,7 @@ export function App() {
   const api = useMemo(() => createExtensionApi(refreshToken), []);
   const [articles, setArticles] = useState<ReadingArticle[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
-  const [settings, setSettings] = useState<ReaderSettings>({ targetLanguage: "ja", rate: 1, voiceName: null, extractionMode: "article" });
+  const [settings, setSettings] = useState<ReaderSettings>({ targetLanguage: "ja", rate: 1, voiceName: null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [languageBusy, setLanguageBusy] = useState(false);
@@ -247,6 +246,14 @@ export function App() {
     return () => chrome.storage.onChanged.removeListener(onStorageChanged);
   }, [loadSettings]);
 
+  useEffect(() => {
+    if (!readerState?.playing) return;
+    const intervalId = window.setInterval(() => {
+      void loadReaderState().catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(intervalId);
+  }, [loadReaderState, readerState?.playing]);
+
   const startCurrentPage = async () => {
     if (busy) return;
     setBusy(true);
@@ -261,7 +268,6 @@ export function App() {
         page,
         autoplay: true,
         targetLanguage: settings.targetLanguage,
-        extractionMode: settings.extractionMode,
       }));
       await loadReaderState();
     } catch (cause) {
@@ -416,7 +422,7 @@ export function App() {
     }
   };
 
-  const { targetLanguage, rate, voiceName, extractionMode } = settings;
+  const { targetLanguage, rate, voiceName } = settings;
   const filteredVoices = voices.filter((voice) => !targetLanguage || voice.lang?.startsWith(targetLanguage));
   const isPlaying = readerState?.playing === true;
 
@@ -535,8 +541,12 @@ export function App() {
             className="primary-action read-page-button"
             disabled={busy || (!currentPage && !isPlaying)}
             onClick={() => {
-              if (isPlaying) { trackEvent("reading_stop"); void control("pause"); }
-              else void startCurrentPage();
+              if (isPlaying) {
+                trackEvent("reading_stop");
+                void control("pause");
+              } else {
+                void startCurrentPage();
+              }
             }}
           >
             <Icon name={isPlaying ? "pause" : "play"} size={16} />
@@ -545,7 +555,9 @@ export function App() {
           {selection?.text ? <button
             className="secondary-action read-page-button"
             disabled={busy || !currentPage || isPlaying}
-            onClick={() => void startSelection()}
+            onClick={() => {
+              void startSelection();
+            }}
           >
             <Icon name="play" size={16} />
             {t("選択範囲を読み上げ")}
@@ -564,14 +576,6 @@ export function App() {
               {LANGUAGE_OPTIONS.map((option) => <option value={option.value} key={option.value}>{t(option.label)}</option>)}
             </select>
           </div>
-          <div className="setting-row">
-            <label htmlFor="extraction-mode">{t("内容")}</label>
-            <select id="extraction-mode" value={extractionMode} disabled={busy} onChange={(event) => void control("settings", { extractionMode: event.target.value })}>
-              <option value="article">{t("本文を抽出")}</option>
-              <option value="display">{t("表示中の文章")}</option>
-            </select>
-          </div>
-          {extractionMode === "display" ? <p className="setting-hint">{t("ページ翻訳後に使うと、表示中の翻訳を読み上げます。")}</p> : null}
           <div className="setting-row">
             <label htmlFor="language">{t("読み上げ")} {t("言語")}</label>
             <select id="language" value={targetLanguage} disabled={busy} onChange={(event) => void control("settings", { targetLanguage: event.target.value })}>
