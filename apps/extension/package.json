@@ -7,6 +7,10 @@
     "build": "rm -rf dist && vite build --mode development && vite build --mode development --config vite.content.config.ts",
     "build:development": "rm -rf dist && vite build --mode development && vite build --mode development --config vite.content.config.ts",
     "build:production": "rm -rf dist && vite build --mode production && vite build --mode production --config vite.content.config.ts",
+    "build:firefox": "rm -rf dist-firefox && FILO_BROWSER=firefox vite build --mode development && FILO_BROWSER=firefox vite build --mode development --config vite.content.config.ts",
+    "build:firefox:production": "rm -rf dist-firefox && FILO_BROWSER=firefox vite build --mode production && FILO_BROWSER=firefox vite build --mode production --config vite.content.config.ts",
+    "build:safari": "rm -rf dist-safari && FILO_BROWSER=safari vite build --mode development && FILO_BROWSER=safari vite build --mode development --config vite.content.config.ts",
+    "build:safari:production": "rm -rf dist-safari && FILO_BROWSER=safari vite build --mode production && FILO_BROWSER=safari vite build --mode production --config vite.content.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

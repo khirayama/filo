@@ -2,23 +2,37 @@
   "manifest_version": 3,
   "name": "Filo Reader",
   "version": "0.1.0",
-  "description": "Read a Filo reading list in the original article pages",
+  "description": "Read pages and your Filo reading list aloud",
   "icons": {
     "16": "icon16.png",
     "32": "icon32.png",
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "permissions": ["contextMenus", "cookies", "scripting", "storage", "tabs", "tts"],
-  "host_permissions": ["http://*/*", "https://*/*", "https://www.google-analytics.com/*"],
+  "permissions": [
+    "contextMenus",
+    "scripting",
+    "storage",
+    "tabs",
+    "tts"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*",
+    "https://www.google-analytics.com/*"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
+      "matches": [
+        "http://localhost:5173/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],

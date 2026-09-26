@@ -2,20 +2,21 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
+import { browserTarget, manifestFor, outDir, type BrowserTarget } from "./vite.target";
 
-// MV3 blocks requests to hosts missing from host_permissions, so the
-// manifest's API entry must track VITE_API_BASE_URL instead of being pinned
-// to localhost.
-function manifestApiHost(apiOrigin: string): Plugin {
+// The Web bridge content script runs only on the Filo Web origin, so the
+// manifest's placeholder match must track VITE_WEB_APP_URL. The rest of the
+// manifest is adapted to the target browser.
+function filoManifest(webOrigin: string, target: BrowserTarget): Plugin {
   return {
-    name: "filo-manifest-api-host",
+    name: "filo-manifest",
     closeBundle() {
-      const manifestPath = resolve(__dirname, "dist/manifest.json");
+      const manifestPath = resolve(__dirname, outDir(target), "manifest.json");
       if (!existsSync(manifestPath)) return;
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { host_permissions?: string[] };
-      manifest.host_permissions = (manifest.host_permissions ?? []).map((pattern) =>
-        pattern === "http://localhost:8787/*" ? `${apiOrigin}/*` : pattern
-      );
+      const manifest = manifestFor(target, JSON.parse(readFileSync(manifestPath, "utf8")));
+      for (const script of manifest.content_scripts ?? []) {
+        script.matches = script.matches.map((pattern) => pattern === "http://localhost:5173/*" ? `${webOrigin}/*` : pattern);
+      }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     },
   };
@@ -44,17 +45,17 @@ function validateEnvironment(mode: string, env: Record<string, string>): void {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, "");
   validateEnvironment(mode, env);
-  const apiBase = env.VITE_API_BASE_URL ?? "http://localhost:8787";
-  const apiOrigin = new URL(apiBase).origin;
+  const webOrigin = new URL(env.VITE_WEB_APP_URL ?? "http://localhost:5173").origin;
+  const target = browserTarget();
 
   return {
     base: "./",
-    plugins: [react(), manifestApiHost(apiOrigin)],
+    plugins: [react(), filoManifest(webOrigin, target)],
     define: {
       global: "globalThis",
     },
     build: {
-      outDir: "dist",
+      outDir: outDir(target),
       emptyOutDir: false,
       modulePreload: false,
       rollupOptions: {
@@ -64,7 +65,7 @@ export default defineConfig(({ mode }) => {
         },
         output: {
           entryFileNames: "[name].js",
-          chunkFileNames: "[name].js",
+          chunkFileNames: "chunk-[name].js",
           assetFileNames: "[name].[ext]",
           inlineDynamicImports: false,
         },
