@@ -2,6 +2,7 @@ build
 build-release
 DerivedData
 *.xcodeproj
+ios_*.png
 .DS_Store
 *.log
 **/GoogleService-Info.plist

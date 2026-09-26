@@ -7,12 +7,12 @@ import { articleItem, trackEvent } from "../lib/analytics";
 import { useIsDesktop } from "./AppShell";
 import { useAppData } from "./AppDataContext";
 import { useTitleTranslation } from "./TitleTranslationContext";
+import { ErrorBox, Icon, IconButton, Spinner, formatTimeCompact, palette } from "./ui";
 
 type ArticleStateMutation =
   | { isRead: boolean }
   | { inReadingList: boolean }
   | { isBookmarked: boolean };
-import { ErrorBox, IconButton, Spinner, formatTimeCompact, palette } from "./ui";
 
 export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   const { language, adjustUnreadCounts } = useAppData();
@@ -135,6 +135,7 @@ export function ArticleRows({
   onUpdateState,
   activeArticleId,
   emptyContent,
+  showFeed = true,
 }: {
   articles: ArticleListItem[];
   loading: boolean;
@@ -146,11 +147,12 @@ export function ArticleRows({
   onUpdateState?: (articleId: number, patch: ArticleStateMutation) => void;
   activeArticleId?: number;
   emptyContent: React.ReactNode;
+  // Off inside a single subscription, where every row has the same feed.
+  showFeed?: boolean;
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const viewedArticleIds = useRef("");
-  const isDesktop = useIsDesktop();
-  const { t, language } = useAppData();
+  const { t } = useAppData();
   const { enabled: translationEnabled, request: requestTranslations } = useTitleTranslation();
 
   useEffect(() => {
@@ -191,14 +193,14 @@ export function ArticleRows({
   }, [nextCursor, onLoadMore]);
 
   if (loading) return <Spinner />;
-  if (error) return <ErrorBox message={error} onRetry={onRetry} />;
+  if (error) return <div style={{ padding: "16px var(--fl-page-gutter)" }}><ErrorBox message={error} onRetry={onRetry} /></div>;
   if (articles.length === 0) return <>{emptyContent}</>;
   return (
     <>
-      <ul aria-label={t("記事一覧")} style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {articles.map((article) => (
-              <ArticleRow key={article.id} article={article} onUpdateState={onUpdateState} active={article.id === activeArticleId} />
-            ))}
+      <ul aria-label={t("記事一覧")} className="fl-article-list">
+        {articles.map((article) => (
+          <ArticleRow key={article.id} article={article} onUpdateState={onUpdateState} active={article.id === activeArticleId} showFeed={showFeed} />
+        ))}
       </ul>
       <div ref={sentinelRef} aria-hidden="true" />
       {loadingMore ? <Spinner /> : null}
@@ -210,161 +212,81 @@ function ArticleRow({
   article,
   onUpdateState,
   active = false,
+  showFeed,
 }: {
   article: ArticleListItem;
   onUpdateState?: (articleId: number, patch: ArticleStateMutation) => void;
   active?: boolean;
+  showFeed: boolean;
 }) {
   const isDesktop = useIsDesktop();
   const { t, language } = useAppData();
-  const [hovered, setHovered] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const { isRead, inReadingList, isBookmarked } = article.userState;
   const translatedTitle = useTitleTranslation().titleFor(article.id);
   const isTranslated = translatedTitle != null;
   const displayTitle = showOriginal || !isTranslated ? article.title : translatedTitle;
   const subscriptionId = article.subscriptionContext.subscriptionIds[0];
-  const titleStyle = { fontSize: "14px", fontWeight: isRead ? 400 : 600, lineHeight: "20px" };
-  // Keep translated titles from growing a row without forcing every title to
-  // occupy the same height.
-  const mobileTitleStyle = {
-    ...titleStyle,
-    display: "-webkit-box" as const,
-    overflow: "hidden",
-    WebkitBoxOrient: "vertical" as const,
-    WebkitLineClamp: 2,
-  };
+
   const titleEl = article.canonicalUrl ? (
     <a
       href={article.canonicalUrl}
       target="_blank"
       rel="noreferrer"
       onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}
-      style={{ ...mobileTitleStyle, color: "inherit", textDecoration: "none" }}
+      className="fl-article-title"
     >
       {displayTitle}
     </a>
   ) : (
-    <span style={mobileTitleStyle}>{displayTitle}</span>
+    <span className="fl-article-title">{displayTitle}</span>
   );
-  const desktopTitleEl = article.canonicalUrl ? (
-    <a
-      href={article.canonicalUrl}
-      target="_blank"
-      rel="noreferrer"
-      onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}
-      style={{ ...titleStyle, color: "inherit", marginLeft: "16px", position: "relative", textDecoration: "none", whiteSpace: "nowrap", zIndex: 1 }}
-    >
-      {displayTitle}
-    </a>
+
+  const feedContent = <span>{article.feed.title}</span>;
+  const feedEl = subscriptionId != null ? (
+    <Link to={`/subscriptions/${subscriptionId}`} className="fl-article-feed">{feedContent}</Link>
   ) : (
-    <span style={{ ...titleStyle, marginLeft: "16px", whiteSpace: "nowrap" }}>{displayTitle}</span>
+    <span className="fl-article-feed">{feedContent}</span>
   );
 
-  const feedNameEl =
-    subscriptionId != null ? (
-      <Link
-        to={`/subscriptions/${subscriptionId}`}
-        style={{
-          color: palette.muted,
-          flex: isDesktop ? 1 : undefined,
-          fontSize: "12px",
-          minWidth: 0,
-          overflow: "hidden",
-          position: "relative",
-          textDecoration: "none",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          zIndex: 1,
-        }}
-      >
-        {article.feed.title}
-      </Link>
-    ) : (
-      <span
-        style={{
-          color: palette.muted,
-          flex: isDesktop ? 1 : undefined,
-          fontSize: "12px",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {article.feed.title}
-      </span>
-    );
-
-  // Keep the label's vertical slot present even before translation completes.
-  // This prevents its font and border metrics from changing the row height.
-  const translationLabel = (
-    <span
-      aria-hidden={!isTranslated}
-      style={{
-        display: "inline-flex",
-        flexShrink: 0,
-        height: "18px",
-        visibility: isTranslated ? "visible" : "hidden",
+  const translationToggle = isTranslated ? (
+    <button
+      type="button"
+      aria-pressed={showOriginal}
+      aria-label={showOriginal ? t("翻訳") : t("原文")}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowOriginal((v) => !v);
       }}
+      className="fl-translation-toggle"
     >
-      {isTranslated ? (
-        <button
-          type="button"
-          aria-pressed={showOriginal}
-          aria-label={showOriginal ? t("翻訳") : t("原文")}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setShowOriginal((v) => !v);
-          }}
-          style={{
-            background: "transparent",
-            border: `1px solid ${palette.border}`,
-            borderRadius: "3px",
-            boxSizing: "border-box",
-            color: palette.muted,
-            cursor: "pointer",
-            flexShrink: 0,
-            font: "inherit",
-            fontSize: "10px",
-            height: "18px",
-            lineHeight: "16px",
-            padding: "0 4px",
-            position: "relative",
-            whiteSpace: "nowrap",
-            zIndex: 1,
-          }}
-        >
-          {showOriginal ? t("翻訳") : t("原文")}
-        </button>
-      ) : null}
-    </span>
-  );
+      {showOriginal ? t("翻訳") : t("原文")}
+    </button>
+  ) : null;
+
   const articleDate = article.publishedAt ?? article.fetchedAt;
   const dateEl = (
-    <time dateTime={articleDate ?? undefined} style={{ color: palette.muted, flexShrink: 0, fontSize: "12px", whiteSpace: "nowrap" }}>
+    <time dateTime={articleDate ?? undefined} className="fl-article-date">
       {formatTimeCompact(articleDate, language)}
     </time>
   );
 
+  // Saved states stay visible as small marks; the full toggle set appears on
+  // hover (desktop) or is always present (touch).
+  const marks = isDesktop && (inReadingList || isBookmarked) ? (
+    <span className="fl-article-marks">
+      {inReadingList ? <span title={t("リーディングリスト")} style={{ color: palette.accent }}><Icon name="playlist" size={14} /></span> : null}
+      {isBookmarked ? <span title={t("ブックマーク")} style={{ color: palette.star }}><Icon name="bookmark" size={14} filled /></span> : null}
+    </span>
+  ) : null;
+
   const actions = onUpdateState ? (
-    <div
-      style={{
-        alignItems: "center",
-        display: "flex",
-        gap: "2px",
-        opacity: !isDesktop || hovered || inReadingList || isBookmarked ? 1 : 0,
-        position: "relative",
-        transition: "opacity 0.15s",
-        zIndex: 1,
-      }}
-    >
+    <div className="fl-article-actions">
       <IconButton
         icon="checkCircle"
         label={isRead ? t("未読にする") : t("既読にする")}
-        active={isRead}
-        color={palette.muted}
+        color={isRead ? palette.accent : undefined}
         filled={false}
         onClick={() => onUpdateState(article.id, { isRead: !isRead })}
       />
@@ -385,64 +307,44 @@ function ArticleRow({
     </div>
   ) : null;
 
+  if (isDesktop) {
+    return (
+      <li
+        id={`filo-article-${article.id}`}
+        className="fl-article-row fl-article-row--desktop"
+        data-read={isRead}
+        data-active={active}
+      >
+        {showFeed ? feedEl : null}
+        <div className="fl-article-main">
+          {translationToggle}
+          {titleEl}
+          {article.previewText ? <span className="fl-article-preview">{article.previewText}</span> : null}
+        </div>
+        <div className="fl-article-meta">
+          {marks}
+          {dateEl}
+        </div>
+        {actions}
+      </li>
+    );
+  }
+
   return (
     <li
       id={`filo-article-${article.id}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        background: hovered ? palette.hover : "transparent",
-        borderBottom: `1px solid ${palette.mutedBorder}`,
-        opacity: isRead ? 0.55 : 1,
-        padding: isDesktop ? "2px 16px" : "1px 16px 8px",
-        position: "relative",
-        ...(isDesktop ? { alignItems: "center", display: "flex", gap: "8px" } : {}),
-        outline: active ? `2px solid ${palette.accent}` : undefined,
-        outlineOffset: active ? "-2px" : undefined,
-      }}
+      className="fl-article-row fl-article-row--mobile"
+      data-read={isRead}
+      data-active={active}
     >
-      {isDesktop ? (
-        <>
-          <div style={{ alignItems: "center", display: "flex", flex: 1, gap: "8px", minWidth: 0, overflow: "hidden" }}>
-            {/* フィード名とバッジを固定幅の列に収め、タイトルの開始位置を全行で揃える */}
-            <div style={{ alignItems: "center", display: "flex", flexShrink: 0, gap: "6px", width: "120px" }}>
-              {feedNameEl}
-              {translationLabel}
-            </div>
-            {desktopTitleEl}
-            {article.previewText ? (
-              <span
-                style={{
-                  color: palette.muted,
-                  flex: 1,
-                  fontSize: "13px",
-                  minWidth: 0,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {article.previewText}
-              </span>
-            ) : null}
-          </div>
-          {dateEl}
-          {actions}
-        </>
-      ) : (
-        <>
-          <div style={{ alignItems: "center", display: "flex", gap: "8px" }}>
-            {feedNameEl}
-            {translationLabel}
-            <span style={{ flex: 1 }} />
-            {dateEl}
-            {actions}
-          </div>
-          <div style={{ marginTop: 0 }}>
-            {titleEl}
-          </div>
-        </>
-      )}
+      <div className="fl-article-head">
+        {showFeed ? feedEl : null}
+        {translationToggle}
+        <span style={{ flex: 1 }} />
+        {dateEl}
+        {actions}
+      </div>
+      {titleEl}
     </li>
   );
 }

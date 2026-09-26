@@ -2,26 +2,27 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { Subscription, Tag } from "../api/types";
-import { AppShell } from "../components/AppShell";
+import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
+import { SubscriptionHealth } from "../components/SubscriptionHealth";
+import { TagPicker } from "../components/TagPicker";
 import {
-  Badge,
+  Button,
   EmptyState,
   ErrorBox,
   IconButton,
-  InlineButton,
   Spinner,
   formatTime,
-  menuStyle,
   palette,
 } from "../components/ui";
 import { groupSubscriptionsByTag } from "../lib/grouping";
-import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
+import { errorMessage } from "../lib/messages";
 import { moveItem } from "../lib/reorder";
 
 export function SubscriptionsPage() {
   const api = useApi();
   const navigate = useNavigate();
+  const isDesktop = useIsDesktop();
   const appData = useAppData();
   const { t, language } = appData;
   // Local copies allow optimistic reordering; the context stays the source
@@ -110,97 +111,103 @@ export function SubscriptionsPage() {
   const groups = groupSubscriptionsByTag(tags, subscriptions);
 
   return (
-    <AppShell>
-      <main style={{ padding: "16px 24px 48px" }}>
-        <header
-          style={{
-            alignItems: "center",
-            borderBottom: `1px solid ${palette.mutedBorder}`,
-            display: "flex",
-            gap: "8px",
-            padding: "8px 0",
-          }}
-        >
-          <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("購読管理")}</h1>
-          <IconButton icon="plus" label={t("フィード追加")} onClick={() => navigate("/feeds/new")} />
-          <IconButton icon="tag" label={t("タグ管理")} onClick={() => navigate("/tags")} />
-        </header>
+    <AppShell
+      title={t("購読管理")}
+      actions={
+        isDesktop ? (
+          <>
+            <Button small icon="tag" onClick={() => navigate("/tags")}>{t("タグ管理")}</Button>
+            <Button small kind="primary" icon="plus" onClick={() => navigate("/feeds/new")}>{t("フィードを追加")}</Button>
+          </>
+        ) : (
+          <>
+            <IconButton icon="tag" label={t("タグ管理")} onClick={() => navigate("/tags")} />
+            <IconButton icon="plus" label={t("フィードを追加")} onClick={() => navigate("/feeds/new")} />
+          </>
+        )
+      }
+    >
+      <main className="fl-page fl-page--narrow">
         {loading ? (
           <Spinner />
         ) : error ? (
           <ErrorBox message={error} onRetry={() => void load()} />
         ) : subscriptions.length === 0 ? (
-          <EmptyState>
+          <EmptyState icon="rss">
             <p>{t("まだ購読がありません。")}</p>
-            <Link to="/feeds/new" style={{ color: "inherit" }}>
+            <Link to="/feeds/new" className="fl-btn fl-btn--primary">
               {t("フィードを追加")}
             </Link>
           </EmptyState>
         ) : (
-          groups.map((group) =>
-            group.items.length === 0 ? null : (
-              <section key={String(group.key)} aria-labelledby={`subscription-group-${String(group.key)}`} style={{ marginTop: "16px" }}>
-                <div
-                  style={{
-                    alignItems: "center",
-                    borderBottom: `1px solid ${palette.mutedBorder}`,
-                    display: "flex",
-                    gap: "4px",
-                    padding: "4px 0",
-                  }}
-                >
-                  <IconButton
-                    icon={collapsedTags.has(group.key) ? "chevronRight" : "chevronDown"}
-                    label={`${group.key === "untagged" ? t("タグなし") : group.label}: ${collapsedTags.has(group.key) ? t("展開") : t("折りたたむ")}`}
-                    size={14}
-                    ariaExpanded={!collapsedTags.has(group.key)}
-                    ariaControls={`subscription-group-items-${String(group.key)}`}
-                    onClick={() => toggleCollapse(group.key)}
-                  />
-                  {group.tag ? (
-                    <Link
-                      to={`/articles?tagId=${group.tag.id}`}
-                      id={`subscription-group-${String(group.key)}`}
-                      style={{ color: "inherit", fontWeight: 600, textDecoration: "none" }}
-                    >
-                      {group.key === "untagged" ? t("タグなし") : group.label}
-                    </Link>
-                  ) : (
-                    <span id={`subscription-group-${String(group.key)}`} style={{ fontWeight: 600 }}>{group.key === "untagged" ? t("タグなし") : group.label}</span>
-                  )}
-                  <span style={{ color: palette.muted, fontSize: "13px" }}>{t("{count}件の購読", { count: group.items.length })}</span>
-                  <div style={{ flex: 1 }} />
-                  {group.tag ? (
-                    <>
-                      <IconButton
-                        icon="chevronUp"
-                        label={t("タグを上へ")}
-                        size={14}
-                        onClick={() => void moveTag(group.tag!.id, -1)}
-                      />
-                      <IconButton icon="chevronDown" label={t("タグを下へ")} size={14} onClick={() => void moveTag(group.tag!.id, 1)} />
-                      <InlineButton onClick={() => void renameTag(group.tag!)}>{t("名前変更")}</InlineButton>
-                    </>
+          <div className="fl-stack" style={{ gap: "28px" }}>
+            {groups.map((group) => {
+              if (group.items.length === 0) return null;
+              const label = group.key === "untagged" ? t("タグなし") : group.label;
+              const collapsed = collapsedTags.has(group.key);
+              return (
+                <section key={String(group.key)} aria-labelledby={`subscription-group-${String(group.key)}`}>
+                  <div
+                    className="fl-reveal-host"
+                    style={{
+                      alignItems: "center",
+                      borderBottom: `1px solid ${palette.border}`,
+                      display: "flex",
+                      gap: "8px",
+                      minHeight: "40px",
+                      paddingBottom: "4px",
+                    }}
+                  >
+                    <IconButton
+                      icon={collapsed ? "chevronRight" : "chevronDown"}
+                      label={`${label}: ${collapsed ? t("展開") : t("折りたたむ")}`}
+                      size={14}
+                      ariaExpanded={!collapsed}
+                      ariaControls={`subscription-group-items-${String(group.key)}`}
+                      onClick={() => toggleCollapse(group.key)}
+                    />
+                    <div style={{ alignItems: "baseline", display: "flex", flex: 1, gap: "8px", minWidth: 0 }}>
+                      {group.tag ? (
+                        <Link
+                          to={`/articles?tagId=${group.tag.id}`}
+                          id={`subscription-group-${String(group.key)}`}
+                          className="fl-link"
+                          style={{ fontSize: "15px", fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        >
+                          {label}
+                        </Link>
+                      ) : (
+                        <span id={`subscription-group-${String(group.key)}`} style={{ fontSize: "15px", fontWeight: 700 }}>{label}</span>
+                      )}
+                      <span style={{ color: palette.muted, flexShrink: 0, fontSize: "12px" }}>{t("{count}件の購読", { count: group.items.length })}</span>
+                    </div>
+                    {group.tag ? (
+                      <div className="fl-reveal" style={{ display: "flex", gap: "2px" }}>
+                        <IconButton icon="chevronUp" label={t("タグを上へ")} size={16} onClick={() => void moveTag(group.tag!.id, -1)} />
+                        <IconButton icon="chevronDown" label={t("タグを下へ")} size={16} onClick={() => void moveTag(group.tag!.id, 1)} />
+                        <IconButton icon="pencil" label={t("名前変更")} size={16} onClick={() => void renameTag(group.tag!)} />
+                      </div>
+                    ) : null}
+                  </div>
+                  {!collapsed ? (
+                    <ul id={`subscription-group-items-${String(group.key)}`} className="fl-list">
+                      {group.items.map((subscription) => (
+                        <SubscriptionRow
+                          key={subscription.id}
+                          subscription={subscription}
+                          allTags={tags}
+                          busy={busy}
+                          onMoveUp={() => void moveSubscription(subscription.id, -1, group.items)}
+                          onMoveDown={() => void moveSubscription(subscription.id, 1, group.items)}
+                          onTagsChange={(tagIds) => void updateSubscriptionTags(subscription.id, tagIds)}
+                        />
+                      ))}
+                    </ul>
                   ) : null}
-                </div>
-                {!collapsedTags.has(group.key) ? (
-                  <ul id={`subscription-group-items-${String(group.key)}`} style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                    {group.items.map((subscription) => (
-                      <SubscriptionRow
-                        key={subscription.id}
-                        subscription={subscription}
-                        allTags={tags}
-                        busy={busy}
-                        onMoveUp={() => void moveSubscription(subscription.id, -1, group.items)}
-                        onMoveDown={() => void moveSubscription(subscription.id, 1, group.items)}
-                        onTagsChange={(tagIds) => void updateSubscriptionTags(subscription.id, tagIds)}
-                      />
-                    ))}
-                  </ul>
-                ) : null}
-              </section>
-            )
-          )
+                </section>
+              );
+            })}
+          </div>
         )}
       </main>
     </AppShell>
@@ -222,20 +229,8 @@ function SubscriptionRow({
   onMoveDown: () => void;
   onTagsChange: (tagIds: number[]) => void;
 }) {
-  const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const { t, language } = useAppData();
-
-  useEffect(() => {
-    if (!tagMenuOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setTagMenuOpen(false);
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [tagMenuOpen]);
+  const title = subscription.customTitle ?? subscription.feed.title;
 
   const toggleTag = (tagId: number) => {
     const next = subscription.tagIds.includes(tagId)
@@ -245,108 +240,30 @@ function SubscriptionRow({
   };
 
   return (
-    <li
-      style={{
-        alignItems: "center",
-        borderBottom: `1px solid ${palette.mutedBorder}`,
-        display: "flex",
-        gap: "8px",
-        padding: "8px 4px",
-      }}
-    >
-      {subscription.feed.faviconUrl ? (
-        <img src={subscription.feed.faviconUrl} alt="" width={16} height={16} style={{ borderRadius: "3px" }} />
-      ) : (
-        <span
-          style={{
-            background: palette.mutedBorder,
-            borderRadius: "3px",
-            display: "inline-block",
-            height: "16px",
-            width: "16px",
-          }}
-        />
-      )}
+    <li className="fl-list-row fl-reveal-host" style={{ paddingLeft: "var(--fl-disclosure-indent)" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <Link
           to={`/subscriptions/${subscription.id}`}
-          style={{
-            color: "inherit",
-            display: "block",
-            fontWeight: 600,
-            overflow: "hidden",
-            textDecoration: "none",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
+          className="fl-link"
+          style={{ display: "block", fontSize: "14px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
         >
-          {subscription.customTitle ?? subscription.feed.title}
+          {title}
         </Link>
-        <div style={{ color: palette.muted, fontSize: "12px", marginTop: "2px" }}>
-          {t("最終公開 {time}", { time: formatTime(subscription.feed.latestPublishedAt ?? null, language) || "—" })}
+        <div style={{ alignItems: "center", color: palette.muted, display: "flex", flexWrap: "wrap", fontSize: "12px", gap: "4px 12px", marginTop: "2px" }}>
+          <span>{t("最終公開 {time}", { time: formatTime(subscription.feed.latestPublishedAt ?? null, language) || "—" })}</span>
+          <SubscriptionHealth subscription={subscription} />
         </div>
-        {subscription.initialFetchStatus === "failed" ? (
-          <Badge tone="danger">{initialFetchErrorMessage(subscription.initialFetchErrorCode, language)}</Badge>
-        ) : subscription.initialFetchStatus === "fetching" ? (
-          <Badge>{t("記事取得中")}</Badge>
-        ) : subscription.feedHealthStatus === "paused" ? (
-          <Badge tone="danger">{t("更新停止中")}</Badge>
-        ) : subscription.feedHealthStatus === "stale" ? (
-          <Badge tone="warn">{t("しばらく更新なし")}</Badge>
-        ) : null}
       </div>
-      {allTags.length > 0 ? (
-        <div style={{ position: "relative" }}>
-          <IconButton
-            icon="tag"
-            label={t("タグを編集")}
-            size={14}
-            ariaExpanded={tagMenuOpen}
-            ariaHaspopup="dialog"
-            ariaControls={`subscription-tag-menu-${subscription.id}`}
-            onClick={() => setTagMenuOpen((v) => !v)}
-          />
-          {tagMenuOpen ? (
-            <div id={`subscription-tag-menu-${subscription.id}`} role="dialog" aria-label={t("タグを編集")} style={{ ...menuStyle, fontSize: "13px", gap: "2px", padding: "8px", width: "200px" }}>
-              {allTags.map((tag) => (
-                <label
-                  key={tag.id}
-                  style={{
-                    alignItems: "center",
-                    cursor: "pointer",
-                    display: "flex",
-                    gap: "6px",
-                    padding: "4px",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={subscription.tagIds.includes(tag.id)}
-                    onChange={() => toggleTag(tag.id)}
-                  />
-                  {tag.color ? (
-                    <span
-                      style={{
-                        background: tag.color,
-                        borderRadius: "50%",
-                        display: "inline-block",
-                        flexShrink: 0,
-                        height: "10px",
-                        width: "10px",
-                      }}
-                    />
-                  ) : null}
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {tag.name}
-                  </span>
-                </label>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      <IconButton icon="chevronUp" label={t("上へ")} size={14} disabled={busy} onClick={onMoveUp} />
-      <IconButton icon="chevronDown" label={t("下へ")} size={14} disabled={busy} onClick={onMoveDown} />
+      <div className="fl-reveal" style={{ display: "flex", gap: "2px" }}>
+        <TagPicker
+          id={`subscription-tag-menu-${subscription.id}`}
+          tags={allTags}
+          selectedIds={subscription.tagIds}
+          onToggle={toggleTag}
+        />
+        <IconButton icon="chevronUp" label={t("上へ")} size={16} disabled={busy} onClick={onMoveUp} />
+        <IconButton icon="chevronDown" label={t("下へ")} size={16} disabled={busy} onClick={onMoveDown} />
+      </div>
     </li>
   );
 }

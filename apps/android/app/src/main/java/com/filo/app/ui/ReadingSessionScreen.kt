@@ -12,41 +12,30 @@ import android.speech.tts.UtteranceProgressListener
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
@@ -59,8 +48,11 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.filo.app.TtsMediaService
 import com.filo.app.api.ApiClient
@@ -80,11 +72,13 @@ import org.json.JSONObject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-private enum class ReadingSource { Article, Display, Selection }
+// What "read aloud" captures from the page: the page (displayed text, then
+// Readability, then the server's extraction) or the current selection.
+enum class CaptureKind { Page, Selection }
 
-private data class ReadingSourceRequest(
+data class ReadingCaptureRequest(
     val id: Long,
-    val source: ReadingSource,
+    val kind: CaptureKind,
 )
 
 class ReadingPlayerController(
@@ -101,12 +95,13 @@ class ReadingPlayerController(
         private set
     var isPlaying by mutableStateOf(false)
         private set
-    var extractedText by mutableStateOf<String?>(null)
+    var isPreparing by mutableStateOf(false)
         private set
-    var extractedLanguage by mutableStateOf<String?>(null)
+    var captureRequest by mutableStateOf<ReadingCaptureRequest?>(null)
         private set
-    var isExtracting by mutableStateOf(false)
+    var isPageLoaded by mutableStateOf(false)
         private set
+    var hasSelection by mutableStateOf(false)
     var errorMessage by mutableStateOf<AppText?>(null)
         private set
     var isAddingToReadingList by mutableStateOf(false)
@@ -129,12 +124,13 @@ class ReadingPlayerController(
     private var temporary = false
     private var chunks = emptyList<String>()
     private var chunkIndex = 0
+    private var speechLanguage: String? = null
+    private var playbackKind = CaptureKind.Page
     private var autoplayWhenReady = false
-    private var playWhenExtractionReady = false
+    private var nextCaptureId = 0L
     private var playbackGeneration = 0
     private var playbackArticleId: Int? = null
     private var playbackArticleTitle: String? = null
-    private var playbackTemporary = false
 
     val currentItem: ReadingSessionItem?
         get() = items.getOrNull(index)
@@ -173,7 +169,7 @@ class ReadingPlayerController(
         autoplayWhenReady = autoplay
         removedReadingListArticleIds = emptySet()
         runCatching {
-            runCatching { ApiClient.getSettings() }.getOrNull()?.let { setLanguage(it.language) }
+            runCatching { ApiClient.getSettings() }.getOrNull()?.let { applyLanguage(it.language) }
             if (article != null) {
                 temporary = false
                 items = listOf(
@@ -215,80 +211,82 @@ class ReadingPlayerController(
         isLoading = false
     }
 
-    fun receiveExtracted(text: String, language: String?) {
-        extractedText = clean(text)
-        extractedLanguage = language ?: currentItem?.article?.sourceLanguage
-        isExtracting = false
-        val shouldPlay = autoplayWhenReady || playWhenExtractionReady
-        autoplayWhenReady = false
-        playWhenExtractionReady = false
-        if (shouldPlay) {
+    fun pageLoaded() {
+        isPageLoaded = true
+        if (autoplayWhenReady) {
+            autoplayWhenReady = false
             play()
         }
     }
 
-    fun extractionFailed() {
-        isExtracting = false
-        if (temporary) {
-            autoplayWhenReady = false
-            playWhenExtractionReady = false
-            errorMessage = AppText("本文を抽出できませんでした。")
+    fun play() = requestCapture(CaptureKind.Page)
+
+    fun playSelection() {
+        if (hasSelection) requestCapture(CaptureKind.Selection)
+    }
+
+    private fun requestCapture(kind: CaptureKind) {
+        if (currentItem == null) return
+        pause()
+        errorMessage = null
+        isPreparing = true
+        captureRequest = ReadingCaptureRequest(++nextCaptureId, kind)
+    }
+
+    // The page's answer to a capture request. An empty page capture falls back
+    // to the server's extraction for reading-list articles.
+    fun receiveCapture(request: ReadingCaptureRequest, text: String?, language: String?) {
+        if (captureRequest?.id != request.id) return
+        captureRequest = null
+        val generation = playbackGeneration
+        if (!text.isNullOrBlank()) {
+            speak(text, language, request.kind)
             return
         }
-        val id = currentItem?.articleId ?: run {
-            autoplayWhenReady = false
-            playWhenExtractionReady = false
+        val articleId = currentItem?.articleId?.takeIf { it > 0 && !temporary }
+        if (request.kind == CaptureKind.Selection || articleId == null) {
+            isPreparing = false
+            errorMessage = AppText(if (request.kind == CaptureKind.Selection) "読み上げる文章がありません。" else "本文を抽出できませんでした。")
             return
         }
         scope.launch {
-            runCatching { ApiClient.requestArticleContent(id) }
-            repeat(12) {
-                kotlinx.coroutines.delay(500)
-                val content = runCatching { ApiClient.getArticleContent(id) }.getOrNull() ?: return@repeat
-                if (content.status == "ready" && content.text != null) {
-                    receiveExtracted(content.text, content.sourceLanguage)
-                    return@launch
-                }
-                if (content.status == "error") return@repeat
+            val content = fetchServerText(articleId)
+            if (generation != playbackGeneration) return@launch
+            if (content == null) {
+                isPreparing = false
+                errorMessage = AppText("本文を抽出できませんでした。")
+            } else {
+                speak(content.first, content.second, CaptureKind.Page)
             }
-            autoplayWhenReady = false
-            playWhenExtractionReady = false
-            errorMessage = AppText("本文を抽出できませんでした。")
         }
     }
 
-    fun play() {
-        val source = extractedText
-        if (source.isNullOrBlank()) {
-            if (isExtracting) {
-                playWhenExtractionReady = true
-                return
-            }
-            extractionFailed()
-            return
+    private suspend fun fetchServerText(articleId: Int): Pair<String, String?>? {
+        runCatching { ApiClient.requestArticleContent(articleId) }
+        repeat(12) {
+            val content = runCatching { ApiClient.getArticleContent(articleId) }.getOrNull()
+            if (content?.status == "ready" && content.text != null) return content.text to content.sourceLanguage
+            if (content?.status == "error") return null
+            kotlinx.coroutines.delay(500)
         }
-        playText(source, extractedLanguage)
+        return null
     }
 
-    fun playText(text: String, language: String? = null) {
+    // Finishing the page of a reading-list article marks it read; a selection
+    // or a shared page does not.
+    private fun speak(text: String, language: String?, kind: CaptureKind) {
         val source = clean(text)
-        if (source.isBlank()) {
-            errorMessage = AppText("読み上げる文章がありません。")
-            return
-        }
-        playbackArticleId = currentItem?.articleId
+        playbackArticleId = currentItem?.articleId?.takeIf { kind == CaptureKind.Page && !temporary }
         playbackArticleTitle = currentItem?.article?.title
-        playbackTemporary = temporary
-        val generation = ++playbackGeneration
+        playbackKind = kind
+        val generation = playbackGeneration
         scope.launch {
-            val translated = translateBestEffort(
-                source,
-                language ?: currentItem?.article?.sourceLanguage,
-            )
+            val translated = translateBestEffort(source, language ?: currentItem?.article?.sourceLanguage)
             if (generation != playbackGeneration) return@launch
             chunks = split(translated.first)
-            extractedLanguage = translated.second
+            speechLanguage = translated.second
             chunkIndex = 0
+            isPreparing = false
             isPlaying = true
             speakChunk()
         }
@@ -297,7 +295,8 @@ class ReadingPlayerController(
     fun pause() {
         playbackGeneration += 1
         autoplayWhenReady = false
-        playWhenExtractionReady = false
+        captureRequest = null
+        isPreparing = false
         tts?.stop()
         isPlaying = false
         notifyMedia()
@@ -322,22 +321,40 @@ class ReadingPlayerController(
         resetPage()
     }
 
+    fun selectNext() {
+        items.getOrNull(index + 1)?.let { select(it.articleId) }
+    }
+
+    fun selectPrevious() {
+        if (index > 0) items.getOrNull(index - 1)?.let { select(it.articleId) }
+    }
+
     fun updateRate(value: Float) {
         rate = value.coerceIn(0.75f, 3f)
         prefs().edit().putFloat("rate", rate).apply()
-        if (isPlaying) play()
+        restartIfPlaying()
     }
 
     fun setLanguage(value: String) {
+        applyLanguage(value)
+        restartIfPlaying()
+    }
+
+    private fun applyLanguage(value: String) {
         targetLanguage = value
         prefs().edit().putString("language", value).apply()
         refreshVoices()
     }
 
+    // A settings change while speaking restarts with the new settings.
+    private fun restartIfPlaying() {
+        if (isPlaying) requestCapture(playbackKind)
+    }
+
     fun setVoice(value: String?) {
         voiceName = value
         prefs().edit().putString("voice", value).apply()
-        if (isPlaying) play()
+        restartIfPlaying()
     }
 
     fun addCurrentPageToReadingList() {
@@ -402,15 +419,10 @@ class ReadingPlayerController(
     }
 
     private fun resetPage() {
-        val preservePlayback = isPlaying
-        extractedText = null
-        extractedLanguage = null
-        isExtracting = currentItem?.article?.canonicalUrl != null
-        playWhenExtractionReady = false
-        if (!preservePlayback) {
-            chunks = emptyList()
-            chunkIndex = 0
-        }
+        isPageLoaded = false
+        hasSelection = false
+        chunks = emptyList()
+        chunkIndex = 0
         notifyMedia()
     }
 
@@ -419,7 +431,7 @@ class ReadingPlayerController(
             isPlaying = false
             return
         }
-        val locale = Locale.forLanguageTag(extractedLanguage ?: targetLanguage)
+        val locale = Locale.forLanguageTag(speechLanguage ?: targetLanguage)
         tts?.language = locale
         tts?.setSpeechRate(rate)
         voiceName?.let { selected -> tts?.voices?.firstOrNull { it.name == selected }?.let { tts?.voice = it } }
@@ -436,9 +448,7 @@ class ReadingPlayerController(
         }
         isPlaying = false
         notifyMedia()
-        if (!playbackTemporary) {
-            markArticleRead(playbackArticleId)
-        }
+        markArticleRead(playbackArticleId)
     }
 
     private fun markArticleRead(articleId: Int?) {
@@ -532,26 +542,14 @@ fun ReadingSessionScreen(
 ) {
     var showReadingList by remember { mutableStateOf(false) }
     var showReadingSettings by remember { mutableStateOf(false) }
-    var showReadingSource by remember { mutableStateOf(false) }
     var showShortcutHelp by remember { mutableStateOf(false) }
-    var hasSelection by remember { mutableStateOf(false) }
-    var nextSourceRequestId by remember { mutableStateOf(0L) }
-    var sourceRequest by remember { mutableStateOf<ReadingSourceRequest?>(null) }
     val context = LocalContext.current
+    val busy = player.isPlaying || player.isPreparing
     LaunchedEffect(autoplay, temporaryUrl, directArticle) { player.start(autoplay, temporaryUrl, directArticle) }
 
-    fun startReading(source: ReadingSource) {
-        showReadingSource = false
-        when (source) {
-            ReadingSource.Article -> player.play()
-            ReadingSource.Display, ReadingSource.Selection -> {
-                nextSourceRequestId += 1
-                sourceRequest = ReadingSourceRequest(nextSourceRequestId, source)
-            }
-        }
-    }
-    Scaffold(
+    Column(
         modifier = Modifier
+            .fillMaxSize()
             .onPreviewKeyEvent { event ->
             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
@@ -569,21 +567,15 @@ fun ReadingSessionScreen(
             } else {
                 when {
                     event.key == Key.Spacebar -> {
-                        if (player.isPlaying) player.pause() else player.play()
+                        if (busy) player.pause() else player.play()
                         true
                     }
                     event.key == Key.J -> {
-                        player.currentItem?.let { current ->
-                            val index = player.items.indexOfFirst { it.articleId == current.articleId }
-                            player.items.getOrNull(index + 1)?.let { player.select(it.articleId) }
-                        }
+                        player.selectNext()
                         true
                     }
                     event.key == Key.K -> {
-                        player.currentItem?.let { current ->
-                            val index = player.items.indexOfFirst { it.articleId == current.articleId }
-                            player.items.getOrNull(index - 1)?.let { player.select(it.articleId) }
-                        }
+                        player.selectPrevious()
                         true
                     }
                     event.key == Key.S -> {
@@ -604,87 +596,61 @@ fun ReadingSessionScreen(
                 }
             }
         },
-        topBar = {
-            TopAppBar(
-                title = { Text(player.currentItem?.article?.title ?: tr("リーディングリスト"), maxLines = 1) },
-                navigationIcon = {
-                    androidx.compose.material3.IconButton(onClick = onBack) {
-                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
-                    }
-                },
-                actions = {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .combinedClickable(
-                                onClick = { if (player.isPlaying) player.pause() else player.play() },
-                                onLongClick = { showReadingSource = true },
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        FiloIcon(
-                            if (player.isPlaying) FiloIconName.Pause else FiloIconName.Play,
-                            size = 22.dp,
-                            tint = MaterialTheme.colorScheme.primary,
-                            contentDescription = tr(if (player.isPlaying) "読み上げを停止" else "再生"),
-                        )
-                    }
-                },
+    ) {
+        FiloHeader(
+            title = player.currentItem?.article?.title ?: tr("リーディングリスト"),
+            lead = HeaderLead.Back,
+            onLead = onBack,
+        ) {
+            FiloIconButton(
+                if (busy) FiloIconName.Pause else FiloIconName.Play,
+                tr(if (busy) "読み上げを停止" else "このページを読み上げ"),
+                { if (busy) player.pause() else player.play() },
+                tint = Filo.colors.accent,
+                filled = busy,
+                enabled = player.currentItem != null,
             )
-        },
-        bottomBar = {
-            ReadingSettingsPanel(
-                player = player,
-                onShowReadingList = { showReadingList = true },
-                onShowSettings = { showReadingSettings = true },
-            )
-        },
-    ) { padding ->
+        }
         val currentItem = player.currentItem
         val currentUrl = currentItem?.article?.canonicalUrl
-        when {
-            player.isLoading -> Column(
-                Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
-            currentItem != null && currentUrl != null -> Column(
-                Modifier.fillMaxSize().padding(padding),
-            ) {
-                ReadingWebView(
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                player.isLoading -> FiloSpinner(modifier = Modifier.align(Alignment.Center))
+                currentItem != null && currentUrl != null -> ReadingWebView(
                     url = currentUrl,
                     articleId = currentItem.articleId,
-                    onExtracted = player::receiveExtracted,
-                    onFailure = player::extractionFailed,
-                    readRequest = sourceRequest,
-                    pageReady = !player.isExtracting,
-                    onSourceCaptured = { request, text, language ->
-                        if (sourceRequest?.id == request.id) {
-                            sourceRequest = null
-                            player.playText(text, language)
-                        }
-                    },
-                    onSelectionChanged = { hasSelection = it },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    captureRequest = player.captureRequest,
+                    pageLoaded = player.isPageLoaded,
+                    onPageLoaded = player::pageLoaded,
+                    onCaptured = player::receiveCapture,
+                    onSelectionChanged = { player.hasSelection = it },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                else -> FiloEmptyState(
+                    tr(player.errorMessage ?: AppText("未読の記事がありません。")),
+                    FiloIconName.Playlist,
+                    modifier = Modifier.align(Alignment.Center),
                 )
             }
-            else -> Column(
-                Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) { Text(tr(player.errorMessage ?: AppText("未読の記事がありません。"))) }
         }
-    }
-    if (showReadingSource) {
-        ModalBottomSheet(onDismissRequest = { showReadingSource = false }) {
-            ReadingSourceSheet(
-                hasSelection = hasSelection,
-                onSelect = ::startReading,
-            )
+        if (currentItem != null) {
+            player.errorMessage?.let { message ->
+                Text(
+                    tr(message),
+                    fontSize = 13.sp,
+                    color = Filo.colors.danger,
+                    modifier = Modifier.fillMaxWidth().background(Filo.colors.bg).padding(horizontal = Filo.Gutter, vertical = 8.dp),
+                )
+            }
         }
+        ReadingToolbar(
+            player = player,
+            onShowReadingList = { showReadingList = true },
+            onShowSettings = { showReadingSettings = true },
+        )
     }
     if (showReadingList) {
-        ModalBottomSheet(onDismissRequest = { showReadingList = false }) {
+        FiloSheet(onDismiss = { showReadingList = false }) {
             ReadingListSheet(
                 player = player,
                 onSelect = { articleId ->
@@ -695,54 +661,62 @@ fun ReadingSessionScreen(
         }
     }
     if (showShortcutHelp) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showShortcutHelp = false },
-            title = { Text(tr("ショートカット")) },
-            text = { Text(
-                tr("J / ↓  次の記事").replace(" / ↓", "") + "\n" +
-                    tr("K / ↑  前の記事").replace(" / ↑", "") + "\n" +
-                    tr("Space  読み上げ開始／停止") + "\n" +
-                    tr("S  リーディングリストに追加") + "\n" +
-                    tr("V  元記事を開く") + "\n" +
-                    tr("Esc  戻る")
-            ) },
-            confirmButton = { TextButton(onClick = { showShortcutHelp = false }) { Text(tr("閉じる")) } },
-        )
+        ShortcutHelpDialog(
+            listOf(
+                tr("J / ↓  次の記事").replace(" / ↓", ""),
+                tr("K / ↑  前の記事").replace(" / ↑", ""),
+                tr("Space  読み上げ開始／停止"),
+                tr("S  リーディングリストに追加"),
+                tr("V  元記事を開く"),
+                tr("Esc  戻る"),
+            ),
+        ) { showShortcutHelp = false }
     }
     if (showReadingSettings) {
-        ModalBottomSheet(onDismissRequest = { showReadingSettings = false }) {
+        FiloSheet(onDismiss = { showReadingSettings = false }) {
             ReadingSettingsSheet(player)
         }
     }
 }
 
 @Composable
-private fun ReadingSettingsPanel(
+private fun ReadingToolbar(
     player: ReadingPlayerController,
     onShowReadingList: () -> Unit,
     onShowSettings: () -> Unit,
 ) {
-    Surface(tonalElevation = 3.dp) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = onShowReadingList, enabled = !player.isTemporary) {
-                FiloIcon(FiloIconName.List, size = 16.dp)
-                Text(tr("リスト"))
-            }
-            TextButton(
-                onClick = player::addCurrentPageToReadingList,
-                enabled = !player.isAddingToReadingList,
-            ) {
-                FiloIcon(FiloIconName.QueueAdd, size = 16.dp)
-                Text(tr("追加"))
-            }
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onShowSettings) {
-                FiloIcon(FiloIconName.Gear, contentDescription = tr("読み上げ設定"))
-            }
-        }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Filo.colors.bg)
+            .topBorder(Filo.colors.mutedBorder)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FiloButton(
+            tr("リスト"),
+            onShowReadingList,
+            kind = ButtonKind.Ghost,
+            icon = FiloIconName.Playlist,
+            enabled = !player.isTemporary,
+        )
+        FiloButton(
+            tr("追加"),
+            player::addCurrentPageToReadingList,
+            kind = ButtonKind.Ghost,
+            icon = FiloIconName.QueueAdd,
+            enabled = !player.isAddingToReadingList && player.currentItem != null,
+        )
+        FiloButton(
+            tr("選択範囲を読み上げ"),
+            player::playSelection,
+            kind = ButtonKind.Ghost,
+            icon = FiloIconName.Play,
+            enabled = player.hasSelection,
+        )
+        Spacer(Modifier.weight(1f))
+        FiloIconButton(FiloIconName.Gear, tr("読み上げ設定"), onShowSettings)
     }
 }
 
@@ -752,40 +726,36 @@ private fun ReadingSettingsSheet(player: ReadingPlayerController) {
     var languageOpen by remember { mutableStateOf(false) }
     var rateOpen by remember { mutableStateOf(false) }
 
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(tr("読み上げ設定"), style = MaterialTheme.typography.titleMedium)
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
+        SheetTitle(tr("読み上げ設定"))
         Box(Modifier.fillMaxWidth()) {
             ReadingSettingRow(tr("声"), player.voiceName ?: tr("自動"), onClick = { voiceOpen = true })
-            DropdownMenu(expanded = voiceOpen, onDismissRequest = { voiceOpen = false }) {
-                DropdownMenuItem(text = { Text(tr("自動")) }, onClick = { player.setVoice(null); voiceOpen = false })
+            FiloMenu(expanded = voiceOpen, onDismiss = { voiceOpen = false }) {
+                FiloMenuItem(tr("自動"), { player.setVoice(null); voiceOpen = false }, selected = player.voiceName == null)
                 player.voices.forEach { voice ->
-                    DropdownMenuItem(text = { Text(voice) }, onClick = { player.setVoice(voice); voiceOpen = false })
+                    FiloMenuItem(voice, { player.setVoice(voice); voiceOpen = false }, selected = player.voiceName == voice)
                 }
             }
         }
+        FiloDivider()
         Box(Modifier.fillMaxWidth()) {
-            ReadingSettingRow(
-                tr("言語"),
-                AppStrings.languageName(player.targetLanguage),
-                onClick = { languageOpen = true },
-            )
-            DropdownMenu(expanded = languageOpen, onDismissRequest = { languageOpen = false }) {
+            ReadingSettingRow(tr("言語"), AppStrings.languageName(player.targetLanguage), onClick = { languageOpen = true })
+            FiloMenu(expanded = languageOpen, onDismiss = { languageOpen = false }) {
                 listOf("ja", "en", "zh", "ko", "es").forEach { language ->
-                    DropdownMenuItem(
-                        text = { Text(AppStrings.languageName(language)) },
-                        onClick = { player.setLanguage(language); languageOpen = false },
+                    FiloMenuItem(
+                        AppStrings.languageName(language),
+                        { player.setLanguage(language); languageOpen = false },
+                        selected = player.targetLanguage == language,
                     )
                 }
             }
         }
+        FiloDivider()
         Box(Modifier.fillMaxWidth()) {
             ReadingSettingRow(tr("速度"), "${player.rate}x", onClick = { rateOpen = true })
-            DropdownMenu(expanded = rateOpen, onDismissRequest = { rateOpen = false }) {
+            FiloMenu(expanded = rateOpen, onDismiss = { rateOpen = false }) {
                 listOf(0.75f, 1f, 1.25f, 1.5f, 2f, 3f).forEach { rate ->
-                    DropdownMenuItem(text = { Text("${rate}x") }, onClick = { player.updateRate(rate); rateOpen = false })
+                    FiloMenuItem("${rate}x", { player.updateRate(rate); rateOpen = false }, selected = player.rate == rate)
                 }
             }
         }
@@ -795,80 +765,40 @@ private fun ReadingSettingsSheet(player: ReadingPlayerController) {
 @Composable
 private fun ReadingSettingRow(label: String, value: String, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, color = MaterialTheme.colorScheme.primary)
-        FiloIcon(FiloIconName.ChevronRight, size = 16.dp, tint = MaterialTheme.colorScheme.primary)
-    }
-}
-
-@Composable
-private fun ReadingSourceSheet(
-    hasSelection: Boolean,
-    onSelect: (ReadingSource) -> Unit,
-) {
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(tr("内容"), style = MaterialTheme.typography.titleMedium)
-        ReadingSourceOption(ReadingSource.Article, tr("本文を抽出"), enabled = true, onSelect = onSelect)
-        ReadingSourceOption(ReadingSource.Display, tr("表示中の文章"), enabled = true, onSelect = onSelect)
-        ReadingSourceOption(
-            source = ReadingSource.Selection,
-            label = tr("選択範囲を読み上げ"),
-            enabled = hasSelection,
-            onSelect = onSelect,
-        )
-    }
-}
-
-@Composable
-private fun ReadingSourceOption(
-    source: ReadingSource,
-    label: String,
-    enabled: Boolean,
-    onSelect: (ReadingSource) -> Unit,
-) {
-    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled) { onSelect(source) }
-            .padding(vertical = 12.dp),
+            .heightIn(min = 48.dp)
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FiloIcon(
-            FiloIconName.Play,
-            size = 18.dp,
-            tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            label,
-            modifier = Modifier.padding(start = 12.dp),
-            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(label, fontSize = 14.sp, color = Filo.colors.text, modifier = Modifier.weight(1f))
+        Text(value, fontSize = 14.sp, color = Filo.colors.muted, maxLines = 1)
+        FiloIcon(FiloIconName.ChevronDown, size = 16.dp)
     }
 }
 
 @Composable
 fun ReadingMiniPlayer(player: ReadingPlayerController) {
-    Surface(tonalElevation = 3.dp) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = player.currentPlaybackTitle ?: player.currentItem?.article?.title ?: tr("読み上げ中"),
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = player::pause) {
-                FiloIcon(FiloIconName.Close, size = 16.dp)
-                Text(tr("停止"))
-            }
-        }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Filo.colors.bg)
+            .topBorder(Filo.colors.mutedBorder)
+            .padding(start = Filo.Gutter, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FiloIcon(FiloIconName.Play, size = 14.dp, tint = Filo.colors.accent, filled = true)
+        Text(
+            text = player.currentPlaybackTitle ?: player.currentItem?.article?.title ?: tr("読み上げ中"),
+            fontSize = 14.sp,
+            color = Filo.colors.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        FiloButton(tr("停止"), player::pause, small = true, icon = FiloIconName.Pause)
     }
 }
 
@@ -877,18 +807,11 @@ private fun ReadingListSheet(
     player: ReadingPlayerController,
     onSelect: (Int) -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Text(tr("リーディングリスト"), style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+    val colors = Filo.colors
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 24.dp)) {
+        SheetTitle(tr("リーディングリスト"))
         if (player.visibleReadingListItems.isEmpty()) {
-            Text(
-                tr("リーディングリストに記事がありません。"),
-                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 24.dp),
-            )
+            FiloEmptyState(tr("リーディングリストに記事がありません。"), FiloIconName.Playlist)
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -899,39 +822,46 @@ private fun ReadingListSheet(
                     items = player.visibleReadingListItems,
                     key = { it.articleId },
                 ) { item ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val current = item.articleId == player.currentItem?.articleId
                     Row(
                         Modifier
-                            .weight(1f)
-                            .clickable(enabled = item.article.canonicalUrl != null) { onSelect(item.articleId) }
-                            .padding(vertical = 8.dp),
+                            .fillMaxWidth()
+                            .bottomBorder(colors.mutedBorder),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FiloIcon(
-                            FiloIconName.CheckCircle,
-                            size = 14.dp,
-                            tint = if (item.articleId == player.currentItem?.articleId) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            filled = item.articleId == player.currentItem?.articleId,
-                        )
-                        Text(
-                            text = item.article.title,
-                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                            maxLines = 2,
-                            modifier = Modifier.padding(start = 8.dp),
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .clickable(enabled = item.article.canonicalUrl != null) { onSelect(item.articleId) }
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            FiloIcon(
+                                if (current) FiloIconName.Play else FiloIconName.CheckCircle,
+                                size = 14.dp,
+                                tint = if (current || item.isRead) colors.accent else colors.muted,
+                                filled = current,
+                            )
+                            Text(
+                                text = item.article.title,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (item.isRead && !current) colors.muted else colors.text,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        FiloIconButton(
+                            FiloIconName.Trash,
+                            tr("リーディングリストから削除"),
+                            { player.removeFromReadingList(item.articleId) },
+                            size = 16.dp,
+                            enabled = item.articleId !in player.removingReadingListArticleIds,
                         )
                     }
-                    TextButton(
-                        onClick = { player.removeFromReadingList(item.articleId) },
-                        enabled = item.articleId !in player.removingReadingListArticleIds,
-                    ) {
-                        FiloIcon(FiloIconName.Trash, size = 16.dp)
-                        Text(tr("削除"))
-                    }
-                }
                 }
             }
         }
@@ -943,73 +873,48 @@ private fun ReadingListSheet(
 private fun ReadingWebView(
     url: String,
     articleId: Int,
-    onExtracted: (String, String?) -> Unit,
-    onFailure: () -> Unit,
-    readRequest: ReadingSourceRequest?,
-    pageReady: Boolean,
-    onSourceCaptured: (ReadingSourceRequest, String, String?) -> Unit,
+    captureRequest: ReadingCaptureRequest?,
+    pageLoaded: Boolean,
+    onPageLoaded: () -> Unit,
+    onCaptured: (ReadingCaptureRequest, String?, String?) -> Unit,
     onSelectionChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     key(articleId, url) {
-        val webView = androidx.compose.runtime.remember {
+        val webView = remember {
+            val scripts = listOf("Readability.js", "FiloCapture.js").joinToString(";\n") { name ->
+                context.assets.open(name).bufferedReader().use { it.readText() }
+            }
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 isVerticalScrollBarEnabled = true
                 overScrollMode = WebView.OVER_SCROLL_IF_CONTENT_SCROLLS
-                addJavascriptInterface(
-                    ReaderBridge(onExtracted, onFailure, onSourceCaptured, onSelectionChanged),
-                    "FiloReader",
-                )
+                addJavascriptInterface(SelectionBridge(onSelectionChanged), "FiloReader")
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, loadedUrl: String) {
-                        val readability = context.assets.open("Readability.js").bufferedReader().use { it.readText() }
                         view.evaluateJavascript(
-                            "(() => { const report=()=>FiloReader.selectionChanged((window.getSelection()||{}).toString());" +
-                                "document.addEventListener('selectionchange', report); report(); })();" +
-                            "$readability;(() => { const n=v=>String(v||'').replace(/\\s+/g,' ').trim();" +
-                                "const extract=()=>{ try { const a=new Readability(document.cloneNode(true), {charThreshold:100}).parse();" +
-                                "const root=document.implementation.createHTMLDocument('').body; if(a) root.innerHTML=a.content||'';" +
-                                "const tags=new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']), lines=[];" +
-                                "const visit=x=>Array.from(x.children).forEach(c=>tags.has(c.tagName)?(n(c.textContent)&&lines.push(n(c.textContent))):visit(c));" +
-                                "if(a) visit(root); if(a&&!lines.length) lines.push(...n(a.textContent).split(/\\n+/).filter(Boolean));" +
-                                "const title=n(a&&a.title)||n(document.title), text=a?[title,...(lines[0]===title?lines.slice(1):lines)].filter(Boolean).join('\\n\\n'):'';" +
-                                "return a&&text.length>=100?{text:text,lang:a.lang||document.documentElement.lang||null}:{error:true};" +
-                                "} catch (_) { return {error:true}; } };" +
-                                "const send=result=>FiloReader.postMessage(JSON.stringify(result));" +
-                                "setTimeout(() => { const first=extract(); if(first.text) send(first); else setTimeout(() => send(extract()), 800); }, 500); })();",
-                                null,
-                        )
-                    }
-
-                    override fun onReceivedError(
-                        view: WebView,
-                        request: WebResourceRequest,
-                        error: WebResourceError,
-                    ) {
-                        if (request.isForMainFrame) onFailure()
+                            "$scripts;(() => { const report = () => FiloReader.selectionChanged(window.__filoHasSelection());" +
+                                "document.addEventListener('selectionchange', report); report(); })();",
+                        ) { onPageLoaded() }
                     }
                 }
                 loadUrl(url)
             }
         }
-        LaunchedEffect(webView, readRequest?.id, pageReady) {
-            val request = readRequest ?: return@LaunchedEffect
-            if (!pageReady) return@LaunchedEffect
-            val source = request.source.name
-            val textExpression = when (request.source) {
-                ReadingSource.Selection -> "(window.getSelection()||{}).toString()"
-                ReadingSource.Display -> "((document.querySelector('article,main')||document.body||{}).innerText||'')"
-                ReadingSource.Article -> "''"
+        // Capture when asked, once the page has loaded. A page that renders
+        // after load gets one more try before the controller falls back.
+        LaunchedEffect(webView, captureRequest?.id, pageLoaded) {
+            val request = captureRequest ?: return@LaunchedEffect
+            if (!pageLoaded) return@LaunchedEffect
+            val kind = if (request.kind == CaptureKind.Selection) "selection" else "page"
+            var captured = webView.capture(kind)
+            if (captured == null && request.kind == CaptureKind.Page) {
+                kotlinx.coroutines.delay(800)
+                captured = webView.capture(kind)
             }
-            webView.evaluateJavascript(
-                "(() => { const text=$textExpression; FiloReader.postSource(JSON.stringify(" +
-                    "{requestId:${request.id},source:${JSONObject.quote(source)},text:text," +
-                    "lang:document.documentElement.lang||null})); })();",
-                null,
-            )
+            onCaptured(request, captured?.first, captured?.second)
         }
         DisposableEffect(webView) { onDispose { webView.destroy() } }
         AndroidView(
@@ -1020,42 +925,20 @@ private fun ReadingWebView(
     }
 }
 
-private class ReaderBridge(
-    private val onExtracted: (String, String?) -> Unit,
-    private val onFailure: () -> Unit,
-    private val onSourceCaptured: (ReadingSourceRequest, String, String?) -> Unit,
-    private val onSelectionChanged: (Boolean) -> Unit,
-) {
-    @JavascriptInterface
-    fun postMessage(value: String) {
-        Handler(Looper.getMainLooper()).post {
-            runCatching {
-                val json = JSONObject(value)
-                val text = json.optString("text", "")
-                val language = json.optString("lang").takeIf { it.isNotBlank() }
-                if (text.isBlank()) onFailure() else onExtracted(text, language)
-            }.onFailure { onFailure() }
-        }
+private suspend fun WebView.capture(kind: String): Pair<String, String?>? = suspendCancellableCoroutine { continuation ->
+    evaluateJavascript("window.__filoCapture ? window.__filoCapture(${JSONObject.quote(kind)}) : null") { json ->
+        val result = runCatching {
+            val value = JSONObject(json)
+            val text = value.optString("text", "")
+            if (text.isBlank()) null else text to value.optString("lang").takeIf { it.isNotBlank() && it != "null" }
+        }.getOrNull()
+        if (continuation.isActive) continuation.resume(result)
     }
+}
 
+private class SelectionBridge(private val onSelectionChanged: (Boolean) -> Unit) {
     @JavascriptInterface
-    fun postSource(value: String) {
-        Handler(Looper.getMainLooper()).post {
-            runCatching {
-                val json = JSONObject(value)
-                val requestId = json.optLong("requestId", -1L)
-                val source = ReadingSource.valueOf(json.optString("source"))
-                val text = json.optString("text", "")
-                val language = json.optString("lang").takeIf { it.isNotBlank() }
-                if (requestId >= 0) {
-                    onSourceCaptured(ReadingSourceRequest(requestId, source), text, language)
-                }
-            }
-        }
-    }
-
-    @JavascriptInterface
-    fun selectionChanged(value: String) {
-        Handler(Looper.getMainLooper()).post { onSelectionChanged(value.isNotBlank()) }
+    fun selectionChanged(value: Boolean) {
+        Handler(Looper.getMainLooper()).post { onSelectionChanged(value) }
     }
 }

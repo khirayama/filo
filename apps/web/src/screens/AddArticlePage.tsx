@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
-import { Button, ErrorBox, palette } from "../components/ui";
+import { Button, ErrorBox } from "../components/ui";
 import { trackEvent } from "../lib/analytics";
 import { useBackOr } from "../lib/navigation";
 
@@ -40,31 +40,33 @@ export function AddArticlePage() {
   };
 
   return (
-    <AppShell>
-      <main style={{ maxWidth: "720px", padding: "24px var(--fl-page-gutter)", margin: "0 auto" }}>
-        <h1 style={{ fontSize: "20px", marginTop: 0 }}>{t("記事を追加")}</h1>
-        <p id="article-url-help" style={{ color: palette.muted }}>{t("URLをリーディングリストに保存します。")}</p>
-        <form onSubmit={submit} style={{ display: "grid", gap: "12px" }}>
-          <input
-            id="article-url"
-            autoFocus
-            type="url"
-            required
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://example.com/article"
-            aria-label={t("記事URL")}
-            aria-describedby="article-url-help"
-            style={{ background: palette.surface, border: `1px solid ${palette.border}`, borderRadius: "6px", color: palette.text, font: "inherit", padding: "10px 12px" }}
-          />
-          <div style={{ display: "flex", gap: "8px" }}>
-            <Button type="submit" kind="primary" disabled={isSubmitting || !url.trim()} ariaBusy={isSubmitting}>
-              {isSubmitting ? t("保存中…") : t("追加")}
-            </Button>
-            <Button onClick={goBack} disabled={isSubmitting}>{t("戻る")}</Button>
-          </div>
-        </form>
-        {error ? <ErrorBox message={error} /> : null}
+    <AppShell title={t("記事を追加")} onBack={goBack}>
+      <main className="fl-page fl-page--narrow">
+        <div className="fl-stack">
+          <form onSubmit={submit} className="fl-stack" style={{ gap: "20px" }}>
+            <label htmlFor="article-url" className="fl-field">
+              <span className="fl-field-label">{t("記事URL")}</span>
+              <input
+                id="article-url"
+                autoFocus
+                type="url"
+                className="fl-input"
+                required
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="https://example.com/article"
+                aria-describedby="article-url-help"
+              />
+              <span id="article-url-help" className="fl-field-hint">{t("URLをリーディングリストに保存します。")}</span>
+            </label>
+            <div>
+              <Button type="submit" kind="primary" icon="plus" disabled={isSubmitting || !url.trim()} ariaBusy={isSubmitting}>
+                {isSubmitting ? t("保存中…") : t("追加")}
+              </Button>
+            </div>
+          </form>
+          {error ? <ErrorBox message={error} /> : null}
+        </div>
       </main>
     </AppShell>
   );

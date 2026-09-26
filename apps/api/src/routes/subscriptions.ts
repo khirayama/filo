@@ -1,18 +1,15 @@
 import { Hono } from "hono";
 import type { AppContext } from "../lib/auth";
-import { discoverFeed, faviconUrlFor } from "../lib/discovery";
+import { discoverFeed } from "../lib/discovery";
 import { ApiError, errors } from "../lib/errors";
 import {
   SUBSCRIPTION_SELECT,
   serializeSubscription,
   type SubscriptionRow,
 } from "../lib/serialize";
-import {
-  initializeSubscriptionUnreadCount,
-  readCursorFor,
-  recomputeReadingListUnreadCount,
-} from "../lib/readCursor";
-import { attachTags, ownedTagIds, resolveTagIdsByNames, tagIdsForSubscriptions } from "../lib/tagops";
+import { recountReadingListUnreadMutation, recountSubscriptionUnreadMutation } from "../lib/readCursor";
+import { createSubscription, findOrCreateFeed } from "../lib/subscriptions";
+import { attachTagsStatement, ownedTagIds, tagIdsForSubscriptions } from "../lib/tagops";
 import { nowIso, parseId, parseLimit, toIso } from "../lib/util";
 
 async function loadSubscription(db: D1Database, userId: number, subscriptionId: number): Promise<SubscriptionRow> {
@@ -22,12 +19,6 @@ async function loadSubscription(db: D1Database, userId: number, subscriptionId: 
     .first<SubscriptionRow>();
   if (!row) throw errors.notFound("subscription_not_found", "Subscription not found");
   return row;
-}
-
-async function findFeedByUrl(db: D1Database, feedUrl: string) {
-  return db.prepare("SELECT id FROM feeds WHERE feed_url = ?")
-    .bind(feedUrl)
-    .first<{ id: number }>();
 }
 
 async function serializeOne(db: D1Database, row: SubscriptionRow) {
@@ -83,83 +74,22 @@ export const subscriptionRoutes = new Hono<AppContext>()
     if (!Array.isArray(tagIds) || tagIds.some((id) => typeof id !== "number")) throw errors.validation("invalid tagIds");
     if (!Array.isArray(tagNames) || tagNames.some((n) => typeof n !== "string")) throw errors.validation("invalid tagNames");
 
-    const discovered = await discoverFeed(body.feedUrl.trim());
-
-    let feed = await findFeedByUrl(c.env.DB, discovered.feedUrl);
-    const now = nowIso();
-    if (!feed) {
-      feed = await c.env.DB.prepare(
-        `INSERT INTO feeds (feed_url, site_url, title, description, favicon_url, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'active', ?, ?) RETURNING id`
-      )
-        .bind(
-          discovered.feedUrl,
-          discovered.parsed.siteUrl,
-          discovered.parsed.title,
-          discovered.parsed.description,
-          await faviconUrlFor(discovered.parsed.siteUrl, discovered.feedUrl),
-          now,
-          now
-        )
-        .first<{ id: number }>();
-      if (!feed) throw errors.internal();
-    }
-
-    const existing = await c.env.DB.prepare("SELECT id FROM subscriptions WHERE user_id = ? AND feed_id = ?")
-      .bind(user.id, feed.id)
-      .first();
-    if (existing) throw errors.conflict("subscription_already_exists", "Already subscribed to this feed");
-
-    // Reused feeds with prior successful fetch (or existing articles) are ready immediately.
-    const fetchState = await c.env.DB.prepare(
-      "SELECT last_success_fetched_at FROM feed_fetch_states WHERE feed_id = ?"
-    )
-      .bind(feed.id)
-      .first<{ last_success_fetched_at: string | null }>();
-    const hasArticles = await c.env.DB.prepare("SELECT id FROM articles WHERE feed_id = ? LIMIT 1")
-      .bind(feed.id)
-      .first();
-    const isReady = Boolean(fetchState?.last_success_fetched_at) || Boolean(hasArticles);
-
-    const maxOrder = await c.env.DB.prepare(
-      "SELECT COALESCE(MAX(sort_order), 0) AS m FROM subscriptions WHERE user_id = ?"
-    )
-      .bind(user.id)
-      .first<{ m: number }>();
-
-    const inserted = await c.env.DB.prepare(
-      `INSERT INTO subscriptions
-        (user_id, feed_id, custom_title, sort_order, initial_fetch_status, initial_fetch_requested_at, initial_fetch_completed_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
-    )
-      .bind(
-        user.id,
-        feed.id,
-        (body.customTitle as string | null | undefined)?.trim() || null,
-        (maxOrder?.m ?? 0) + 10,
-        isReady ? "ready" : "fetching",
-        now,
-        isReady ? now : null,
-        now,
-        now
-      )
-      .first<{ id: number }>();
-    if (!inserted) throw errors.internal();
-
     const requestedTagIds = [...new Set(tagIds as number[])];
     const owned = await ownedTagIds(c.env.DB, user.id, requestedTagIds);
     for (const tagId of requestedTagIds) {
       if (!owned.has(tagId)) throw errors.validation(`tag ${tagId} not found`);
     }
-    const namedTagIds = await resolveTagIdsByNames(c.env.DB, user.id, tagNames as string[]);
-    await attachTags(c.env.DB, inserted.id, [...requestedTagIds, ...namedTagIds]);
-    await initializeSubscriptionUnreadCount(c.env.DB, inserted.id, user.id, feed.id, now);
 
-    if (!isReady) {
-      await c.env.JOBS.send({ jobType: "fetch_feed", feedId: feed.id, reason: "initial", attempt: 1 });
-    }
+    const discovered = await discoverFeed(body.feedUrl.trim());
+    const feedId = await findOrCreateFeed(c.env.DB, discovered);
+    const subscriptionId = await createSubscription(c.env.DB, c.env.JOBS, user.id, feedId, {
+      customTitle: (body.customTitle as string | null | undefined)?.trim() || null,
+      tagIds: requestedTagIds,
+      tagNames: tagNames as string[],
+    });
+    if (subscriptionId === null) throw errors.conflict("subscription_already_exists", "Already subscribed to this feed");
 
-    const row = await loadSubscription(c.env.DB, user.id, inserted.id);
+    const row = await loadSubscription(c.env.DB, user.id, subscriptionId);
     return c.json({ data: await serializeOne(c.env.DB, row) }, 201);
   })
   .put("/order", async (c) => {
@@ -178,12 +108,10 @@ export const subscriptionRoutes = new Hono<AppContext>()
     }
     const now = nowIso();
     const statements = ids.map((id, index) =>
-      c.env.DB.prepare("UPDATE subscriptions SET sort_order = ?, updated_at = ? WHERE id = ? AND user_id = ?").bind(
-        (index + 1) * 10,
-        now,
-        id,
-        user.id
-      )
+      // Rows already in place are skipped, so a reorder only writes what moved.
+      c.env.DB.prepare(
+        "UPDATE subscriptions SET sort_order = ?, updated_at = ? WHERE id = ? AND user_id = ? AND sort_order != ?",
+      ).bind((index + 1) * 10, now, id, user.id, (index + 1) * 10)
     );
     if (statements.length > 0) await c.env.DB.batch(statements);
     return c.json({ data: { updated: ids.length } });
@@ -287,24 +215,28 @@ export const subscriptionRoutes = new Hono<AppContext>()
              WHERE a.id = ars.article_id AND a.feed_id = ? AND a.id <= ?
            )`
         ).bind(now, now, user.id, row.feed_id, target),
+        // upToArticleId can leave newer articles unread, so recount instead
+        // of resetting to zero.
+        recountSubscriptionUnreadMutation(c.env.DB, subscriptionId, now),
+        recountReadingListUnreadMutation(c.env.DB, user.id, now),
       ]);
     }
 
-    const cursor = await readCursorFor(c.env.DB, user.id, row.feed_id);
-    const nowAfter = nowIso();
-    const unreadCount = await initializeSubscriptionUnreadCount(
-      c.env.DB,
-      subscriptionId,
-      user.id,
-      row.feed_id,
-      nowAfter,
-    );
-    await recomputeReadingListUnreadCount(c.env.DB, user.id, nowAfter);
+    const result = await c.env.DB.prepare(
+      `SELECT frc.last_read_article_id, frc.updated_at, suc.unread_count
+       FROM subscription_unread_counts suc
+       LEFT JOIN feed_read_cursors frc ON frc.user_id = suc.user_id AND frc.feed_id = suc.feed_id
+       WHERE suc.subscription_id = ?`,
+    ).bind(subscriptionId).first<{
+      last_read_article_id: number | null;
+      updated_at: string | null;
+      unread_count: number;
+    }>();
     return c.json({
       data: {
-        lastReadArticleId: cursor?.last_read_article_id ?? null,
-        unreadCount,
-        updatedAt: cursor ? toIso(cursor.updated_at) : null,
+        lastReadArticleId: result?.last_read_article_id ?? null,
+        unreadCount: result?.unread_count ?? 0,
+        updatedAt: result?.updated_at ? toIso(result.updated_at) : null,
       },
     });
   })
@@ -321,8 +253,13 @@ export const subscriptionRoutes = new Hono<AppContext>()
     for (const tagId of requestedTagIds) {
       if (!owned.has(tagId)) throw errors.validation(`tag ${tagId} not found`);
     }
-    await c.env.DB.prepare("DELETE FROM subscription_tags WHERE subscription_id = ?").bind(subscriptionId).run();
-    await attachTags(c.env.DB, subscriptionId, requestedTagIds);
+    await c.env.DB.batch([
+      // Only removed links are deleted; kept tags cost no writes.
+      c.env.DB.prepare(
+        "DELETE FROM subscription_tags WHERE subscription_id = ? AND tag_id NOT IN (SELECT value FROM json_each(?))",
+      ).bind(subscriptionId, JSON.stringify(requestedTagIds)),
+      attachTagsStatement(c.env.DB, subscriptionId, requestedTagIds, nowIso()),
+    ]);
     const row = await loadSubscription(c.env.DB, user.id, subscriptionId);
     return c.json({ data: await serializeOne(c.env.DB, row) });
   });

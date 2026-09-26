@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { useAppData } from "./AppDataContext";
 import { useTitleTranslation } from "./TitleTranslationContext";
-import { Button, Spinner, palette, useDialogFocus } from "./ui";
+import { Button, IconButton, Spinner, palette, useDialogFocus } from "./ui";
 
 // 翻訳の準備（オンボーディング）。
 //
@@ -78,33 +78,12 @@ export function TitleTranslationSetup() {
       aria-labelledby="filo-translation-setup-title"
       aria-describedby="filo-translation-setup-description"
       onClick={() => setShowSetup(false)}
-      style={{
-        alignItems: "center",
-        background: "rgba(0,0,0,0.4)",
-        display: "flex",
-        inset: 0,
-        justifyContent: "center",
-        padding: "16px",
-        position: "fixed",
-        zIndex: 100,
-      }}
+      className="fl-dialog-scrim"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: palette.bg,
-          border: `1px solid ${palette.border}`,
-          borderRadius: "12px",
-          maxHeight: "80vh",
-          maxWidth: "420px",
-          overflowY: "auto",
-          padding: "20px",
-          width: "100%",
-        }}
-      >
-        <div style={{ alignItems: "center", display: "flex", gap: "8px", marginBottom: "12px" }}>
-          <h2 id="filo-translation-setup-title" style={{ flex: 1, fontSize: "16px", margin: 0 }}>{t("翻訳の準備")}</h2>
-          <Button onClick={() => setShowSetup(false)}>{t("閉じる")}</Button>
+      <div onClick={(e) => e.stopPropagation()} className="fl-dialog">
+        <div className="fl-dialog-header">
+          <h2 id="filo-translation-setup-title">{t("翻訳の準備")}</h2>
+          <IconButton icon="close" label={t("閉じる")} onClick={() => setShowSetup(false)} />
         </div>
 
         <p id="filo-translation-setup-description" style={{ color: palette.muted, fontSize: "13px", margin: "0 0 16px" }}>
@@ -116,9 +95,8 @@ export function TitleTranslationSetup() {
             aria-live="polite"
             role="status"
             style={{
-              background: palette.surface,
-              border: `1px solid ${palette.border}`,
-              borderRadius: "6px",
+              background: "var(--fl-hover)",
+              borderRadius: "var(--fl-radius)",
               marginBottom: "16px",
               padding: "12px",
             }}
@@ -162,7 +140,7 @@ export function TitleTranslationSetup() {
                 {entry.status === "installed" ? (
                   <span style={{ color: palette.muted, fontSize: "13px" }}>{t("準備済み")}</span>
                 ) : entry.status === "downloadable" ? (
-                  <Button ariaBusy={preparing === entry.code} disabled={preparing != null} onClick={() => void prepare(entry.code)}>
+                  <Button small ariaBusy={preparing === entry.code} disabled={preparing != null} onClick={() => void prepare(entry.code)}>
                     {preparing === entry.code ? t("ダウンロード中…") : t("ダウンロード")}
                   </Button>
                 ) : (

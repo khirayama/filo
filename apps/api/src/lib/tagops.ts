@@ -63,20 +63,19 @@ export async function resolveTagIdsByNames(db: D1Database, userId: number, names
   });
 }
 
-export async function attachTags(db: D1Database, subscriptionId: number, tagIds: number[]): Promise<void> {
-  const now = nowIso();
-  const unique = [...new Set(tagIds)];
-  for (let i = 0; i < unique.length; i += 50) {
-    const statements = unique.slice(i, i + 50).map((tagId) =>
-      db
-        .prepare(
-          "INSERT INTO subscription_tags (subscription_id, tag_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
-        )
-        .bind(subscriptionId, tagId, now),
-    );
-    const results = await db.batch(statements);
-    recordD1BatchMeta("subscriptions.attach_tags", results, { tag_count: statements.length });
-  }
+// One statement for any number of tags. Links that already exist are left
+// untouched, so re-attaching an unchanged tag writes nothing.
+export function attachTagsStatement(
+  db: D1Database,
+  subscriptionId: number,
+  tagIds: readonly number[],
+  now: string,
+): D1PreparedStatement {
+  return db.prepare(
+    `INSERT INTO subscription_tags (subscription_id, tag_id, created_at)
+     SELECT ?, value, ? FROM json_each(?) WHERE true
+     ON CONFLICT DO NOTHING`,
+  ).bind(subscriptionId, now, JSON.stringify([...new Set(tagIds)]));
 }
 
 export async function ownedTagIds(db: D1Database, userId: number, tagIds: readonly number[]): Promise<Set<number>> {

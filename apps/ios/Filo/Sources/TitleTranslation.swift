@@ -402,7 +402,7 @@ struct TitleTranslationToggle: View {
             } label: {
                 FiloIcon(.translate, size: 18)
             }
-            .accessibilityLabel(L10n.string(store.isEnabled ? "原文タイトルに戻す" : "タイトルを翻訳"))
+            .accessibilityLabel(Text(localized: store.isEnabled ? "原文タイトルに戻す" : "タイトルを翻訳"))
         }
     }
 }
@@ -418,101 +418,94 @@ struct TitleTranslationSetupView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Text("タイトルの翻訳は端末の中で行います。はじめに、翻訳したい言語をダウンロードしてください。ダウンロードは Wi-Fi 接続時をおすすめします。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("原文の言語") {
-                    if !store.hasCheckedLanguages {
-                        HStack {
-                            ProgressView()
-                            Text("確認しています…")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if store.languages.isEmpty, store.isDeviceSupported {
-                        Text("購読しているフィードに、翻訳が必要な言語はありません。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else if !store.isDeviceSupported {
-                        // 端末に翻訳用の言語モデルが用意されていない。言語ペアの問題では
-                        // ないので、言語を並べても誤解を招くだけ。
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("この端末では端末内翻訳を利用できません。")
-                                .font(.footnote)
-                            Text("シミュレータには翻訳用の言語モデルが用意されていません。実機でお試しください。")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        ForEach(store.languages) { language in
-                            row(language)
-                        }
-                    }
-                }
-
-                if let error = store.lastError {
-                    Section("最後のエラー") {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(localized: "翻訳の準備")
+                    .filoFont(16, .bold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                FiloIconButton(.close, label: "閉じる") { dismiss() }
+                    .padding(.trailing, -8)
+            }
+            .padding(.bottom, 8)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(localized: "タイトルの翻訳は端末の中で行います。はじめに、翻訳したい言語をダウンロードしてください。ダウンロードは Wi-Fi 接続時をおすすめします。")
+                        .filoFont(13)
+                        .lineSpacing(3)
+                        .foregroundStyle(FiloPalette.muted)
+                    if let error = store.lastError {
                         Text(error)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
+                            .filoFont(13)
+                            .foregroundStyle(FiloPalette.danger)
                     }
-                }
-
-                if store.isSupported {
-                    Section {
-                        Text("ここに無い言語の記事は、翻訳せず原文のまま表示します。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                    languages
+                    if store.isSupported {
+                        Text(localized: "ここに無い言語の記事は、翻訳せず原文のまま表示します。")
+                            .filoFont(12)
+                            .foregroundStyle(FiloPalette.muted)
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(FiloPalette.background)
-            .listRowBackground(FiloPalette.background)
-            .navigationTitle("翻訳の準備")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("閉じる") { dismiss() }
-                }
-            }
-            .task { await store.refreshLanguages() }
         }
+        .foregroundStyle(FiloPalette.text)
+        .padding(20)
+        .presentationDetents([.medium, .large])
+        .presentationBackground(FiloPalette.surface)
+        .task { await store.refreshLanguages() }
     }
 
     @ViewBuilder
+    private var languages: some View {
+        if !store.hasCheckedLanguages {
+            FiloSpinner(label: "確認しています…")
+        } else if !store.isDeviceSupported {
+            // 端末に翻訳用の言語モデルが用意されていない。言語ペアの問題では
+            // ないので、言語を並べても誤解を招くだけ。
+            VStack(alignment: .leading, spacing: 6) {
+                Text(localized: "この端末では端末内翻訳を利用できません。")
+                    .filoFont(14)
+                Text(localized: "シミュレータには翻訳用の言語モデルが用意されていません。実機でお試しください。")
+                    .filoFont(13)
+                    .foregroundStyle(FiloPalette.muted)
+            }
+        } else if store.languages.isEmpty {
+            Text(localized: "購読しているフィードに、翻訳が必要な言語はありません。")
+                .filoFont(13)
+                .foregroundStyle(FiloPalette.muted)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(store.languages) { language in
+                    row(language)
+                }
+            }
+        }
+    }
+
     private func row(_ language: TitleTranslationLanguage) -> some View {
-        HStack {
+        HStack(spacing: 12) {
             Text(language.displayName)
-            Spacer()
+                .filoFont(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
             switch language.status {
             case .installed:
-                HStack(spacing: 6) {
-                    FiloIcon(.checkCircle, size: 16, color: .green, filled: true)
-                    Text("準備済み")
-                }
-                    .font(.footnote)
-                    .foregroundStyle(.green)
+                Text(localized: "準備済み")
+                    .filoFont(13)
+                    .foregroundStyle(FiloPalette.muted)
             case .downloadable:
-                Button("ダウンロード") { store.prepare(source: language.code) }
-                    .buttonStyle(.borderless)
-                    .font(.footnote)
+                FiloButton("ダウンロード", small: true) { store.prepare(source: language.code) }
                     // 翻訳バッチが走っている間はセッションを取り合うので押させない
                     .disabled(store.isPreparing || store.isTranslating)
             case .unsupported:
-                Text("この端末では非対応")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Text(localized: "この端末では非対応")
+                    .filoFont(13)
+                    .foregroundStyle(FiloPalette.muted)
             case .unknown:
-                Text("不明")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Text(localized: "不明")
+                    .filoFont(13)
+                    .foregroundStyle(FiloPalette.muted)
             }
         }
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) { FiloDivider() }
     }
 }

@@ -42,9 +42,10 @@ final class ArticlesViewModel: ObservableObject {
         if let tagId = selectedTagId, let tag = tags.first(where: { $0.id == tagId }) {
             return tag.name
         }
-        if readingListOnly { return L10n.string("リーディングリスト") }
-        if bookmarkedOnly { return L10n.string("ブックマーク") }
-        return L10n.string("全ての記事")
+        // A localization key (or the tag name); the header resolves it.
+        if readingListOnly { return "リーディングリスト" }
+        if bookmarkedOnly { return "ブックマーク" }
+        return "全ての記事"
     }
 
     private var filters: ArticleListFilters {
@@ -256,15 +257,8 @@ final class ArticlesViewModel: ObservableObject {
 struct ArticlesScreen: View {
     @Binding var path: NavigationPath
     @ObservedObject var model: ArticlesViewModel
-    var showDesktopSidebar = true
-    var showMobileDrawer = true
-    var showMobileMenu = true
-    var onCloseMobileDrawer: () -> Void = {}
-    var onOpenMobileDrawer: (() -> Void)? = nil
     @ObservedObject private var translations = TitleTranslationStore.shared
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @State private var showDrawer = false
     @State private var showRemoveReadConfirm = false
     @State private var selectedArticleIndex: Int? = nil
     @State private var listScrollPosition: Int? = nil
@@ -276,40 +270,14 @@ struct ArticlesScreen: View {
     @Environment(\.filoIsDesktop) private var isDesktop
 
     var body: some View {
-        Group {
-            if isDesktop {
-                if showDesktopSidebar {
-                    HStack(spacing: 0) {
-                        SourcesDrawer(model: model, onSelect: {}, showCloseButton: false)
-                            .frame(width: 280)
-                            .background(FiloPalette.surface)
-                        Divider()
-                        articleList
-                    }
-                } else {
-                    articleList
-                }
-            } else if showMobileDrawer {
-                VStack(spacing: 0) {
-                    mobileArticleHeader
-                    ZStack(alignment: .leading) {
-                        articleList
-                        if showDrawer {
-                            drawerOverlay
-                        }
-                    }
-                }
-            } else {
-                VStack(spacing: 0) {
-                    mobileArticleHeader
-                    articleList
-                }
-            }
+        FiloPage(model.viewTitle) {
+            headerActions
+        } content: {
+            articleList
         }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
         .focusable()
         .focused($isKeyboardFocused)
+        .focusEffectDisabled()
         .onKeyPress(
             keys: [KeyEquivalent("j"), .downArrow, KeyEquivalent("k"), .upArrow],
             phases: [.down, .repeat]
@@ -324,45 +292,9 @@ struct ArticlesScreen: View {
             }
             return .handled
         }
-        .toolbar {
-            if isDesktop {
-                ToolbarItem(placement: .principal) {
-                    Text(model.viewTitle)
-                        .font(.headline.weight(.semibold))
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if model.readingListOnly {
-                        Button {
-                            showRemoveReadConfirm = true
-                        } label: {
-                            FiloIcon(.trash, size: 18)
-                        }
-                        .accessibilityLabel("既読記事を削除")
-                        Button {
-                            path.append(AppRoute.readingSession(false))
-                        } label: {
-                            HStack(spacing: 6) {
-                                FiloIcon(.play, size: 16)
-                                Text("閲覧開始")
-                            }
-                        }
-                    }
-                    if !model.bookmarkedOnly && !model.readingListOnly {
-                        Button {
-                            Task { await markAllReadAndResetList() }
-                        } label: {
-                            FiloIcon(.checkCircle, size: 18)
-                        }
-                        .accessibilityLabel("すべて既読にする")
-                    }
-                    articleFiltersMenu
-                }
-            }
-        }
         .confirmationDialog("既読の記事をリーディングリストから削除しますか？", isPresented: $showRemoveReadConfirm, titleVisibility: .visible) {
             Button("既読記事を削除", role: .destructive) { Task { await model.removeReadArticlesFromReadingList() } }
         }
-        .refreshable { await model.refreshFeedsAndReload() }
         .onAppear {
             isKeyboardFocused = true
             // load() already fetches unread counts on the first appearance.
@@ -406,79 +338,54 @@ struct ArticlesScreen: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if let notice = model.markAllReadNotice {
-                ToastView(message: notice)
+            if let notice = model.markAllReadNotice ?? model.refreshNotice {
+                FiloToast(message: notice)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: model.markAllReadNotice ?? model.refreshNotice)
         .task(id: model.markAllReadNotice) {
             guard model.markAllReadNotice != nil else { return }
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
             model.markAllReadNotice = nil
         }
+        .task(id: model.refreshNotice) {
+            guard model.refreshNotice != nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            model.refreshNotice = nil
+        }
     }
 
-    private var mobileArticleHeader: some View {
-        HStack(spacing: 8) {
-            if showMobileMenu {
-                Button {
-                    if let onOpenMobileDrawer {
-                        onOpenMobileDrawer()
-                    } else {
-                        withAnimation(.easeOut(duration: 0.2)) { showDrawer = true }
-                    }
-                } label: {
-                    FiloIcon(.menu, size: 18)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("フィードメニュー")
-            }
-
-            Text(model.viewTitle)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(FiloPalette.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
-
-            Spacer(minLength: 8)
-
-            if model.readingListOnly {
-                Button {
+    @ViewBuilder
+    private var headerActions: some View {
+        if model.readingListOnly {
+            let readingDisabled = model.articles.isEmpty
+            if isDesktop {
+                FiloButton("閲覧開始", icon: .bookOpen, small: true) {
                     path.append(AppRoute.readingSession(false))
-                } label: {
-                    HStack(spacing: 6) {
-                        FiloIcon(.play, size: 16)
-                        Text("閲覧開始")
-                    }
                 }
-                Button {
-                    showRemoveReadConfirm = true
-                } label: {
-                    FiloIcon(.trash, size: 18)
-                        .frame(width: 32, height: 32)
+                .disabled(readingDisabled)
+                FiloButton("読み上げ開始", icon: .play, kind: .primary, small: true) {
+                    path.append(AppRoute.readingSession(true))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("既読記事を削除")
+                .disabled(readingDisabled)
+                .padding(.trailing, 4)
+            } else {
+                FiloIconButton(.bookOpen, label: "閲覧開始") { path.append(AppRoute.readingSession(false)) }
+                    .disabled(readingDisabled)
+                FiloIconButton(.play, label: "読み上げ開始") { path.append(AppRoute.readingSession(true)) }
+                    .disabled(readingDisabled)
             }
-            if !model.bookmarkedOnly && !model.readingListOnly {
-                Button {
-                    Task { await markAllReadAndResetList() }
-                } label: {
-                    FiloIcon(.checkCircle, size: 18)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("すべて既読にする")
-            }
-            articleFiltersMenu
-                .frame(width: 32, height: 32)
+            FiloIconButton(.trash, label: "既読記事を削除") { showRemoveReadConfirm = true }
         }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 51)
-        .background(FiloPalette.surface)
-        .overlay(alignment: .bottom) { Divider() }
+        if !model.bookmarkedOnly && !model.readingListOnly {
+            FiloIconButton(.checkCircle, label: "すべて既読にする") {
+                Task { await markAllReadAndResetList() }
+            }
+            .disabled(model.isMarkingAllRead)
+        }
+        ArticleListControls(readFilter: $model.readFilter, sort: $model.sort, readOrder: $model.readOrder)
     }
 
     private func registerTitlesForTranslation() {
@@ -499,28 +406,9 @@ struct ArticlesScreen: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(FiloPalette.background)
-            .listRowBackground(FiloPalette.background)
-            .overlay(alignment: .bottom) {
-                if let notice = model.refreshNotice {
-                    Text(notice)
-                        .font(.caption)
-                        .foregroundStyle(FiloPalette.muted)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(FiloPalette.surface, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(FiloPalette.mutedBorder, lineWidth: 1)
-                        )
-                        .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
-                        .frame(maxWidth: 480, alignment: .leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                        .allowsHitTesting(false)
-                }
-            }
+            .environment(\.defaultMinListRowHeight, 0)
+            .refreshable { await model.refreshFeedsAndReload() }
             .scrollPosition(id: $listScrollPosition)
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             .onChange(of: selectedArticleIndex) { _, index in
                 guard let index, model.articles.indices.contains(index) else { return }
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -534,97 +422,49 @@ struct ArticlesScreen: View {
         }
     }
 
-    private var articleFiltersMenu: some View {
-        Menu {
-            if translations.isSupported {
-                Picker("タイトルを翻訳", selection: Binding(
-                    get: { translations.isEnabled },
-                    set: { if $0 != translations.isEnabled { translations.toggle() } }
-                )) {
-                    Text("オフ").tag(false)
-                    Text("オン").tag(true)
-                }
-            }
-            Picker("既読状態", selection: Binding(
-                get: { model.readFilter },
-                set: { model.readFilter = $0 }
-            )) {
-                Text("全ての記事").tag(Bool?.none)
-                Text("未読").tag(Bool?.some(false))
-                Text("既読").tag(Bool?.some(true))
-            }
-            Picker("既読の扱い", selection: $model.readOrder) {
-                Text("既読で並び替えない").tag("none")
-                Text("既読は下").tag("unread_first")
-                Text("既読は上").tag("read_first")
-            }
-            Picker("並び順", selection: $model.sort) {
-                Text("公開日時が新しい順").tag("published_at_desc")
-                Text("取得日時が新しい順").tag("fetched_at_desc")
-            }
-        } label: {
-            FiloIcon(.gear, size: 18)
-        }
-        .accessibilityLabel("表示設定")
-    }
-
     @ViewBuilder
     private var articleSection: some View {
-        Section {
-            if model.isLoading, model.articles.isEmpty {
-                ProgressView(L10n.string("記事一覧を読み込んでいます…"))
-                    .listRowBackground(FiloPalette.background)
-            } else if let error = model.errorMessage {
-                ErrorBanner(message: error) { Task { await model.load() } }
-                    .listRowBackground(FiloPalette.background)
-            } else if model.articles.isEmpty {
-                emptyState.listRowBackground(FiloPalette.background)
-                } else {
-                    ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
-                        ArticleRowView(
-                            article: article,
-                            selected: article.id == selectedArticle?.id,
-                            onOpenFeed: article.subscriptionContext.subscriptionIds.first.map { subscriptionId in
-                                { path.append(AppRoute.subscriptionDetail(subscriptionId)) }
-                            },
-                            onOpen: {
-                            FiloAnalytics.track("select_item", parameters: ["article_id": article.id])
-                            if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
-                                if model.settings?.openInBrowserByDefault == true {
-                                    openURL(url)
-                                } else {
-                                    path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
-                                }
-                            }
-                        },
-                        onToggleRead: {
-                            Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
-                        },
-                        onToggleReadingList: {
-                            Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
-                        },
-                        onToggleBookmark: {
-                            Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
-                        },
-                    )
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .listRowBackground(FiloPalette.background)
-                    .id(article.id)
-                    .onAppear {
-                        visibleArticleIds.insert(article.id)
-                        if index >= max(model.articles.count - 4, 0) {
-                            Task { await model.loadMore() }
-                        }
+        if model.isLoading, model.articles.isEmpty {
+            FiloSpinner().filoListRow()
+        } else if let error = model.errorMessage {
+            FiloErrorBox(message: error) { Task { await model.load() } }
+                .padding(FiloMetrics.gutter)
+                .filoListRow()
+        } else if model.articles.isEmpty {
+            emptyState.filoListRow()
+        } else {
+            ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
+                ArticleRowView(
+                    article: article,
+                    selected: article.id == selectedArticle?.id,
+                    onOpenFeed: article.subscriptionContext.subscriptionIds.first.map { subscriptionId in
+                        { path.append(AppRoute.subscriptionDetail(subscriptionId)) }
+                    },
+                    onOpen: { open(article, external: false) },
+                    onToggleRead: {
+                        Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
+                    },
+                    onToggleReadingList: {
+                        Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
+                    },
+                    onToggleBookmark: {
+                        Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
+                    },
+                )
+                .filoListRow()
+                .id(article.id)
+                .onAppear {
+                    visibleArticleIds.insert(article.id)
+                    if index >= max(model.articles.count - 4, 0) {
+                        Task { await model.loadMore() }
                     }
-                    .onDisappear { visibleArticleIds.remove(article.id) }
                 }
-                if model.isLoadingMore {
-                    ProgressView(L10n.string("次の記事を読み込んでいます…"))
-                        .listRowBackground(FiloPalette.background)
-                }
+                .onDisappear { visibleArticleIds.remove(article.id) }
+            }
+            if model.isLoadingMore {
+                FiloSpinner().filoListRow()
             }
         }
-        .listRowBackground(FiloPalette.background)
     }
 
     private var selectedArticle: ArticleListItem? {
@@ -646,13 +486,19 @@ struct ArticlesScreen: View {
         selectedArticleIndex = min(max(nextIndex, 0), model.articles.count - 1)
     }
 
-    private func openSelectedArticle(external: Bool) {
-        guard let article = selectedArticle, let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
+    private func open(_ article: ArticleListItem, external: Bool) {
+        FiloAnalytics.track("select_item", parameters: ["article_id": article.id])
+        guard let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
         if external || model.settings?.openInBrowserByDefault == true {
             openURL(url)
         } else {
             path.append(AppRoute.readingArticle(ReadingSessionArticle(article)))
         }
+    }
+
+    private func openSelectedArticle(external: Bool) {
+        guard let article = selectedArticle else { return }
+        open(article, external: external)
     }
 
     private var shortcutButtons: some View {
@@ -676,11 +522,6 @@ struct ArticlesScreen: View {
             Button("", action: { if !model.bookmarkedOnly && !model.readingListOnly { Task { await markAllReadAndResetList() } } })
                 .keyboardShortcut("a", modifiers: [.shift])
             Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
-            Button("", action: {
-                if showDrawer { closeDrawer() }
-                else if !path.isEmpty { dismiss() }
-                else { onCloseMobileDrawer() }
-            }).keyboardShortcut(.escape, modifiers: [])
         }
         .frame(width: 1, height: 1)
         .opacity(0)
@@ -696,33 +537,26 @@ struct ArticlesScreen: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if model.subscriptions.isEmpty,
-           model.selectedTagId == nil,
-           model.readFilter == nil,
-           !model.readingListOnly,
-           !model.bookmarkedOnly {
-            EmptyStateView {
-                Text("まだ購読がありません。")
-                NavigationLink(value: AppRoute.addFeed) {
-                    Text("フィードを追加")
-                }
-            }
-        } else if model.readingListOnly {
-            EmptyStateView {
-                Text("リーディングリストに保存した記事はありません。")
-                Button("全ての記事") { model.selectView() }
+        let hasFilter = model.selectedTagId != nil || model.readFilter != nil || model.readingListOnly || model.bookmarkedOnly
+        if model.subscriptions.isEmpty && !hasFilter {
+            FiloEmptyState(icon: .rss, message: "まだ購読がありません。") {
+                FiloButton("フィードを追加", kind: .primary) { path.append(AppRoute.addFeed) }
             }
         } else if model.readFilter == nil,
                   !model.readingListOnly,
                   !model.bookmarkedOnly,
                   relevantSubscriptions.contains(where: { $0.initialFetchStatus == "fetching" }) {
-            EmptyStateView {
-                ProgressView()
-                Text("記事を取得しています…")
-                Button("更新") { Task { await model.reloadArticles() } }
+            FiloEmptyState(icon: .refresh, message: "記事を取得しています…") {
+                FiloButton("更新") { Task { await model.reloadArticles() } }
             }
+        } else if model.readingListOnly {
+            FiloEmptyState(icon: .playlist, message: "リーディングリストに保存した記事はありません。") {
+                FiloButton("全ての記事") { model.selectView() }
+            }
+        } else if model.bookmarkedOnly {
+            FiloEmptyState(icon: .bookmark, message: "表示できる記事がありません。")
         } else {
-            EmptyStateView { Text("表示できる記事がありません。") }
+            FiloEmptyState(icon: .inbox, message: "表示できる記事がありません。")
         }
     }
 
@@ -730,48 +564,55 @@ struct ArticlesScreen: View {
         guard let tagId = model.selectedTagId else { return model.subscriptions }
         return model.subscriptions.filter { $0.tagIds.contains(tagId) }
     }
-
-    // MARK: Sources drawer (Feedly-style left menu)
-
-    private var drawerOverlay: some View {
-        ZStack(alignment: .leading) {
-            Color.black.opacity(0.3)
-                .ignoresSafeArea()
-                .onTapGesture { closeDrawer() }
-                .transition(.opacity)
-            SourcesDrawer(model: model, onSelect: { closeDrawer() })
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: .infinity)
-                .background(FiloPalette.surface)
-                .transition(.move(edge: .leading))
-        }
-        .zIndex(1)
-    }
-
-    private func closeDrawer() {
-        withAnimation(.easeIn(duration: 0.2)) { showDrawer = false }
-    }
 }
 
 struct ShortcutHelpView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    // Keys and descriptions share one localized string, split at the gap.
+    private let shortcuts = [
+        "J / ↓  次の記事",
+        "K / ↑  前の記事",
+        "Enter / O  記事を開く",
+        "V  元記事を開く",
+        "M  既読／未読",
+        "S  リーディングリスト",
+        "B  ブックマーク",
+        "R  更新",
+        "Shift+A  すべて既読",
+        "?  この一覧",
+    ].map { entry -> (key: String, label: String) in
+        let localized = L10n.string(entry)
+        guard let gap = localized.range(of: "  ") else { return (localized, "") }
+        return (String(localized[..<gap.lowerBound]), String(localized[gap.upperBound...]))
+    }
+
     var body: some View {
-        NavigationStack {
-            List {
-                Text("J / ↓  次の記事")
-                Text("K / ↑  前の記事")
-                Text("Enter / O  記事を開く")
-                Text("V  元記事を開く")
-                Text("M  既読／未読")
-                Text("S  リーディングリスト")
-                Text("B  ブックマーク")
-                Text("R  更新")
-                Text("Shift+A  すべて既読")
-                Text("?  この一覧")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(localized: "ショートカット")
+                    .filoFont(16, .bold)
+                Spacer()
+                FiloIconButton(.close, label: "閉じる") { dismiss() }
+                    .padding(.trailing, -8)
             }
-            .scrollContentBackground(.hidden)
-            .background(FiloPalette.background)
-            .listRowBackground(FiloPalette.background)
-            .navigationTitle("ショートカット")
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                ForEach(shortcuts, id: \.key) { shortcut in
+                    GridRow {
+                        Text(verbatim: shortcut.key)
+                            .filoFont(14, .medium)
+                            .monospacedDigit()
+                        Text(verbatim: shortcut.label)
+                            .filoFont(14)
+                            .foregroundStyle(FiloPalette.muted)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
         }
+        .foregroundStyle(FiloPalette.text)
+        .padding(20)
+        .presentationDetents([.medium])
+        .presentationBackground(FiloPalette.surface)
     }
 }

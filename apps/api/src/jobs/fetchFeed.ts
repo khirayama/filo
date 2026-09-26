@@ -13,7 +13,6 @@ import {
   safeFetch,
 } from "../lib/net";
 import { isoOffset, nowIso } from "../lib/util";
-import { incrementUnreadForFeedMutation } from "../lib/readCursor";
 
 interface FeedRow {
   id: number;
@@ -146,7 +145,7 @@ async function writeLog(env: Env, feedId: number, startedAt: string, result: str
 }
 
 // フィード言語が未設定なら、保存済み記事のタイトルと説明文から決める。
-// 304 が返るフィードは文書が手に入らないので、判定材料はこれしかない。
+// 1 回の文書に載る item が少ないフィードでも、蓄積した記事を合わせれば材料が足りる。
 // 単独のタイトルでは誤判定するが、数十件を連結すれば安定して当たる。
 async function ensureFeedLanguage(
   env: Env,
@@ -217,12 +216,36 @@ interface PreparedArticle {
   publishedAt: string | null;
 }
 
+interface ExistingArticle {
+  id: number;
+  dedupe_key: string;
+  title: string;
+  author: string | null;
+  rss_summary: string | null;
+  rss_content_html: string | null;
+  canonical_url: string | null;
+  published_at: string | null;
+  source_language: string | null;
+}
+
+// Mirrors the UPDATE below: a missing URL/date in the feed never clears the
+// stored value, and the source language is only filled once.
+function articleChanged(current: ExistingArticle, item: PreparedArticle): boolean {
+  return current.title !== item.title
+    || current.author !== item.author
+    || current.rss_summary !== item.summary
+    || current.rss_content_html !== item.contentHtml
+    || (item.canonicalUrl !== null && current.canonical_url !== item.canonicalUrl)
+    || (item.publishedAt !== null && current.published_at !== item.publishedAt)
+    || (current.source_language === null && item.sourceLanguage !== null);
+}
+
 /**
  * Feed items are shared data. A fetch can contain up to 200 items, so doing a
  * SELECT followed by an UPDATE/INSERT for each item creates hundreds of D1
- * round trips. Read existing keys in one batch, then apply conditional
- * updates and conflict-safe inserts in bounded batches. The conditional
- * UPDATE keeps the existing write-saving behavior for unchanged articles.
+ * round trips. Read the existing rows in one batch, compare them here, and
+ * send an UPDATE only for articles that actually changed. Most items of a
+ * refetched feed are unchanged, so they cost the lookup read and nothing else.
  */
 async function ingestArticles(
   env: Env,
@@ -261,14 +284,15 @@ async function ingestArticles(
   }
 
   const prepared = [...byDedupeKey.values()];
-  const existing = new Map<string, number>();
+  const existing = new Map<string, ExistingArticle>();
   const lookupStatements: D1PreparedStatement[] = [];
   for (let i = 0; i < prepared.length; i += 80) {
     const chunk = prepared.slice(i, i + 80);
     const placeholders = chunk.map(() => "?").join(",");
     lookupStatements.push(
       env.DB.prepare(
-        `SELECT id, dedupe_key
+        `SELECT id, dedupe_key, title, author, rss_summary, rss_content_html,
+                canonical_url, published_at, source_language
          FROM articles
          WHERE feed_id = ? AND dedupe_key IN (${placeholders})`,
       ).bind(feedId, ...chunk.map((item) => item.dedupeKey)),
@@ -278,11 +302,8 @@ async function ingestArticles(
     const lookupResults = await env.DB.batch(lookupStatements);
     recordD1BatchMeta("feed_ingest.lookup_keys", lookupResults, { item_count: prepared.length });
     for (const result of lookupResults) {
-      for (const row of result.results as unknown as Array<{
-        id: number;
-        dedupe_key: string;
-      }>) {
-        existing.set(row.dedupe_key, row.id);
+      for (const row of result.results as unknown as ExistingArticle[]) {
+        existing.set(row.dedupe_key, row);
       }
     }
   }
@@ -290,24 +311,15 @@ async function ingestArticles(
   const updates: D1PreparedStatement[] = [];
   const inserts: D1PreparedStatement[] = [];
   for (const item of prepared) {
-    const currentId = existing.get(item.dedupeKey);
-    if (currentId !== undefined) {
-      // The source language is only filled once for an existing article.
+    const current = existing.get(item.dedupeKey);
+    if (current !== undefined) {
+      if (!articleChanged(current, item)) continue;
       updates.push(
         env.DB.prepare(
           `UPDATE articles SET title = ?, author = ?, rss_summary = ?, rss_content_html = ?,
              canonical_url = COALESCE(?, canonical_url), published_at = COALESCE(?, published_at),
              source_language = COALESCE(source_language, ?), updated_at = ?
-           WHERE id = ?
-             AND (
-               title IS NOT ?
-               OR author IS NOT ?
-               OR rss_summary IS NOT ?
-               OR rss_content_html IS NOT ?
-               OR (? IS NOT NULL AND canonical_url IS NOT ?)
-               OR (? IS NOT NULL AND published_at IS NOT ?)
-               OR (source_language IS NULL AND ? IS NOT NULL)
-             )`,
+           WHERE id = ?`,
         ).bind(
           item.title,
           item.author,
@@ -317,16 +329,7 @@ async function ingestArticles(
           item.publishedAt,
           item.sourceLanguage,
           now,
-          currentId,
-          item.title,
-          item.author,
-          item.summary,
-          item.contentHtml,
-          item.canonicalUrl,
-          item.canonicalUrl,
-          item.publishedAt,
-          item.publishedAt,
-          item.sourceLanguage,
+          current.id,
         ),
       );
       continue;
@@ -428,10 +431,6 @@ export async function runFetchFeed(
         .bind(feedId, now, now, isoOffset(interval), now)
         .run();
       await writeLog(env, feedId, startedAt, "not_modified", 0, null);
-      // 304 でも言語の埋め直しは進めたい。保存済みのタイトルと説明文だけで足りるので、
-      // フィードの中身が変わっていなくても実行できる
-      const language = await ensureFeedLanguage(env, feedId, feed.language, now);
-      await backfillArticleLanguages(env, feedId, language, now);
       // a 304 means the feed was fetched successfully before; waiting subscriptions are ready
       await markWaitingSubscriptions(env, feedId, "ready", null);
       await settleFetchJobs(env.DB, feedId, "completed", { finishedAt: now });
@@ -496,27 +495,20 @@ export async function runFetchFeed(
 
     const newArticleIds = await ingestArticles(env, feedId, parsed.items, feedLanguage, now);
 
-    // New articles are unread for every subscription of this feed. Updating
-    // the derived counters once per fetch avoids rescanning the feed whenever
-    // a client renders its subscription list.
-    if (newArticleIds.length > 0) {
-      await env.DB.batch([
-        env.DB.prepare(
-          "UPDATE feeds SET article_count = article_count + ?, updated_at = ? WHERE id = ?",
-        ).bind(newArticleIds.length, now, feedId),
-        incrementUnreadForFeedMutation(env.DB, feedId, newArticleIds.length, now),
-      ]);
-    }
+    // feeds.article_count and the subscribers' unread counters are advanced
+    // by the article insert trigger (migration 0019), in the same statement
+    // as each insert.
 
-    // 言語がまだ入っていない記事を埋める。フィードから消えた古い記事は上の upsert で
-    // 触られないので、ここで拾う。埋まった行は次回以降の対象から外れるため、
-    // このクエリは feed が新鮮になるにつれて 0 件に収束する。
-    await backfillArticleLanguages(
-      env,
-      feedId,
-      await ensureFeedLanguage(env, feedId, feedLanguage, now),
-      now,
-    );
+    // 保存済み記事からのフィード言語判定は、記事が増えたときだけ結果が変わりうる。
+    // 304 や新着なしで毎回やり直すと、同じ行を読んで同じ結論を出すだけになる。
+    const language = newArticleIds.length > 0
+      ? await ensureFeedLanguage(env, feedId, feedLanguage, now)
+      : feedLanguage;
+    // 言語が未設定の記事は、フィード言語が変わったときにだけ新たに判定できる。
+    // 同じフィード言語で判定し直しても同じ null が返るので、読み直さない。
+    if (language && language !== feed.language) {
+      await backfillArticleLanguages(env, feedId, language, now);
+    }
 
     const etag = response.headers.get("ETag");
     const lastModified = response.headers.get("Last-Modified");

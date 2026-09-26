@@ -566,6 +566,16 @@ object AppStrings {
         },
     )
 
+    // UI text introduced with the shared design components (FiloDesign.kt);
+    // wording follows apps/web/src/lib/messages.ts. Checked after the maps
+    // above, so existing entries keep precedence.
+    private val designTranslations = mapOf(
+        "en" to mapOf("8文字以上のパスワード" to "Password (8 or more characters)", "このフィードを取得" to "Fetch this feed", "システムに合わせる" to "System", "フィードを更新しています…" to "Refreshing feeds…", "リーディングリストから削除" to "Remove from reading list", "中断" to "stalled", "処理中…" to "Working…", "初回取得を再試行" to "Retry initial fetch", "失敗" to "failed", "完了" to "Done", "翻訳中…" to "Translating…", "色を解除" to "Clear color", "読み上げる内容" to "What to read", "読み上げる文章がありません。" to "There is no text to read aloud.", "読み上げ開始" to "Start listening", "購読一覧（%d）" to "Subscriptions (%d)", "選択範囲を読み上げ" to "Read selection aloud", "更新異常" to "Update error", "本文を抽出" to "Extract article", "表示中の文章" to "Visible text", "読み込み中…" to "Loading…"),
+        "zh" to mapOf("8文字以上のパスワード" to "密码（至少 8 个字符）", "このフィードを取得" to "获取此订阅源", "システムに合わせる" to "跟随系统", "フィードを更新しています…" to "正在刷新订阅源…", "リーディングリストから削除" to "从阅读列表移除", "中断" to "已中断", "処理中…" to "处理中…", "初回取得を再試行" to "重试首次获取", "失敗" to "失败", "完了" to "完成", "翻訳中…" to "翻译中…", "色を解除" to "清除颜色", "読み上げる内容" to "朗读内容", "読み上げる文章がありません。" to "没有可朗读的文字。", "読み上げ開始" to "开始朗读", "購読一覧（%d）" to "订阅列表（%d）", "選択範囲を読み上げ" to "朗读选中的文字", "更新異常" to "更新异常", "本文を抽出" to "提取正文", "表示中の文章" to "当前显示的文字", "読み込み中…" to "加载中…"),
+        "ko" to mapOf("8文字以上のパスワード" to "비밀번호(8자 이상)", "このフィードを取得" to "이 피드 가져오기", "システムに合わせる" to "시스템 설정", "フィードを更新しています…" to "피드를 새로고침하는 중…", "リーディングリストから削除" to "읽기 목록에서 삭제", "中断" to "중단됨", "処理中…" to "처리 중…", "初回取得を再試行" to "첫 가져오기 다시 시도", "失敗" to "실패", "完了" to "완료", "翻訳中…" to "번역 중…", "色を解除" to "색상 지우기", "読み上げる内容" to "읽을 내용", "読み上げる文章がありません。" to "읽을 텍스트가 없습니다.", "読み上げ開始" to "낭독 시작", "購読一覧（%d）" to "구독 목록(%d)", "選択範囲を読み上げ" to "선택한 텍스트 낭독", "更新異常" to "업데이트 오류", "本文を抽出" to "본문 추출", "表示中の文章" to "현재 표시된 텍스트", "読み込み中…" to "로드 중…"),
+        "es" to mapOf("8文字以上のパスワード" to "Contraseña (8 caracteres o más)", "このフィードを取得" to "Obtener este feed", "システムに合わせる" to "Sistema", "フィードを更新しています…" to "Actualizando feeds…", "リーディングリストから削除" to "Quitar de la lista de lectura", "中断" to "Interrumpido", "処理中…" to "Procesando…", "初回取得を再試行" to "Reintentar obtención inicial", "失敗" to "Error", "完了" to "Completado", "翻訳中…" to "Traduciendo…", "色を解除" to "Quitar color", "読み上げる内容" to "Qué leer", "読み上げる文章がありません。" to "No hay texto para leer en voz alta.", "読み上げ開始" to "Empezar a escuchar", "購読一覧（%d）" to "Suscripciones (%d)", "選択範囲を読み上げ" to "Leer la selección en voz alta", "更新異常" to "Error de actualización", "本文を抽出" to "Extraer artículo", "表示中の文章" to "Texto visible", "読み込み中…" to "Cargando…"),
+    )
+
     fun get(source: String): String {
         val language = LanguagePreference.value
         val localized = translations[language]?.get(source)
@@ -574,6 +584,7 @@ object AppStrings {
             ?: remainingTranslations[language]?.get(source)
             ?: settingsTranslations[language]?.get(source)
             ?: completionTranslations[language]?.get(source)
+            ?: designTranslations[language]?.get(source)
         if (localized != null) return localized
 
         // Japanese source strings are already the Japanese UI. Do not replace

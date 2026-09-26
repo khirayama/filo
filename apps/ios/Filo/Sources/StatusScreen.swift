@@ -9,32 +9,44 @@ struct StatusScreen: View {
     @State private var notice: String?
     @State private var filterText = ""
     @State private var statusFilter: StatusFilter = .all
-    @State private var sortKey: StatusSortKey = .status
-    @State private var sortAscending = true
+    @Environment(\.filoIsDesktop) private var isDesktop
 
     var body: some View {
-        List {
-            if isLoading || status == nil {
-                ProgressView(L10n.string("読み込み中…"))
-            } else if let status {
-                actionsSection(status)
-                listControls
-                subscriptionStatusesSection(status)
+        FiloPage("処理ステータス") {
+            FiloIconButton(.refresh, label: "再読み込み") { Task { await load() } }
+            FiloButton(isRefreshing && busyFeedId == nil ? "取得中…" : "すべて取得", kind: .primary, small: true) {
+                Task { await refreshAll() }
             }
-            if let errorMessage {
-                Section { ErrorBanner(message: errorMessage) { Task { await load() } } }
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(FiloPalette.background)
-        .listRowBackground(FiloPalette.background)
-        .navigationTitle("処理ステータス")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { Task { await load() } } label: {
-                    FiloIcon(.refresh, size: 18)
+            .disabled(isRefreshing)
+            .padding(.trailing, 8)
+        } content: {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if let errorMessage {
+                        FiloErrorBox(message: errorMessage) { Task { await load() } }
+                    }
+                    if isLoading || status == nil {
+                        FiloSpinner()
+                    } else if let status {
+                        stats(status)
+                        subscriptionsSection(status)
+                    }
                 }
+                .padding(.horizontal, isDesktop ? FiloMetrics.desktopGutter : FiloMetrics.gutter)
+                .padding(.top, 24)
+                .padding(.bottom, 64)
             }
+            .refreshable { await load() }
+        }
+        .overlay(alignment: .bottom) {
+            if let notice { FiloToast(message: notice) }
+        }
+        .animation(.easeOut(duration: 0.2), value: notice)
+        .task(id: notice) {
+            guard notice != nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            notice = nil
         }
         .task {
             await load()
@@ -43,189 +55,161 @@ struct StatusScreen: View {
 
     // MARK: - Sections
 
-    @ViewBuilder
-    private func actionsSection(_ s: StatusOverview) -> some View {
-        Section("操作") {
-            Button { Task { await refreshAll() } } label: {
-                Text(L10n.string(isRefreshing ? "取得中…" : "すべて取得"))
-            }
-            .disabled(isRefreshing)
-
-            if let notice {
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(FiloPalette.muted)
-            }
-
-            Text(summaryLine(s))
-                .font(.caption)
-                .foregroundStyle(FiloPalette.muted)
+    private func stats(_ s: StatusOverview) -> some View {
+        HStack(spacing: 0) {
+            stat("購読", "\(s.feeds.total)")
+            stat("記事", s.articles.total.formatted())
+            stat("最終取得", s.feeds.lastFetchedAt.map { isDesktop ? DateFormatting.time($0) : DateFormatting.compact($0) } ?? "—")
         }
+        .background(RoundedRectangle(cornerRadius: FiloMetrics.radiusLarge).fill(FiloPalette.surface))
+        .overlay(RoundedRectangle(cornerRadius: FiloMetrics.radiusLarge).strokeBorder(FiloPalette.mutedBorder, lineWidth: 1))
     }
 
-    @ViewBuilder
-    private func subscriptionStatusesSection(_ s: StatusOverview) -> some View {
-        Section(L10n.format("購読一覧（%ld件）", s.subscriptionStatuses.count)) {
-            if s.subscriptionStatuses.isEmpty {
-                Text("購読がありません。")
-                    .foregroundStyle(FiloPalette.muted)
-            } else if visibleSubscriptions(s).isEmpty {
-                Text("条件に一致する購読がありません。")
-                    .foregroundStyle(FiloPalette.muted)
-            } else {
-                ForEach(visibleSubscriptions(s)) { sub in
-                    subscriptionRow(sub)
-                }
-            }
-        }
-    }
-
-    private var listControls: some View {
-        Section {
-            TextField("購読名で検索", text: $filterText)
-                .textFieldStyle(.roundedBorder)
-                .textInputAutocapitalization(.never)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    FilterChip(label: "すべて", isOn: statusFilter == .all) { statusFilter = .all }
-                    FilterChip(label: "問題あり", isOn: statusFilter == .attention) { statusFilter = .attention }
-                    FilterChip(label: "取得中", isOn: statusFilter == .fetching) { statusFilter = .fetching }
-                    FilterChip(label: "停止", isOn: statusFilter == .paused) { statusFilter = .paused }
-                }
-            }
-            Menu {
-                Button("状態") { toggleSort(.status) }
-                Button("購読") { toggleSort(.feedTitle) }
-                Button("取得") { toggleSort(.fetchStatus) }
-                Button("最終取得") { toggleSort(.lastFetchedAt) }
-            } label: {
-                HStack(spacing: 6) {
-                    FiloIcon(sortAscending ? .chevronUp : .chevronDown, size: 14)
-                    Text(L10n.format("並び替え: %@", sortLabel))
-                }
-            }
-            if let status {
-                Text("\(visibleSubscriptions(status).count)/\(status.subscriptionStatuses.count)")
-                    .font(.caption)
-                    .foregroundStyle(FiloPalette.muted)
-            }
-        } header: {
-            Text("購読一覧を絞り込み")
-        }
-    }
-
-    private var sortLabel: String {
-        switch sortKey {
-        case .status: return L10n.string("状態")
-        case .feedTitle: return L10n.string("購読")
-        case .fetchStatus: return L10n.string("取得")
-        case .lastFetchedAt: return L10n.string("最終取得")
-        }
-    }
-
-    private func toggleSort(_ key: StatusSortKey) {
-        if sortKey == key {
-            sortAscending.toggle()
-        } else {
-            sortKey = key
-            sortAscending = true
-        }
-    }
-
-    private func visibleSubscriptions(_ s: StatusOverview) -> [StatusSubscription] {
-        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
-        let filtered = s.subscriptionStatuses.filter { sub in
-            if !query.isEmpty && !sub.feedTitle.localizedLowercase.contains(query) { return false }
-            switch statusFilter {
-            case .all: return true
-            case .attention: return hasStatusAttention(sub)
-            case .fetching: return sub.fetchJob?.status == "pending" || sub.fetchJob?.status == "running"
-            case .paused: return sub.feedStatus == "paused"
-            }
-        }
-        return filtered.sorted { lhs, rhs in
-            let comparison: ComparisonResult
-            switch sortKey {
-            case .status:
-                comparison = statusRank(lhs) == statusRank(rhs) ? lhs.feedTitle.localizedStandardCompare(rhs.feedTitle) : (statusRank(lhs) < statusRank(rhs) ? .orderedAscending : .orderedDescending)
-            case .feedTitle:
-                comparison = lhs.feedTitle.localizedStandardCompare(rhs.feedTitle)
-            case .fetchStatus:
-                comparison = fetchStatusRank(lhs) == fetchStatusRank(rhs) ? lhs.feedTitle.localizedStandardCompare(rhs.feedTitle) : (fetchStatusRank(lhs) < fetchStatusRank(rhs) ? .orderedAscending : .orderedDescending)
-            case .lastFetchedAt:
-                if lhs.lastFetchedAt == nil && rhs.lastFetchedAt != nil {
-                    comparison = .orderedDescending
-                } else if lhs.lastFetchedAt != nil && rhs.lastFetchedAt == nil {
-                    comparison = .orderedAscending
-                } else {
-                    let left = lhs.lastFetchedAt ?? ""
-                    let right = rhs.lastFetchedAt ?? ""
-                    comparison = left == right ? lhs.feedTitle.localizedStandardCompare(rhs.feedTitle) : (left < right ? .orderedAscending : .orderedDescending)
-                }
-            }
-            return sortAscending ? comparison == .orderedAscending : comparison == .orderedDescending
-        }
-    }
-
-    @ViewBuilder
-    private func subscriptionRow(_ sub: StatusSubscription) -> some View {
-        let isError = hasStatusAttention(sub)
-        let fetchBusy = sub.fetchJob?.isActive == true || busyFeedId == sub.feedId && isRefreshing
+    private func stat(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+            Text(localized: label)
+                .filoFont(12)
+                .foregroundStyle(FiloPalette.muted)
+            Text(value)
+                .filoFont(isDesktop ? 20 : 15, .bold)
+                .monospacedDigit()
+                .lineLimit(1)
+        }
+        .padding(isDesktop ? 16 : 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func subscriptionsSection(_ s: StatusOverview) -> some View {
+        let visible = visibleSubscriptions(s)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L10n.format("購読一覧（%ld）", s.subscriptionStatuses.count))
+                .filoFont(15, .bold)
+                .accessibilityAddTraits(.isHeader)
+            if !s.subscriptionStatuses.isEmpty {
+                HStack(spacing: 8) {
+                    FiloTextField(placeholder: "購読名で検索", text: $filterText)
+                    FiloSelect(
+                        selection: $statusFilter,
+                        options: StatusFilter.allCases.map { ($0, L10n.string($0.label)) },
+                        label: "状態",
+                        minWidth: 110,
+                    )
+                    .fixedSize()
+                    Text("\(visible.count)/\(s.subscriptionStatuses.count)")
+                        .filoFont(12)
+                        .monospacedDigit()
+                        .foregroundStyle(FiloPalette.muted)
+                        .frame(minWidth: 44, alignment: .trailing)
+                }
+            }
+            if s.subscriptionStatuses.isEmpty {
+                FiloEmptyState(icon: .rss, message: "購読がありません。")
+            } else if visible.isEmpty {
+                FiloEmptyState(message: "条件に一致する購読がありません。")
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(visible) { sub in
+                        subscriptionRow(sub)
+                    }
+                }
+                .overlay(alignment: .top) { FiloDivider() }
+            }
+        }
+    }
+
+    private func subscriptionRow(_ sub: StatusSubscription) -> some View {
+        let fetchBusy = sub.fetchJob?.isActive == true || busyFeedId == sub.feedId && isRefreshing
+        let rowError = hasStatusAttention(sub) ? (sub.fetchJob?.lastError ?? sub.lastError) : nil
+        return HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 NavigationLink(value: AppRoute.subscriptionDetail(sub.subscriptionId)) {
                     Text(sub.feedTitle)
-                        .underline()
+                        .filoFont(14, .semibold)
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Spacer()
-                if sub.feedStatus == "paused" {
-                    StatusBadge(label: "停止", tone: .muted)
+                FlowLayout(spacing: 10, lineSpacing: 6) {
+                    overallBadge(sub)
+                    if let job = sub.fetchJob, job.status != "completed" {
+                        jobBadge(job)
+                    } else if sub.lastResult == "error" {
+                        FiloBadge(label: "取得失敗", tone: .danger)
+                    }
+                    Text(sub.lastFetchedAt.map { DateFormatting.time($0) } ?? "—")
+                        .filoFont(12)
+                        .foregroundStyle(FiloPalette.muted)
+                        .frame(height: 20)
                 }
-                jobBadge(L10n.string("取得"), job: sub.fetchJob, fallbackDanger: sub.lastResult == "error")
-                Text(sub.lastFetchedAt.map { DateFormatting.relative($0) } ?? "—")
-                    .font(.caption)
-                    .foregroundStyle(FiloPalette.muted)
-            }
-            if isError, let err = sub.fetchJob?.lastError ?? sub.lastError {
-                Text(err)
-                    .font(.caption)
-                    .foregroundStyle(FiloPalette.danger)
-                    .lineLimit(1)
-            }
-            HStack(spacing: 12) {
-                Button { Task { await refreshFeed(sub.feedId) } } label: {
-                    Text(L10n.string(fetchBusy ? "取得中…" : "取得"))
+                if let rowError {
+                    Text(rowError)
+                        .filoFont(12)
+                        .foregroundStyle(FiloPalette.danger)
                 }
-                .disabled(isRefreshing || fetchBusy)
             }
-            .font(.caption)
-            .buttonStyle(.borderless)
+            FiloIconButton(.refresh, label: fetchBusy ? "取得中…" : "このフィードを取得", size: 16) {
+                Task { await refreshFeed(sub.feedId) }
+            }
+            .disabled(isRefreshing || fetchBusy)
         }
-    }
-
-    private func summaryLine(_ s: StatusOverview) -> String {
-        var line = L10n.format("購読 %ld件・記事 %ld件", s.feeds.total, s.articles.total)
-        if let fetchedAt = s.feeds.lastFetchedAt { line += L10n.format("・最終取得 %@", DateFormatting.relative(fetchedAt)) }
-        return line
+        .foregroundStyle(FiloPalette.text)
+        .padding(.vertical, 8)
+        .frame(minHeight: 56)
+        .overlay(alignment: .bottom) { FiloDivider() }
     }
 
     @ViewBuilder
-    private func jobBadge(_ label: String, job: FeedJob?, fallbackDanger: Bool) -> some View {
-        if let job, job.status != "completed" {
-            if job.stalled {
-                StatusBadge(label: L10n.format("%@中断", label), tone: .danger)
-            } else if job.status == "failed" {
-                StatusBadge(label: L10n.format("%@失敗", label), tone: .danger)
-            } else if job.status == "running" {
-                StatusBadge(label: L10n.format("%@中", label), tone: .warn)
-            } else {
-                StatusBadge(label: L10n.format("%@待ち", label), tone: .warn)
-            }
-        } else if fallbackDanger {
-            StatusBadge(label: L10n.format("%@失敗", label), tone: .danger)
+    private func overallBadge(_ sub: StatusSubscription) -> some View {
+        if hasStatusAttention(sub) {
+            FiloBadge(label: "失敗", tone: .danger)
+        } else if sub.fetchJob?.stalled == true {
+            FiloBadge(label: "中断", tone: .danger)
+        } else if sub.fetchJob?.status == "running" {
+            FiloBadge(label: "取得中", tone: .warn)
+        } else if sub.fetchJob?.status == "pending" {
+            FiloBadge(label: "取得待ち", tone: .warn)
+        } else if sub.feedStatus == "paused" {
+            FiloBadge(label: "停止")
+        } else {
+            FiloBadge(label: "完了", tone: .ok)
         }
+    }
+
+    // Per-row job badge: only while something is queued, running, or broken.
+    @ViewBuilder
+    private func jobBadge(_ job: FeedJob) -> some View {
+        let label = L10n.string("取得")
+        if job.stalled {
+            FiloBadge(label: label + L10n.string("中断"), tone: .danger)
+        } else if job.status == "failed" {
+            FiloBadge(label: label + L10n.string("失敗"), tone: .danger)
+        } else if job.status == "running" {
+            FiloBadge(label: label + L10n.string("中"), tone: .warn)
+        } else {
+            FiloBadge(label: label + L10n.string("待ち"), tone: .warn)
+        }
+    }
+
+    // Same actionable-first order as the web default sort.
+    private func visibleSubscriptions(_ s: StatusOverview) -> [StatusSubscription] {
+        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
+        return s.subscriptionStatuses
+            .filter { sub in
+                if !query.isEmpty && !sub.feedTitle.localizedLowercase.contains(query) { return false }
+                switch statusFilter {
+                case .all: return true
+                case .attention: return hasStatusAttention(sub)
+                case .fetching: return sub.fetchJob?.status == "pending" || sub.fetchJob?.status == "running"
+                case .paused: return sub.feedStatus == "paused"
+                }
+            }
+            .sorted { lhs, rhs in
+                let left = statusRank(lhs), right = statusRank(rhs)
+                return left == right ? lhs.feedTitle.localizedStandardCompare(rhs.feedTitle) == .orderedAscending : left < right
+            }
     }
 
     // MARK: - Actions
@@ -267,7 +251,7 @@ struct StatusScreen: View {
         do {
             _ = try await APIClient.shared.refreshFeed(feedId)
             FiloAnalytics.track("refresh_feed", parameters: ["source": "status", "feed_id": feedId])
-            notice = "フィードの取得を開始しました。"
+            notice = L10n.string("フィードの取得を開始しました。")
             await load()
         } catch {
             errorMessage = ErrorMessages.message(for: error)
@@ -294,19 +278,15 @@ private func hasStatusAttention(_ sub: StatusSubscription) -> Bool {
         || sub.lastResult == "error"
 }
 
-private enum StatusFilter {
+private enum StatusFilter: CaseIterable, Hashable {
     case all, attention, fetching, paused
-}
 
-private enum StatusSortKey {
-    case status, feedTitle, fetchStatus, lastFetchedAt
-}
-
-private func fetchStatusRank(_ sub: StatusSubscription) -> Int {
-    if hasStatusAttention(sub) { return 0 }
-    if sub.fetchJob?.stalled == true { return 1 }
-    if sub.fetchJob?.status == "running" { return 2 }
-    if sub.fetchJob?.status == "pending" { return 3 }
-    if sub.feedStatus == "paused" { return 4 }
-    return 5
+    var label: String {
+        switch self {
+        case .all: return "すべて"
+        case .attention: return "問題あり"
+        case .fetching: return "取得中"
+        case .paused: return "停止"
+        }
+    }
 }

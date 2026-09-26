@@ -12,7 +12,6 @@ export interface Env {
   CURSOR_SECRET: string;
   CURSOR_SIGNING_KEY?: string;
   ADMIN_BETTER_AUTH_USER_IDS?: string;
-  CRON_SECRET: string;
   CORS_ALLOWED_ORIGINS: string;
 }
 

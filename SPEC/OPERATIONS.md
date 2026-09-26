@@ -42,7 +42,7 @@ Vars（`wrangler.jsonc`）:
 
 - `ADMIN_BETTER_AUTH_USER_IDS`: `/api/v1/admin/*` を呼べる Better Auth user id のカンマ区切り。admin 判定はこれ一本で行う
 - `APP_ENV`: `development` または `production`。health endpoint の環境確認にも使う
-- `CORS_ALLOWED_ORIGINS`: 環境ごとのWebとChrome Extensionのoriginをカンマ区切りで指定する。localの2 Web originに加え、developmentではunpacked Chrome Extensionのoriginを許可する
+- `CORS_ALLOWED_ORIGINS`: 環境ごとのWebとChrome Extensionのoriginをカンマ区切りで指定する。localの2 Web originに加え、developmentではunpacked / 一時読み込みの Extension origin（`chrome-extension://` `moz-extension://` `safari-web-extension://`）を許可する
 
 Secrets（`wrangler secret put`）:
 
@@ -51,7 +51,6 @@ Secrets（`wrangler secret put`）:
 - `MAIL_FROM`: パスワードリセットメールの送信元
 - `BETTER_AUTH_TRUSTED_ORIGINS`: Web と `filo://auth` の許可 origin
 - `CURSOR_SECRET`: pagination cursor の HMAC 鍵
-- `CRON_SECRET`: 内部 cron → API 呼び出しの Bearer token
 
 secret は Git にコミットしない。ローカルは `.dev.vars`（`.dev.vars.example` を複製）を使う。
 
@@ -60,6 +59,9 @@ Browser Extension（build-time env）:
 - `VITE_API_BASE_URL`: API origin
 - `VITE_WEB_APP_URL`: Webアプリ origin
 - Extension は Better Auth bearer token を `chrome.storage.local` に保存する
+- Chrome が 1st party。`npm run build[:production]` は `dist/`、`build:firefox[:production]` は `dist-firefox/`、`build:safari[:production]` は `dist-safari/` へ出力する（Edge は Chrome 用 `dist/` をそのまま使う）
+- ブラウザ差分は manifest（`vite.target.ts`）と音声エンジン（`src/speech.ts`）に閉じる。`chrome.tts` があれば使い、無い Firefox / Safari は background page の Web Speech API で読み上げる。Translator API が無いブラウザは原文で読み上げる
+- Safari は `xcrun safari-web-extension-converter dist-safari` で Xcode プロジェクト化して読み込む
 - iOS は Keychain、Android は Android Keystore で bearer token を保存する
 
 ## Operational Defaults
@@ -71,7 +73,7 @@ HTTP / API:
 - redirect: 最大 `5` hop。各 hop に SSRF 検査を再適用する
 - レスポンス読み込みの上限: `5MB`（超過分は捨てる）
 - 転送障害のみ `2` 回まで再試行する。validation / redirect policy エラーは再試行しない
-- OPML import file size: max `5MB`、outline 件数: max `2000`、失敗要約の保存件数: max `50`
+- OPML import file size: max `1MB`、outline 件数: max `2000`、失敗要約の保存件数: max `50`
 - response header は `Cache-Control: no-store` を既定とする
 - CORS のdevelopment環境は `http://localhost:5173` と `http://127.0.0.1:5173`、production環境は `https://filoreader.app` と `https://filo-web.pages.dev` を許可する
 
@@ -115,6 +117,7 @@ Pagesへアップロードしない。Pages deployは `--branch` を付けずpro
 
 - スキーマ変更は新しい migration ファイルを追加して行う
 - D1 の破壊的 migration と対応 Worker は一括適用し、旧 Worker への rollback は行わず forward-fix を優先する
+- migration 0019（導出カウンターの trigger）は、アプリ側でカウンターを加算しなくなった Worker を deploy した後に適用する。適用時の全件再構築が、deploy から適用までの間の差分も吸収する
 - DB schema を変更しない deploy に失敗した場合は直前の Worker version へ rollback する
 - deploy 後に `/api/v1/health`、`/api/v1/settings`、`/api/v1/subscriptions`、`/api/v1/articles`、`/api/v1/status` の疎通を確認する
 
@@ -182,7 +185,7 @@ publisher 尊重ルール:
 
 - 全 user endpoint は Better Auth session または bearer token を必須とする
 - admin endpoint は `ADMIN_BETTER_AUTH_USER_IDS` に含まれる Better Auth user id のみ許可する
-- `/api/v1/status` は user auth または `CRON_SECRET` による system auth を受け付ける
+- `/api/v1/status` も他の user endpoint と同じく user auth を必須とする（定期更新は Worker の cron trigger が DB を直接参照する）
 - `/api/v1/account/deletion-status` のみ、有効な `deletionToken` で Better Auth session なしに参照できる
 - すべての path id は current user の所有・参照権限を検証する
 - retained article は `article_user_collections` に `reading_list` または `bookmark` membership がある場合のみ、未購読でも参照可能とする
@@ -197,7 +200,11 @@ publisher 尊重ルール:
 
 アカウント削除は user-owned data のみを削除する。shared data は削除しない。
 
-shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 使用量が `80GB`、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、feed 単位 retention の追加を次リリース優先事項として扱う。
+shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 は 1 database あたりの容量に上限があり（Workers Free `500MB` / Workers Paid `10GB`）、超えると書き込みが失敗する。database size が上限の `60%`（Free `300MB` / Paid `6GB`）、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、記事の retention（collection に入っていない古い記事の削除と導出カウンターの減算）を次リリース優先事項として扱う。
+
+database size は Cloudflare ダッシュボードの D1 Metrics、または `wrangler d1 info filo-db --env production` で確認する。
+
+Workers Free では row read / row write の日次上限（`500万` / `10万`）がアカウント内の全 D1 database の合計に掛かり、超えると UTC 0 時まで全クエリが失敗する。production の `filo-db` は同じアカウントの他 database（`remo-db`）と枠を共有しているため、他 database の書き込み量で filo の書き込みも止まる。
 
 `article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。Hourly cron が `updated_at` を最終利用時刻として扱い、1 回あたり最大 500 行を削除する。
 
@@ -218,6 +225,15 @@ shared data の自動 retention 削除は `article_contents` を除いて導入�
 2. XML parse error、size limit、outline limit、feed discovery failure を切り分ける。
 3. partial success の場合は失敗要約をユーザーへ返し、成功分は巻き戻さない。
 4. worker 障害なら同一 job を再開せず、新規 import の再実行で回復する。
+
+### 導出カウンターの不一致
+
+未読数や status の記事数が実際の記事と合わない場合は、導出カウンター（`subscription_unread_counts` `user_unread_counts` `feeds.article_count`）を source of truth から再構築する。migration 0019 は trigger を `IF NOT EXISTS` で作成し、全カウンターを数え直すだけなので、再実行しても安全。
+
+```bash
+cd apps/api
+npx wrangler d1 execute filo-db --remote --env production --file migrations/0019_derived_counter_triggers.sql
+```
 
 ### 本文抽出 failures
 

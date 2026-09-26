@@ -4,7 +4,7 @@ import { useApi } from "../api/useApi";
 import type { Subscription } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
-import { Badge, Button, ErrorBox, IconButton, palette, sectionStyle } from "../components/ui";
+import { Badge, Button, ErrorBox, FilterChip, palette } from "../components/ui";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
 import { useBackOr } from "../lib/navigation";
@@ -74,121 +74,85 @@ export function AddFeedPage() {
   };
 
   return (
-    <AppShell>
-      <main style={{ padding: "16px var(--fl-page-gutter) 48px" }}>
-        <header
-          style={{
-            alignItems: "center",
-            borderBottom: `1px solid ${palette.mutedBorder}`,
-            display: "flex",
-            gap: "8px",
-            padding: "8px 0",
-          }}
-        >
-          <IconButton icon="back" label={t("戻る")} onClick={goBack} />
-          <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("フィードを追加")}</h1>
-        </header>
-        <form onSubmit={(event) => void submit(event)} style={{ ...sectionStyle, border: "none", padding: "16px 0" }}>
-          <label htmlFor="feed-url" style={{ display: "block" }}>
-            {t("RSS/Atom URL または サイトURL")}
-            <input
-              id="feed-url"
-              type="url"
-              required
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://example.com/feed.xml"
-              style={{
-                border: `1px solid ${palette.border}`,
-                borderRadius: "6px",
-                display: "block",
-                marginTop: "8px",
-                padding: "10px",
-                width: "100%",
-                boxSizing: "border-box",
-              }}
-            />
-          </label>
-          {tags.length > 0 ? (
-            <div style={{ marginTop: "16px" }}>
-              <p id="feed-tags-label" style={{ margin: "0 0 8px" }}>{t("タグ")}</p>
-              <div role="group" aria-labelledby="feed-tags-label" style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                {tags.map((tag) => (
-                  <button
-                    key={tag.id}
-                    type="button"
-                    onClick={() => toggleTag(tag.id)}
-                    aria-pressed={selectedTagIds.has(tag.id)}
-                    style={{
-                      background: selectedTagIds.has(tag.id) ? palette.text : "transparent",
-                      border: `1px solid ${palette.border}`,
-                      borderRadius: "999px",
-                      color: selectedTagIds.has(tag.id) ? palette.bg : "inherit",
-                      cursor: "pointer",
-                      padding: "4px 12px",
-                    }}
-                  >
-                    {tag.name}
-                  </button>
-                ))}
+    <AppShell title={t("フィードを追加")} onBack={goBack}>
+      <main className="fl-page fl-page--narrow">
+        <div className="fl-stack">
+          <form onSubmit={(event) => void submit(event)} className="fl-stack" style={{ gap: "20px" }}>
+            <label htmlFor="feed-url" className="fl-field">
+              <span className="fl-field-label">{t("RSS/Atom URL または サイトURL")}</span>
+              <input
+                id="feed-url"
+                type="url"
+                className="fl-input"
+                required
+                autoFocus
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com/feed.xml"
+              />
+            </label>
+            {tags.length > 0 ? (
+              <div className="fl-field">
+                <span id="feed-tags-label" className="fl-field-label">{t("タグ")}</span>
+                <div role="group" aria-labelledby="feed-tags-label" style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {tags.map((tag) => (
+                    <FilterChip key={tag.id} label={tag.name} active={selectedTagIds.has(tag.id)} onClick={() => toggleTag(tag.id)} />
+                  ))}
+                </div>
               </div>
+            ) : null}
+            <label htmlFor="new-feed-tags" className="fl-field">
+              <span className="fl-field-label">{t("新規タグ（カンマ区切り）")}</span>
+              <input
+                id="new-feed-tags"
+                type="text"
+                className="fl-input"
+                value={newTagNames}
+                onChange={(e) => setNewTagNames(e.target.value)}
+                placeholder="AI, Engineering"
+              />
+            </label>
+            <div>
+              <Button type="submit" kind="primary" icon="plus" disabled={submitting || !url.trim()} ariaBusy={submitting}>
+                {submitting ? t("フィードを確認中…") : t("追加")}
+              </Button>
             </div>
+          </form>
+          {error ? <ErrorBox message={error} /> : null}
+          {created ? (
+            <section className="fl-card" style={{ display: "grid", gap: "12px", padding: "16px" }}>
+              <div style={{ alignItems: "center", display: "flex", gap: "10px", minWidth: 0 }}>
+                <p style={{ flex: 1, fontWeight: 600, margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {created.customTitle ?? created.feed.title}
+                </p>
+                {created.initialFetchStatus === "ready" ? (
+                  <Badge tone="ok">{t("追加完了")}</Badge>
+                ) : created.initialFetchStatus === "fetching" ? (
+                  <Badge>{t("記事取得中")}</Badge>
+                ) : (
+                  <Badge tone="danger">{t("初回取得失敗")}</Badge>
+                )}
+              </div>
+              <p style={{ color: palette.muted, fontSize: "13px", lineHeight: 1.6, margin: 0 }}>
+                {created.initialFetchStatus === "ready"
+                  ? t("記事の取得が完了しています。")
+                  : created.initialFetchStatus === "fetching"
+                    ? t("購読の追加は完了しました。記事を取得しています。")
+                    : t("購読は作成されましたが、{message}", { message: initialFetchErrorMessage(created.initialFetchErrorCode, language) })}
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                {created.initialFetchStatus === "failed" ? (
+                  <Button onClick={() => void retry()} disabled={retrying}>
+                    {retrying ? t("再試行中…") : t("再試行")}
+                  </Button>
+                ) : null}
+                <Link to="/articles" className="fl-btn fl-btn--secondary">
+                  {t("記事一覧へ")}
+                </Link>
+              </div>
+            </section>
           ) : null}
-          <label htmlFor="new-feed-tags" style={{ display: "block", marginTop: "16px" }}>
-            {t("新規タグ（カンマ区切り）")}
-            <input
-              id="new-feed-tags"
-              type="text"
-              value={newTagNames}
-              onChange={(e) => setNewTagNames(e.target.value)}
-              placeholder="AI, Engineering"
-              style={{
-                border: `1px solid ${palette.border}`,
-                borderRadius: "6px",
-                display: "block",
-                marginTop: "8px",
-                padding: "10px",
-                width: "100%",
-                boxSizing: "border-box",
-              }}
-            />
-          </label>
-          <div style={{ marginTop: "16px" }}>
-            <Button type="submit" kind="primary" disabled={submitting || !url.trim()} ariaBusy={submitting}>
-              {submitting ? t("フィードを確認中…") : t("追加")}
-            </Button>
-          </div>
-        </form>
-        {error ? <ErrorBox message={error} /> : null}
-        {created ? (
-          <section style={sectionStyle}>
-            <p style={{ marginTop: 0, fontWeight: 600 }}>{created.customTitle ?? created.feed.title}</p>
-            {created.initialFetchStatus === "ready" ? (
-              <>
-                <Badge tone="ok">{t("追加完了")}</Badge>
-                <p>{t("記事の取得が完了しています。")}</p>
-              </>
-            ) : created.initialFetchStatus === "fetching" ? (
-              <>
-                <Badge>{t("記事取得中")}</Badge>
-                <p>{t("購読の追加は完了しました。記事を取得しています。")}</p>
-              </>
-            ) : (
-              <>
-                <Badge tone="danger">{t("初回取得失敗")}</Badge>
-                <p>{t("購読は作成されましたが、{message}", { message: initialFetchErrorMessage(created.initialFetchErrorCode, language) })}</p>
-                <Button onClick={() => void retry()} disabled={retrying}>
-                  {retrying ? t("再試行中…") : t("再試行")}
-                </Button>
-              </>
-            )}
-            <p>
-              <Link to="/articles" style={{ color: "inherit" }}>
-                {t("記事一覧へ")}
-              </Link>
-            </p>
-          </section>
-        ) : null}
+        </div>
       </main>
     </AppShell>
   );

@@ -13,11 +13,9 @@ import {
 } from "../components/ui";
 import { errorMessage } from "../lib/messages";
 import { moveItem } from "../lib/reorder";
-import { useBackOr } from "../lib/navigation";
 
 export function TagsPage() {
   const api = useApi();
-  const goBack = useBackOr("/subscriptions");
   const appData = useAppData();
   const { t, language } = appData;
   // Local copy allows optimistic reordering; refreshed from context after
@@ -104,156 +102,102 @@ export function TagsPage() {
   };
 
   return (
-    <AppShell>
-      <main style={{ padding: "16px var(--fl-page-gutter) 48px" }}>
-        <header
-          style={{
-            alignItems: "center",
-            borderBottom: `1px solid ${palette.mutedBorder}`,
-            display: "flex",
-            gap: "8px",
-            padding: "8px 0",
-          }}
-        >
-          <IconButton icon="back" label={t("戻る")} onClick={goBack} />
-          <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("タグ管理")}</h1>
-        </header>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void create();
-          }}
-          style={{ display: "flex", gap: "8px", marginTop: "16px" }}
-        >
-          <input
-            id="new-tag-name"
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder={t("新しいタグ名")}
-            aria-label={t("新しいタグ名")}
-            required
-            style={{
-              border: `1px solid ${palette.border}`,
-              borderRadius: "6px",
-              flex: 1,
-              padding: "10px",
+    <AppShell title={t("タグ管理")}>
+      <main className="fl-page fl-page--narrow">
+        <div className="fl-stack" style={{ gap: "16px" }}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void create();
             }}
-          />
-          <Button type="submit" kind="primary" disabled={creating || !newName.trim()} ariaBusy={creating}>
-            {t("追加")}
-          </Button>
-        </form>
-        {error ? <ErrorBox message={error} onRetry={() => void load()} /> : null}
-        {loading ? (
-          <Spinner />
-        ) : tags.length === 0 ? (
-          <EmptyState>{t("タグがありません。上の入力欄から作成できます。")}</EmptyState>
-        ) : (
-          <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0 }}>
-            {tags.map((tag) => (
-              <li
-                key={tag.id}
-                style={{
-                  borderBottom: `1px solid ${palette.mutedBorder}`,
-                  padding: "8px 4px",
-                }}
-              >
-                {editingTag?.id === tag.id ? (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void saveEdit();
-                    }}
-                    style={{ display: "grid", gap: "8px" }}
-                  >
-                    <div style={{ alignItems: "center", display: "flex", gap: "8px" }}>
+            style={{ display: "flex", gap: "8px" }}
+          >
+            <input
+              id="new-tag-name"
+              type="text"
+              className="fl-input"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder={t("新しいタグ名")}
+              aria-label={t("新しいタグ名")}
+              required
+              style={{ flex: 1 }}
+            />
+            <Button type="submit" kind="primary" icon="plus" disabled={creating || !newName.trim()} ariaBusy={creating}>
+              {t("追加")}
+            </Button>
+          </form>
+          {error ? <ErrorBox message={error} onRetry={() => void load()} /> : null}
+          {loading ? (
+            <Spinner />
+          ) : tags.length === 0 ? (
+            <EmptyState icon="tag">{t("タグがありません。上の入力欄から作成できます。")}</EmptyState>
+          ) : (
+            <ul className="fl-list" style={{ borderTop: `1px solid ${palette.mutedBorder}` }}>
+              {tags.map((tag) => (
+                <li key={tag.id} className="fl-list-row fl-reveal-host" style={{ padding: "8px 0 8px 4px" }}>
+                  {editingTag?.id === tag.id ? (
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void saveEdit();
+                      }}
+                      style={{ alignItems: "center", display: "flex", flex: 1, flexWrap: "wrap", gap: "8px" }}
+                    >
+                      <input
+                        id={`edit-tag-color-${tag.id}`}
+                        type="color"
+                        aria-label={t("色")}
+                        value={editColor || "#3B82F6"}
+                        onChange={(e) => setEditColor(e.target.value)}
+                        style={{ background: "transparent", border: `1px solid ${palette.border}`, borderRadius: "var(--fl-radius)", cursor: "pointer", flexShrink: 0, height: "36px", padding: "4px", width: "36px" }}
+                      />
                       <input
                         id={`edit-tag-name-${tag.id}`}
                         type="text"
+                        className="fl-input"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
                         aria-label={`${tag.name}の名前`}
                         required
-                        style={{
-                          border: `1px solid ${palette.border}`,
-                          borderRadius: "6px",
-                          flex: 1,
-                          padding: "8px",
-                        }}
+                        autoFocus
+                        style={{ flex: "1 1 160px" }}
                       />
-                      <label style={{ alignItems: "center", display: "flex", gap: "4px", fontSize: "13px" }}>
-                        {t("色")}
-                        <input
-                          id={`edit-tag-color-${tag.id}`}
-                          type="color"
-                          value={editColor || "#3B82F6"}
-                          onChange={(e) => setEditColor(e.target.value)}
-                          style={{ border: "none", cursor: "pointer", height: "28px", padding: 0, width: "28px" }}
-                        />
+                      <div style={{ display: "flex", gap: "6px" }}>
                         {editColor ? (
-                          <button
-                            type="button"
-                            onClick={() => setEditColor("")}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: palette.muted,
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              padding: "2px 4px",
-                            }}
-                          >
-                            {t("解除")}
-                          </button>
+                          <Button kind="ghost" onClick={() => setEditColor("")}>
+                            {t("色を解除")}
+                          </Button>
                         ) : null}
-                      </label>
-                    </div>
-                    <div style={{ display: "flex", gap: "4px" }}>
-                      <Button small type="submit" kind="primary">
-                        {t("保存")}
-                      </Button>
-                      <Button small onClick={cancelEdit}>
-                        {t("キャンセル")}
-                      </Button>
-                    </div>
-                  </form>
-                ) : (
-                  <div style={{ alignItems: "center", display: "flex", gap: "8px", justifyContent: "space-between" }}>
-                    <div style={{ alignItems: "center", display: "flex", gap: "8px", minWidth: 0 }}>
-                      {tag.color ? (
-                        <span
-                          style={{
-                            background: tag.color,
-                            borderRadius: "50%",
-                            display: "inline-block",
-                            flexShrink: 0,
-                            height: "12px",
-                            width: "12px",
-                          }}
-                        />
-                      ) : null}
-                      <span style={{ fontWeight: 600 }}>{tag.name}</span>
-                      <span style={{ color: palette.muted, fontSize: "13px" }}>
-                        {t("{count}件の購読", { count: tag.subscriptionCount })}
-                      </span>
-                    </div>
-                    <div style={{ alignItems: "center", display: "flex", gap: "2px" }}>
-                      <IconButton icon="chevronUp" label={t("上へ")} size={14} onClick={() => void move(tag.id, -1)} />
-                      <IconButton icon="chevronDown" label={t("下へ")} size={14} onClick={() => void move(tag.id, 1)} />
-                      <Button small onClick={() => startEdit(tag)}>
-                        {t("編集")}
-                      </Button>
-                      <Button small kind="danger" onClick={() => void remove(tag)}>
-                        {t("削除")}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+                        <Button onClick={cancelEdit}>{t("キャンセル")}</Button>
+                        <Button type="submit" kind="primary">{t("保存")}</Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        style={{ background: tag.color ?? palette.border, borderRadius: "50%", flexShrink: 0, height: "10px", width: "10px" }}
+                      />
+                      <div style={{ display: "grid", flex: 1, gap: "2px", minWidth: 0 }}>
+                        <span style={{ fontSize: "14px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tag.name}</span>
+                        <span style={{ color: palette.muted, fontSize: "12px" }}>
+                          {t("{count}件の購読", { count: tag.subscriptionCount })}
+                        </span>
+                      </div>
+                      <div className="fl-reveal" style={{ alignItems: "center", display: "flex", gap: "2px" }}>
+                        <IconButton icon="chevronUp" label={t("上へ")} size={16} onClick={() => void move(tag.id, -1)} />
+                        <IconButton icon="chevronDown" label={t("下へ")} size={16} onClick={() => void move(tag.id, 1)} />
+                        <IconButton icon="pencil" label={t("編集")} size={16} onClick={() => startEdit(tag)} />
+                        <IconButton icon="trash" label={t("削除")} size={16} danger onClick={() => void remove(tag)} />
+                      </div>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </main>
     </AppShell>
   );

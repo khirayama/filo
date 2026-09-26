@@ -10,20 +10,17 @@ import {
   Badge,
   Button,
   ErrorBox,
-  IconButton,
-  InlineButton,
+  FilterChip,
   Spinner,
+  Switch,
   palette,
-  sectionStyle,
 } from "../components/ui";
 import { errorMessage, LANGUAGE_NAMES, SUPPORTED_LANGUAGES } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
-import { useBackOr } from "../lib/navigation";
 
 export function SettingsPage() {
   const api = useApi();
   const navigate = useNavigate();
-  const goBack = useBackOr("/articles");
   const { settings, loading, error: loadError, refresh, setSettings, language, t } = useAppData();
   const { supported: translationSupported, setShowSetup } = useTitleTranslation();
   const [error, setError] = useState<string | null>(null);
@@ -120,187 +117,185 @@ export function SettingsPage() {
   };
 
   return (
-    <AppShell>
-      <main style={{ padding: "16px var(--fl-page-gutter) 48px" }}>
-        <header
-          style={{
-            alignItems: "center",
-            borderBottom: `1px solid ${palette.mutedBorder}`,
-            display: "flex",
-            gap: "8px",
-            padding: "8px 0",
-          }}
-        >
-          <IconButton icon="back" label={t("戻る")} onClick={goBack} />
-          <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("設定")}</h1>
-        </header>
-        {error ?? loadError ? <ErrorBox message={(error ?? loadError)!} onRetry={() => void refresh()} /> : null}
-        {loading || !settings ? (
-          <Spinner />
-        ) : (
-          <>
-            <section style={sectionStyle}>
-              <SettingRow label={t("テーマ")} htmlFor="setting-theme">
-                <select
-                  id="setting-theme"
-                  value={settings.theme}
-                  onChange={(e) => void update({ theme: e.target.value as Settings["theme"] })}
-                  style={selectStyle}
-                >
-                  <option value="system">{t("システムに合わせる")}</option>
-                  <option value="light">{t("ライト")}</option>
-                  <option value="dark">{t("ダーク")}</option>
-                </select>
-              </SettingRow>
-              <SettingRow label={t("言語")} htmlFor="setting-language">
-                <select
-                  id="setting-language"
-                  value={settings.language}
-                  onChange={(e) => void update({ language: e.target.value as Settings["language"] })}
-                  style={selectStyle}
-                >
-                  {SUPPORTED_LANGUAGES.map((code) => <option key={code} value={code}>{LANGUAGE_NAMES[code]}</option>)}
-                </select>
-              </SettingRow>
-              <p style={{ color: palette.muted, fontSize: "13px", margin: "0 0 8px" }}>
-                {t("一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。")}
-              </p>
-              {translationSupported ? (
-                <SettingRow label={t("翻訳の準備")}>
-                  <InlineButton onClick={() => setShowSetup(true)}>{t("言語を確認")}</InlineButton>
+    <AppShell title={t("設定")}>
+      <main className="fl-page fl-page--narrow">
+        <div className="fl-stack" style={{ gap: "28px" }}>
+          {error ?? loadError ? <ErrorBox message={(error ?? loadError)!} onRetry={() => void refresh()} /> : null}
+          {loading || !settings ? (
+            <Spinner />
+          ) : (
+            <>
+              <SettingSection title={t("表示設定")}>
+                <SettingRow label={t("テーマ")} htmlFor="setting-theme">
+                  <select
+                    id="setting-theme"
+                    className="fl-select"
+                    value={settings.theme}
+                    onChange={(e) => void update({ theme: e.target.value as Settings["theme"] })}
+                    style={selectStyle}
+                  >
+                    <option value="system">{t("システムに合わせる")}</option>
+                    <option value="light">{t("ライト")}</option>
+                    <option value="dark">{t("ダーク")}</option>
+                  </select>
                 </SettingRow>
-              ) : null}
-              <SettingRow label={t("原文のまま読む言語")}>
-                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                  {SUPPORTED_LANGUAGES.map((code) => (
-                    <label key={code} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={settings.readableLanguages.includes(code)}
-                        onChange={(e) => {
-                          const next = e.target.checked
-                            ? [...settings.readableLanguages, code]
-                            : settings.readableLanguages.filter((l) => l !== code);
-                          void update({ readableLanguages: next });
-                        }}
-                      />
-                      {LANGUAGE_NAMES[code]}
-                    </label>
-                  ))}
+                <SettingRow label={t("言語")} hint={t("一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。")} htmlFor="setting-language">
+                  <select
+                    id="setting-language"
+                    className="fl-select"
+                    value={settings.language}
+                    onChange={(e) => void update({ language: e.target.value as Settings["language"] })}
+                    style={selectStyle}
+                  >
+                    {SUPPORTED_LANGUAGES.map((code) => <option key={code} value={code}>{LANGUAGE_NAMES[code]}</option>)}
+                  </select>
+                </SettingRow>
+                <SettingRow label={t("記事の並び順")} htmlFor="setting-article-sort">
+                  <select
+                    id="setting-article-sort"
+                    className="fl-select"
+                    value={settings.articleSortOrder}
+                    onChange={(e) => void update({ articleSortOrder: e.target.value as Settings["articleSortOrder"] })}
+                    style={selectStyle}
+                  >
+                    <option value="published_at_desc">{t("公開日時が新しい順")}</option>
+                    <option value="fetched_at_desc">{t("取得日時が新しい順")}</option>
+                  </select>
+                </SettingRow>
+                <SettingRow label={t("リンクを常にブラウザで開く")} htmlFor="setting-open-in-browser" inline>
+                  <Switch
+                    id="setting-open-in-browser"
+                    checked={settings.openInBrowserByDefault}
+                    onChange={(checked) => void update({ openInBrowserByDefault: checked })}
+                  />
+                </SettingRow>
+              </SettingSection>
+
+              <SettingSection title={t("翻訳")}>
+                {translationSupported ? (
+                  <SettingRow label={t("翻訳の準備")} inline>
+                    <Button small onClick={() => setShowSetup(true)}>{t("言語を確認")}</Button>
+                  </SettingRow>
+                ) : null}
+                <SettingRow label={t("原文のまま読む言語")}>
+                  <div role="group" aria-label={t("原文のまま読む言語")} style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {SUPPORTED_LANGUAGES.map((code) => {
+                      const checked = settings.readableLanguages.includes(code);
+                      return (
+                        <FilterChip
+                          key={code}
+                          label={LANGUAGE_NAMES[code]}
+                          active={checked}
+                          onClick={() => {
+                            const next = checked
+                              ? settings.readableLanguages.filter((l) => l !== code)
+                              : [...settings.readableLanguages, code];
+                            void update({ readableLanguages: next });
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                </SettingRow>
+              </SettingSection>
+
+              <SettingSection title="OPML">
+                <div className="fl-card-row" style={{ justifyContent: "flex-start" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                    <Button onClick={() => fileInputRef.current?.click()} disabled={importing}>
+                      {importing ? t("アップロード中…") : t("インポート")}
+                    </Button>
+                    <Button onClick={() => void exportOpml()}>{t("エクスポート")}</Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      aria-label={t("OPMLファイル")}
+                      accept=".opml,.xml,text/xml,text/x-opml"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void importOpml(file);
+                      }}
+                    />
+                  </div>
                 </div>
-              </SettingRow>
-              <SettingRow label={t("記事の並び順")} htmlFor="setting-article-sort">
-                <select
-                  id="setting-article-sort"
-                  value={settings.articleSortOrder}
-                  onChange={(e) => void update({ articleSortOrder: e.target.value as Settings["articleSortOrder"] })}
-                  style={selectStyle}
-                >
-                  <option value="published_at_desc">{t("公開日時が新しい順")}</option>
-                  <option value="fetched_at_desc">{t("取得日時が新しい順")}</option>
-                </select>
-              </SettingRow>
-              <SettingRow label={t("リンクを常にブラウザで開く")} htmlFor="setting-open-in-browser">
-                <input
-                  id="setting-open-in-browser"
-                  type="checkbox"
-                  checked={settings.openInBrowserByDefault}
-                  onChange={(e) => void update({ openInBrowserByDefault: e.target.checked })}
-                />
-              </SettingRow>
-            </section>
+                {importJob ? (
+                  <div className="fl-card-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: "8px", justifyContent: "center" }}>
+                    {importJob.status === "pending" || importJob.status === "running" ? (
+                      <Badge>{t("インポート処理中…")}</Badge>
+                    ) : importJob.status === "completed" ? (
+                      <>
+                        <Badge tone="ok">{t("インポート完了")}</Badge>
+                        <p style={{ color: palette.muted, fontSize: "13px", margin: 0 }}>
+                          {t("追加 {created} / スキップ {skipped} / 失敗 {failed}", { created: importJob.created ?? 0, skipped: importJob.skipped ?? 0, failed: importJob.failed ?? 0 })}
+                        </p>
+                        {importJob.failures && importJob.failures.length > 0 ? (
+                          <ul style={{ color: palette.muted, fontSize: "12px", margin: 0, paddingLeft: "18px" }}>
+                            {importJob.failures.slice(0, 5).map((f, i) => (
+                              <li key={i}>{f.feedUrl}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    ) : (
+                      <Badge tone="danger">{t("インポート失敗")}</Badge>
+                    )}
+                  </div>
+                ) : null}
+              </SettingSection>
 
-            <section style={sectionStyle}>
-              <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600 }}>OPML</p>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <Button onClick={() => fileInputRef.current?.click()} disabled={importing}>
-                  {importing ? t("アップロード中…") : t("インポート")}
-                </Button>
-                <Button onClick={() => void exportOpml()}>{t("エクスポート")}</Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  aria-label={t("OPMLファイル")}
-                  accept=".opml,.xml,text/xml,text/x-opml"
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void importOpml(file);
-                  }}
-                />
-              </div>
-              {importJob ? (
-                <div style={{ marginTop: "12px" }}>
-                  {importJob.status === "pending" || importJob.status === "running" ? (
-                    <Badge>{t("インポート処理中…")}</Badge>
-                  ) : importJob.status === "completed" ? (
-                    <div>
-                      <Badge tone="ok">{t("インポート完了")}</Badge>
-                      <p style={{ color: palette.muted, fontSize: "13px" }}>
-                        {t("追加 {created} / スキップ {skipped} / 失敗 {failed}", { created: importJob.created ?? 0, skipped: importJob.skipped ?? 0, failed: importJob.failed ?? 0 })}
-                      </p>
-                      {importJob.failures && importJob.failures.length > 0 ? (
-                        <ul style={{ color: palette.muted, fontSize: "12px" }}>
-                          {importJob.failures.slice(0, 5).map((f, i) => (
-                            <li key={i}>{f.feedUrl}</li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <Badge tone="danger">{t("インポート失敗")}</Badge>
-                  )}
+              <SettingSection title={t("既読履歴について")}>
+                <p className="fl-card-row" style={{ color: palette.muted, fontSize: "13px", lineHeight: 1.6, margin: 0 }}>
+                  {t("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。")}
+                </p>
+              </SettingSection>
+
+              <SettingSection title={t("セッション")}>
+                <div className="fl-card-row" style={{ justifyContent: "flex-start" }}>
+                  <Button onClick={() => { void signOut().then(() => navigate("/sign-in")); }}>{t("サインアウト")}</Button>
                 </div>
-              ) : null}
-            </section>
+              </SettingSection>
 
-            <section style={sectionStyle}>
-              <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600 }}>{t("既読履歴について")}</p>
-              <p style={{ color: palette.muted, fontSize: "13px" }}>
-                {t("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。")}
-              </p>
-            </section>
-
-            <section style={sectionStyle}>
-              <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600 }}>{t("セッション")}</p>
-              <Button onClick={() => { void signOut().then(() => navigate("/sign-in")); }}>{t("サインアウト")}</Button>
-            </section>
-
-            <section style={{ ...sectionStyle, borderColor: palette.danger }}>
-              <p role="heading" aria-level={2} style={{ marginTop: 0, fontWeight: 600, color: palette.danger }}>{t("危険な操作")}</p>
-              <p style={{ color: palette.muted, fontSize: "13px" }}>
-                {t("アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。")}
-              </p>
-              <Button kind="danger" onClick={() => void deleteAccount()}>
-                {t("アカウント削除")}
-              </Button>
-            </section>
-          </>
-        )}
+              <SettingSection title={t("危険な操作")} danger>
+                <div className="fl-card-row fl-card-row--stack">
+                  <p style={{ color: palette.muted, fontSize: "13px", lineHeight: 1.6, margin: 0 }}>
+                    {t("アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。")}
+                  </p>
+                  <Button kind="danger" onClick={() => void deleteAccount()}>
+                    {t("アカウント削除")}
+                  </Button>
+                </div>
+              </SettingSection>
+            </>
+          )}
+        </div>
       </main>
     </AppShell>
   );
 }
 
-const selectStyle = {
-  border: `1px solid ${palette.border}`,
-  borderRadius: "6px",
-  padding: "8px",
-} as const;
+const selectStyle = { minWidth: "200px" } as const;
 
-function SettingRow({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
+function SettingSection({ title, danger, children }: { title: string; danger?: boolean; children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        alignItems: "center",
-        borderBottom: `1px solid ${palette.mutedBorder}`,
-        display: "flex",
-        justifyContent: "space-between",
-        gap: "12px",
-        padding: "12px 0",
-      }}
-    >
-      {htmlFor ? <label htmlFor={htmlFor}>{label}</label> : <span>{label}</span>}
+    <section>
+      <h2 className="fl-section-title" style={danger ? { color: palette.danger } : undefined}>{title}</h2>
+      <div className="fl-card" style={danger ? { borderColor: "color-mix(in srgb, var(--fl-danger) 35%, transparent)" } : undefined}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+// `inline` keeps the control beside the label on every width (switches,
+// small buttons); other rows stack under the label on narrow screens.
+function SettingRow({ label, hint, htmlFor, inline, children }: { label: string; hint?: string; htmlFor?: string; inline?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={`fl-card-row${inline ? "" : " fl-card-row--stack"}`}>
+      <div className="fl-card-row-text">
+        {htmlFor ? <label htmlFor={htmlFor} style={{ fontSize: "14px" }}>{label}</label> : <span style={{ fontSize: "14px" }}>{label}</span>}
+        {hint ? <span className="fl-card-row-hint">{hint}</span> : null}
+      </div>
       {children}
     </div>
   );

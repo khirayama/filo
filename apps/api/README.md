@@ -32,7 +32,7 @@ npm run deploy:production
 
 本番SecretはGitへ書かない。ローカルの `.dev.vars` もGit管理対象外である。
 Better Auth の `BETTER_AUTH_SECRET`、メール配送の `RESEND_API_KEY`、および
-`CURSOR_SIGNING_KEY` / `CRON_SECRET` などの本番固有の値はダッシュボードで管理する。
+`CURSOR_SIGNING_KEY` などの本番固有の値はダッシュボードで管理する。
 `npm run deploy:production` は既存の本番設定を保持する。
 
 ## Verify

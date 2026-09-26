@@ -4,40 +4,31 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.filo.app.ThemePreference
+import androidx.compose.ui.unit.sp
 import com.filo.app.LanguagePreference
+import com.filo.app.ThemePreference
 import com.filo.app.api.ApiClient
 import com.filo.app.api.ErrorMessages
 import com.filo.app.api.OpmlImportJob
@@ -45,11 +36,13 @@ import com.filo.app.api.UserSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val SupportedLanguages = listOf("ja", "en", "zh", "ko", "es")
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     translations: TitleTranslationStore,
-    onBack: () -> Unit,
+    onOpenMenu: (() -> Unit)?,
     onSignOut: () -> Unit,
     onDeletionAccepted: (String) -> Unit,
 ) {
@@ -159,208 +152,245 @@ fun SettingsScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(tr("設定")) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
+
+    Column(Modifier.fillMaxSize()) {
+        FiloHeader(
+            title = tr("設定"),
+            lead = if (onOpenMenu != null) HeaderLead.Menu else HeaderLead.None,
+            onLead = { onOpenMenu?.invoke() },
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(PagePadding),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            errorMessage?.let { ErrorBanner(tr(it)) { scope.launch { reload() } } }
-            if (isLoading || settings == null) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(40.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) { CircularProgressIndicator() }
-            } else {
-                val current = settings!!
-                Text(tr("表示"), fontWeight = FontWeight.SemiBold)
-                ChoiceRow(
-                    label = tr("テーマ"),
-                    options = listOf("system" to tr("システム"), "light" to tr("ライト"), "dark" to tr("ダーク")),
-                    selected = current.theme,
-                ) { update(theme = it) }
-                ChoiceRow(
-                    label = tr("言語"),
-                    options = listOf("ja" to tr("日本語"), "en" to tr("English"), "zh" to tr("简体中文"), "ko" to tr("한국어"), "es" to tr("Español")),
-                    selected = current.language,
-                ) { update(language = it) }
-                Text(
-                    tr("一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (translations.isSupported) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(tr("翻訳の準備"), fontWeight = FontWeight.SemiBold)
-                        TextButton(onClick = { translations.isShowingSetup = true }) {
-                            Text(tr("言語を確認"))
-                        }
-                    }
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(tr("原文のまま読む言語"), style = MaterialTheme.typography.labelLarge)
-                    Text(
-                        tr("選択した言語の記事は翻訳せず原文で表示します。"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("ja" to "日本語", "en" to "English", "zh" to "简体中文", "ko" to "한국어", "es" to "Español").forEach { (code, name) ->
-                            FilterChipButton(tr(name), current.readableLanguages.contains(code)) {
-                                val next = if (current.readableLanguages.contains(code)) {
-                                    current.readableLanguages - code
-                                } else {
-                                    current.readableLanguages + code
-                                }
-                                update(readableLanguages = next)
-                            }
-                        }
-                    }
-                }
-                ChoiceRow(
-                    label = tr("並び順"),
-                    options = listOf("published_at_desc" to tr("公開日時が新しい順"), "fetched_at_desc" to tr("取得日時が新しい順")),
-                    selected = current.articleSortOrder,
-                ) { update(articleSortOrder = it) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(tr("リンクを常にブラウザで開く"))
-                    Switch(
-                        checked = current.openInBrowserByDefault,
-                        onCheckedChange = { update(openInBrowserByDefault = it) },
+            errorMessage?.let { FiloErrorBox(tr(it)) { scope.launch { reload() } } }
+            val current = settings
+            if (isLoading || current == null) {
+                FiloSpinner()
+                return@Column
+            }
+            SettingSection(tr("表示設定")) {
+                SettingRow(tr("テーマ")) {
+                    FiloSelect(
+                        options = listOf("system" to tr("システムに合わせる"), "light" to tr("ライト"), "dark" to tr("ダーク")),
+                        selected = current.theme,
+                        onSelect = { update(theme = it) },
+                        label = tr("テーマ"),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                HorizontalDivider()
+                SettingDivider()
+                SettingRow(tr("言語"), hint = tr("一覧の翻訳トグルは、タイトルをこの言語へ翻訳します。")) {
+                    FiloSelect(
+                        options = SupportedLanguages.map { it to AppStrings.languageName(it) },
+                        selected = current.language,
+                        onSelect = { update(language = it) },
+                        label = tr("言語"),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                SettingDivider()
+                SettingRow(tr("記事の並び順")) {
+                    FiloSelect(
+                        options = listOf("published_at_desc" to tr("公開日時が新しい順"), "fetched_at_desc" to tr("取得日時が新しい順")),
+                        selected = current.articleSortOrder,
+                        onSelect = { update(articleSortOrder = it) },
+                        label = tr("記事の並び順"),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                SettingDivider()
+                SettingRow(tr("リンクを常にブラウザで開く"), inline = true) {
+                    FiloSwitch(
+                        current.openInBrowserByDefault,
+                        { update(openInBrowserByDefault = it) },
+                        tr("リンクを常にブラウザで開く"),
+                    )
+                }
+            }
 
-                Text(tr("OPML"), fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { importLauncher.launch("*/*") }) { Text(tr("インポート")) }
-                    OutlinedButton(onClick = {
-                        scope.launch {
-                            try {
-                                exportedBytes = ApiClient.exportOpml()
-                                com.filo.app.Analytics.track("export_opml")
-                                exportLauncher.launch("filo-subscriptions.opml")
-                            } catch (e: Exception) {
-                                errorMessage = ErrorMessages.forErrorText(e)
-                            }
+            SettingSection(tr("翻訳")) {
+                if (translations.isSupported) {
+                    SettingRow(tr("翻訳の準備"), inline = true) {
+                        FiloButton(tr("言語を確認"), { translations.isShowingSetup = true }, small = true)
+                    }
+                    SettingDivider()
+                }
+                SettingRow(tr("原文のまま読む言語")) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SupportedLanguages.forEach { code ->
+                            val checked = current.readableLanguages.contains(code)
+                            FiloChip(AppStrings.languageName(code), checked, {
+                                update(readableLanguages = if (checked) current.readableLanguages - code else current.readableLanguages + code)
+                            })
                         }
-                    }) { Text(tr("エクスポート")) }
+                    }
+                }
+            }
+
+            SettingSection("OPML") {
+                SettingBlock {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val importing = importJob?.status == "pending" || importJob?.status == "running"
+                        FiloButton(tr("インポート"), { importLauncher.launch("*/*") }, enabled = !importing)
+                        FiloButton(tr("エクスポート"), {
+                            scope.launch {
+                                try {
+                                    exportedBytes = ApiClient.exportOpml()
+                                    com.filo.app.Analytics.track("export_opml")
+                                    exportLauncher.launch("filo-subscriptions.opml")
+                                } catch (e: Exception) {
+                                    errorMessage = ErrorMessages.forErrorText(e)
+                                }
+                            }
+                        })
+                    }
                 }
                 importJob?.let { job ->
-                    when (job.status) {
-                        "pending", "running" -> Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.padding(4.dp))
-                            Text(tr("インポート処理中…"))
-                        }
-                        "completed" -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            StatusBadge(tr("インポート完了"), BadgeTone.Ok)
-                            Text(
-                                trf("追加 %d / スキップ %d / 失敗 %d", job.created ?: 0, job.skipped ?: 0, job.failed ?: 0),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            job.failures.take(5).forEach { failure ->
+                    SettingDivider()
+                    SettingBlock {
+                        when (job.status) {
+                            "pending", "running" -> FiloBadge(tr("インポート処理中…"))
+                            "completed" -> {
+                                FiloBadge(tr("インポート完了"), BadgeTone.Ok)
                                 Text(
-                                    failure.feedUrl,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
+                                    trf("追加 %d / スキップ %d / 失敗 %d", job.created ?: 0, job.skipped ?: 0, job.failed ?: 0),
+                                    fontSize = 13.sp,
+                                    color = Filo.colors.muted,
                                 )
+                                job.failures.take(5).forEach { failure ->
+                                    Text("・${failure.feedUrl}", fontSize = 12.sp, color = Filo.colors.muted, maxLines = 1)
+                                }
                             }
+                            else -> FiloBadge(tr("インポート失敗"), BadgeTone.Danger)
                         }
-                        else -> StatusBadge(tr("インポート失敗"), BadgeTone.Danger)
                     }
                 }
-                HorizontalDivider()
+            }
 
-                Text(tr("既読履歴について"), fontWeight = FontWeight.SemiBold)
-                Text(
-                    tr("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                HorizontalDivider()
+            SettingSection(tr("既読履歴について")) {
+                SettingBlock {
+                    Text(
+                        tr("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。"),
+                        fontSize = 13.sp,
+                        lineHeight = 21.sp,
+                        color = Filo.colors.muted,
+                    )
+                }
+            }
 
-                Text(tr("セッション"), fontWeight = FontWeight.SemiBold)
-                OutlinedButton(onClick = onSignOut) { Text(tr("サインアウト")) }
-                HorizontalDivider()
+            SettingSection(tr("セッション")) {
+                SettingBlock { FiloButton(tr("サインアウト"), onSignOut) }
+            }
 
-                Text(tr("危険な操作"), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
-                Text(
-                    tr("アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(
-                    onClick = { showDeleteConfirm = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                ) { Text(tr("アカウント削除")) }
+            SettingSection(tr("危険な操作"), danger = true) {
+                SettingBlock {
+                    Text(
+                        tr("アカウントを削除すると購読・タグ・記事の状態がすべて削除され、再ログインしても復元されません。"),
+                        fontSize = 13.sp,
+                        lineHeight = 21.sp,
+                        color = Filo.colors.muted,
+                    )
+                    FiloButton(
+                        tr("アカウント削除"),
+                        { showDeleteConfirm = true },
+                        kind = ButtonKind.Danger,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }
 
     if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text(tr("アカウントを削除しますか？")) },
-            text = { Text(tr("この操作は取り消せません。")) },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteConfirm = false
-                    scope.launch {
-                        try {
-                            val accepted = ApiClient.deleteAccount()
-                            onDeletionAccepted(accepted.deletionToken)
-                        } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forErrorText(e)
-                        }
+        FiloConfirmDialog(
+            title = tr("アカウントを削除しますか？"),
+            message = tr("この操作は取り消せません。"),
+            confirmLabel = tr("削除する"),
+            danger = true,
+            onConfirm = {
+                showDeleteConfirm = false
+                scope.launch {
+                    try {
+                        val accepted = ApiClient.deleteAccount()
+                        onDeletionAccepted(accepted.deletionToken)
+                    } catch (e: Exception) {
+                        errorMessage = ErrorMessages.forErrorText(e)
                     }
-                }) { Text(tr("削除する"), color = MaterialTheme.colorScheme.error) }
+                }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text(tr("キャンセル")) } },
+            onDismiss = { showDeleteConfirm = false },
         )
     }
 }
 
 @Composable
-private fun ChoiceRow(
+private fun SettingSection(title: String, danger: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    Column {
+        FiloSectionTitle(title, danger)
+        FiloCard(danger = danger, content = content)
+    }
+}
+
+@Composable
+private fun SettingDivider() = FiloDivider()
+
+// `inline` keeps the control beside the label (switches, small buttons); other
+// rows stack the control under the label, as on narrow web screens.
+@Composable
+private fun SettingRow(
     label: String,
-    options: List<Pair<String, String>>,
-    selected: String,
-    onSelect: (String) -> Unit,
+    hint: String? = null,
+    inline: Boolean = false,
+    control: @Composable () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, style = MaterialTheme.typography.labelLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (value, name) ->
-                FilterChipButton(name, selected == value) { onSelect(value) }
-            }
+    val text: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, fontSize = 14.sp, color = Filo.colors.text)
+            if (hint != null) Text(hint, fontSize = 12.sp, lineHeight = 18.sp, color = Filo.colors.muted)
+        }
+    }
+    if (inline) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) { text() }
+            control()
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            text()
+            control()
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingBlock(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
+        content = content,
+    )
+}
+
 @Composable
 fun AccountDeletionScreen(
     deletionToken: String?,
@@ -385,46 +415,32 @@ fun AccountDeletionScreen(
         }
     }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text(tr("アカウント削除")) }) },
-    ) { innerPadding ->
+    Column(Modifier.fillMaxSize()) {
+        FiloHeader(tr("アカウント削除"))
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(PagePadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            val body: @Composable (String) -> Unit = { Text(it, fontSize = 14.sp, lineHeight = 22.sp, color = Filo.colors.text) }
+            val note: @Composable (String) -> Unit = { Text(it, fontSize = 13.sp, lineHeight = 21.sp, color = Filo.colors.muted) }
             when (status) {
-                null -> {
-                    CircularProgressIndicator()
-                    Text(tr("状態を確認しています…"))
-                }
+                null -> FiloSpinner(tr("状態を確認しています…"))
                 "completed" -> {
-                    StatusBadge(tr("削除完了"), BadgeTone.Ok)
-                    Text(tr("アカウントの削除が完了しました。ご利用ありがとうございました。"))
-                    Text(
-                        tr("再ログインしてもデータは復元されません。"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    FiloBadge(tr("削除完了"), BadgeTone.Ok)
+                    body(tr("アカウントの削除が完了しました。ご利用ありがとうございました。"))
+                    note(tr("再ログインしてもデータは復元されません。"))
                 }
                 "failed" -> {
-                    StatusBadge(tr("削除処理に失敗しました"), BadgeTone.Danger)
-                    Text(tr("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。"))
+                    FiloBadge(tr("削除処理に失敗しました"), BadgeTone.Danger)
+                    body(tr("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。"))
                 }
                 "none" -> {
-                    Text(tr("進行中の削除処理はありません。"))
-                    TextButton(onClick = onBackToSettings) { Text(tr("設定へ戻る")) }
+                    body(tr("進行中の削除処理はありません。"))
+                    FiloButton(tr("設定へ戻る"), onBackToSettings)
                 }
                 else -> {
-                    CircularProgressIndicator()
-                    Text(tr("削除処理中…"))
-                    Text(
-                        tr("この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    FiloSpinner(tr("削除処理中…"))
+                    note(tr("この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。"))
                 }
             }
         }

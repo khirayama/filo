@@ -204,6 +204,7 @@ struct SubscriptionDetailScreen: View {
     @StateObject private var model: SubscriptionDetailViewModel
     @ObservedObject private var translations = TitleTranslationStore.shared
     let onOpenArticle: (ArticleListItem) -> Void
+    let onSelectTag: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var showRename = false
@@ -211,53 +212,29 @@ struct SubscriptionDetailScreen: View {
     @State private var showUnsubscribeConfirm = false
     @State private var showFeedUrl = false
 
-    init(subscriptionId: Int, onOpenArticle: @escaping (ArticleListItem) -> Void = { _ in }) {
+    init(
+        subscriptionId: Int,
+        onOpenArticle: @escaping (ArticleListItem) -> Void = { _ in },
+        onSelectTag: @escaping (Int) -> Void = { _ in },
+    ) {
         _model = StateObject(wrappedValue: SubscriptionDetailViewModel(subscriptionId: subscriptionId))
         self.onOpenArticle = onOpenArticle
+        self.onSelectTag = onSelectTag
     }
 
     var body: some View {
         Group {
             if model.isGone {
-                EmptyStateView {
-                    Text("この購読は削除されたか、表示できません。")
-                    Button("購読一覧へ戻る") { dismiss() }
+                FiloPage("購読が見つかりません", showsBack: true) {
+                    FiloEmptyState(icon: .rss, message: "この購読は削除されたか、表示できません。") {
+                        FiloButton("購読一覧へ戻る") { dismiss() }
+                    }
                 }
             } else {
-                contentList
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(FiloPalette.background)
-        .navigationTitle(model.subscription?.displayTitle ?? L10n.string("購読詳細"))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 6) {
-                    if let faviconUrl = model.subscription?.feed.faviconUrl {
-                        FaviconView(url: faviconUrl)
-                    }
-                    Text(model.subscription?.displayTitle ?? L10n.string("購読詳細"))
-                        .lineLimit(1)
-                }
-            }
-            if !model.isGone {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        Task { await model.refreshFeedAndReload() }
-                    } label: {
-                        FiloIcon(.refresh, size: 18)
-                    }
-                    .accessibilityLabel("このフィードを更新")
-                    .disabled(model.isRefreshingFeed)
-                    Button {
-                        Task { await model.markAllRead() }
-                    } label: {
-                        FiloIcon(.checkCircle, size: 18)
-                    }
-                    .accessibilityLabel("すべて既読にする")
-                    subscriptionActionsMenu
-                    articleFiltersMenu
+                FiloPage(model.subscription?.displayTitle ?? "", showsBack: true) {
+                    if model.subscription != nil { headerActions }
+                } content: {
+                    contentList
                 }
             }
         }
@@ -275,90 +252,23 @@ struct SubscriptionDetailScreen: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if let notice = model.markAllReadNotice {
-                ToastView(message: notice)
+            if let notice = model.markAllReadNotice ?? model.refreshNotice {
+                FiloToast(message: notice)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: model.markAllReadNotice ?? model.refreshNotice)
         .task(id: model.markAllReadNotice) {
             guard model.markAllReadNotice != nil else { return }
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
             model.markAllReadNotice = nil
         }
-    }
-
-    private var contentList: some View {
-        List {
-            if let subscription = model.subscription {
-                Section {
-                    statusRow(subscription)
-                    tagRow(subscription)
-                }
-            }
-            if model.isRefreshingFeed {
-                ProgressView(L10n.string("フィードを更新しています…"))
-            }
-            if let notice = model.refreshNotice {
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(FiloPalette.muted)
-            }
-            if let error = model.errorMessage {
-                ErrorBanner(message: error) { Task { await model.load() } }
-            }
-            Section {
-                if model.isLoading {
-                    ProgressView(L10n.string("購読記事を読み込んでいます…"))
-                } else if model.articles.isEmpty {
-                    if model.subscription?.initialFetchStatus == "fetching" {
-                        EmptyStateView {
-                            ProgressView()
-                            Text("記事を取得しています…")
-                        }
-                    } else {
-                        EmptyStateView { Text("表示できる記事がありません。") }
-                    }
-                } else {
-                    ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
-                        ArticleRowView(
-                            article: article,
-                            onOpen: {
-                                if let urlString = article.canonicalUrl,
-                                   let url = URL(string: urlString) {
-                                    if model.openInBrowserByDefault {
-                                        openURL(url)
-                                    } else {
-                                        onOpenArticle(article)
-                                    }
-                                }
-                            },
-                            onToggleRead: {
-                                Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
-                            },
-                            onToggleReadingList: {
-                                Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
-                            },
-                            onToggleBookmark: {
-                                Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
-                            },
-                        )
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .onAppear {
-                            if index >= max(model.articles.count - 4, 0) {
-                                Task { await model.loadMore() }
-                            }
-                        }
-                    }
-                    if model.isLoadingMore {
-                        ProgressView(L10n.string("次の記事を読み込んでいます…"))
-                    }
-                }
-            }
+        .task(id: model.refreshNotice) {
+            guard model.refreshNotice != nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            model.refreshNotice = nil
         }
-        .scrollContentBackground(.hidden)
-        .background(FiloPalette.background)
-        .listRowBackground(FiloPalette.background)
-        .refreshable { await model.refreshFeedAndReload() }
         .alert("購読名を変更", isPresented: $showRename) {
             TextField("空欄でフィード名に戻す", text: $renameText)
             Button("変更") { Task { await model.rename(to: renameText.trimmingCharacters(in: .whitespaces)) } }
@@ -379,86 +289,175 @@ struct SubscriptionDetailScreen: View {
         }
     }
 
-    private var articleFiltersMenu: some View {
-        Menu {
-            if translations.isSupported {
-            Picker("タイトルを翻訳", selection: Binding(
-                    get: { translations.isEnabled },
-                    set: { if $0 != translations.isEnabled { translations.toggle() } }
-                )) {
-                    Text("オフ").tag(false)
-                    Text("オン").tag(true)
+    @ViewBuilder
+    private var headerActions: some View {
+        FiloIconButton(.refresh, label: "このフィードを更新") {
+            Task { await model.refreshFeedAndReload() }
+        }
+        .disabled(model.isRefreshingFeed)
+        FiloIconButton(.checkCircle, label: "すべて既読にする") {
+            Task { await model.markAllRead() }
+        }
+        .disabled(model.isMarkingAllRead)
+        subscriptionActionsMenu
+        ArticleListControls(readFilter: $model.readFilter, sort: $model.sort, readOrder: $model.readOrder)
+    }
+
+    private var contentList: some View {
+        List {
+            if let subscription = model.subscription {
+                statusBar(subscription).filoListRow()
+            }
+            if model.isRefreshingFeed {
+                FiloSpinner(label: "フィードを更新しています…").filoListRow()
+            }
+            if let error = model.errorMessage {
+                FiloErrorBox(message: error) { Task { await model.load() } }
+                    .padding(.horizontal, FiloMetrics.gutter)
+                    .padding(.top, 16)
+                    .filoListRow()
+            }
+            if model.isLoading {
+                FiloSpinner().filoListRow()
+            } else if model.articles.isEmpty {
+                Group {
+                    if model.subscription?.initialFetchStatus == "fetching" {
+                        FiloEmptyState(icon: .refresh, message: "記事を取得しています…")
+                    } else {
+                        FiloEmptyState(icon: .inbox, message: "表示できる記事がありません。")
+                    }
+                }
+                .filoListRow()
+            } else {
+                ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
+                    ArticleRowView(
+                        article: article,
+                        showFeed: false,
+                        onOpen: {
+                            guard let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
+                            if model.openInBrowserByDefault {
+                                openURL(url)
+                            } else {
+                                onOpenArticle(article)
+                            }
+                        },
+                        onToggleRead: {
+                            Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
+                        },
+                        onToggleReadingList: {
+                            Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
+                        },
+                        onToggleBookmark: {
+                            Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
+                        },
+                    )
+                    .filoListRow()
+                    .onAppear {
+                        if index >= max(model.articles.count - 4, 0) {
+                            Task { await model.loadMore() }
+                        }
+                    }
+                }
+                if model.isLoadingMore {
+                    FiloSpinner().filoListRow()
                 }
             }
-            Picker("既読状態", selection: $model.readFilter) {
-                Text("全ての記事").tag(Bool?.none)
-                Text("未読").tag(Bool?.some(false))
-                Text("既読").tag(Bool?.some(true))
-            }
-            Picker("既読の扱い", selection: $model.readOrder) {
-                Text("既読で並び替えない").tag("none")
-                Text("既読は下").tag("unread_first")
-                Text("既読は上").tag("read_first")
-            }
-            Picker("並び順", selection: $model.sort) {
-                Text("公開日時が新しい順").tag("published_at_desc")
-                Text("取得日時が新しい順").tag("fetched_at_desc")
-            }
-        } label: {
-            FiloIcon(.gear, size: 18)
         }
-        .accessibilityLabel("表示設定")
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(FiloPalette.background)
+        .environment(\.defaultMinListRowHeight, 0)
+        .refreshable { await model.refreshFeedAndReload() }
     }
 
     private var subscriptionActionsMenu: some View {
         Menu {
-            Button("名前を変更") {
+            Button {
                 renameText = model.subscription?.customTitle ?? ""
                 showRename = true
+            } label: {
+                Label { Text("名前を変更") } icon: { Image(filoIcon: .pencil) }
             }
             if let siteUrlString = model.subscription?.feed.siteUrl, let siteUrl = URL(string: siteUrlString) {
-                Button("サイトを開く") { openURL(siteUrl) }
-            }
-            if model.subscription?.feed.feedUrl != nil {
-                Button("フィードURLを表示") { showFeedUrl = true }
-            }
-            Button("購読解除", role: .destructive) { showUnsubscribeConfirm = true }
-        } label: {
-            FiloIcon(.more, size: 18)
-        }
-        .accessibilityLabel("購読の操作")
-    }
-
-    @ViewBuilder
-    private func statusRow(_ subscription: Subscription) -> some View {
-        HStack {
-            if subscription.initialFetchStatus == "failed" {
-                StatusBadge(label: ErrorMessages.initialFetchMessage(for: subscription.initialFetchErrorCode), tone: .danger)
-                Button("再試行") { Task { await model.retryInitialFetch() } }
-                    .font(.callout)
-            } else if subscription.initialFetchStatus == "fetching" {
-                StatusBadge(label: "記事取得中")
-            } else if subscription.feedHealthStatus == "paused" {
-                StatusBadge(label: "更新停止中", tone: .danger)
-            } else if subscription.feedHealthStatus == "stale" {
-                StatusBadge(label: "しばらく更新なし", tone: .warn)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func tagRow(_ subscription: Subscription) -> some View {
-        if !model.allTags.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(model.allTags) { tag in
-                        FilterChip(label: tag.name, isOn: subscription.tagIds.contains(tag.id)) {
-                            Task { await model.toggleTag(tag.id) }
-                        }
-                    }
+                Button { openURL(siteUrl) } label: {
+                    Label { Text("サイトを開く") } icon: { Image(filoIcon: .externalLink) }
                 }
             }
+            if model.subscription?.feed.feedUrl != nil {
+                Button { showFeedUrl = true } label: {
+                    Label { Text("フィードURLを表示") } icon: { Image(filoIcon: .rss) }
+                }
+            }
+            Divider()
+            Button(role: .destructive) { showUnsubscribeConfirm = true } label: {
+                Label { Text("購読解除") } icon: { Image(filoIcon: .trash) }
+            }
+        } label: {
+            FiloIconLabel(.more)
         }
+        .tint(FiloPalette.text)
+        .accessibilityLabel(Text(localized: "購読の操作"))
     }
 
+    // Health, assigned tags and the tag editor on one quiet line under the
+    // header (web: the bar above the article rows).
+    private func statusBar(_ subscription: Subscription) -> some View {
+        FlowLayout(spacing: 8) {
+            SubscriptionHealthView(subscription: subscription)
+                .frame(height: FiloMetrics.controlHeightSmall)
+            if subscription.initialFetchStatus == "failed" {
+                FiloButton("初回取得を再試行", small: true) { Task { await model.retryInitialFetch() } }
+            }
+            ForEach(model.allTags.filter { subscription.tagIds.contains($0.id) }) { tag in
+                FiloChip(label: tag.name, isOn: false, localize: false) { onSelectTag(tag.id) }
+            }
+            TagPicker(tags: model.allTags, selectedIds: subscription.tagIds, variant: .button) { tagId in
+                Task { await model.toggleTag(tagId) }
+            }
+        }
+        .padding(.horizontal, FiloMetrics.gutter)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { FiloDivider() }
+    }
+}
+
+// Checklist menu for assigning tags to one subscription. An icon button in
+// dense lists and a labelled button on the detail screen, like the web.
+struct TagPicker: View {
+    enum Variant { case icon, button }
+
+    let tags: [Tag]
+    let selectedIds: [Int]
+    var variant: Variant = .icon
+    let onToggle: (Int) -> Void
+
+    var body: some View {
+        if !tags.isEmpty {
+            Menu {
+                ForEach(tags) { tag in
+                    Toggle(tag.name, isOn: Binding(
+                        get: { selectedIds.contains(tag.id) },
+                        set: { _ in onToggle(tag.id) },
+                    ))
+                }
+            } label: {
+                switch variant {
+                case .icon:
+                    FiloIconLabel(.tag, size: 16)
+                case .button:
+                    FiloButtonLabel(title: "タグを編集", icon: .tag, small: true)
+                        .filoFont(13, .medium)
+                        .foregroundStyle(FiloPalette.text)
+                        .padding(.horizontal, 10)
+                        .frame(height: FiloMetrics.controlHeightSmall)
+                        .background(RoundedRectangle(cornerRadius: FiloMetrics.radiusSmall).fill(FiloPalette.surface))
+                        .overlay(RoundedRectangle(cornerRadius: FiloMetrics.radiusSmall).strokeBorder(FiloPalette.border, lineWidth: 1))
+                }
+            }
+            .menuActionDismissBehavior(.disabled)
+            .tint(FiloPalette.text)
+            .accessibilityLabel(Text(localized: "タグを編集"))
+        }
+    }
 }

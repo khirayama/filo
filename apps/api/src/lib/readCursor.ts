@@ -10,17 +10,46 @@ export const EFFECTIVE_IS_READ = `CASE
   ELSE 0
 END`;
 
-export interface ReadCursorRow {
-  last_read_article_id: number;
-  updated_at: string;
-}
+// Current effective read state (0/1) of one article for one user, as a scalar
+// subquery. Binds: userId, userId, articleId.
+const ARTICLE_IS_READ = `(SELECT ${EFFECTIVE_IS_READ}
+  FROM articles a
+  LEFT JOIN article_read_states ars ON ars.user_id = ? AND ars.article_id = a.id
+  LEFT JOIN feed_read_cursors frc ON frc.user_id = ? AND frc.feed_id = a.feed_id
+  WHERE a.id = ?)`;
 
-export async function readCursorFor(db: D1Database, userId: number, feedId: number): Promise<ReadCursorRow | null> {
-  return await db
-    .prepare("SELECT last_read_article_id, updated_at FROM feed_read_cursors WHERE user_id = ? AND feed_id = ?")
-    .bind(userId, feedId)
-    .first<ReadCursorRow>();
-}
+// Unread articles of the subscription row `s`: explicit unread overrides plus
+// the cursor tail without an override. The two branches are disjoint and use
+// the sparse state index and the feed/id range index respectively.
+const SUBSCRIPTION_UNREAD_COUNT = `(
+  (SELECT COUNT(*)
+   FROM article_read_states ars
+   JOIN articles a ON a.id = ars.article_id
+   WHERE ars.user_id = s.user_id AND ars.is_read = 0 AND a.feed_id = s.feed_id)
+  +
+  (SELECT COUNT(*)
+   FROM articles a
+   WHERE a.feed_id = s.feed_id
+     AND a.id > COALESCE((
+       SELECT frc.last_read_article_id FROM feed_read_cursors frc
+       WHERE frc.user_id = s.user_id AND frc.feed_id = s.feed_id
+     ), 0)
+     AND NOT EXISTS (
+       SELECT 1 FROM article_read_states ars
+       WHERE ars.user_id = s.user_id AND ars.article_id = a.id
+     ))
+)`;
+
+// Unread reading-list articles of user ?. The reading list can hold retained
+// articles outside any subscription, so it is not a sum of subscription counts.
+const READING_LIST_UNREAD_COUNT = `(
+  SELECT COUNT(*)
+  FROM article_user_collections rli
+  JOIN articles a ON a.id = rli.article_id
+  LEFT JOIN article_read_states ars ON ars.user_id = rli.user_id AND ars.article_id = a.id
+  LEFT JOIN feed_read_cursors frc ON frc.user_id = rli.user_id AND frc.feed_id = a.feed_id
+  WHERE rli.user_id = ? AND rli.kind = 'reading_list' AND (${EFFECTIVE_IS_READ}) = 0
+)`;
 
 export interface UnreadCounts {
   all_articles: number;
@@ -29,8 +58,6 @@ export interface UnreadCounts {
 
 export type UnreadCountScope = "all" | "reading_list" | "both";
 
-// The reading list can contain retained articles that are no longer under a
-// subscription, so its count cannot be derived from subscription counts.
 export async function unreadCountsForUser(
   db: D1Database,
   userId: number,
@@ -61,135 +88,108 @@ export async function unreadCountsForUser(
   };
 }
 
-export function subscriptionUnreadCountMutation(
+// The counters are maintained by these statements and by the article insert
+// trigger (migration 0019). Every statement decides its delta from the state
+// it sees inside the same D1 batch, so concurrent requests cannot count one
+// change twice. Put them before the write they account for.
+
+// Creates the counter row for the user's subscription to a feed, counted from
+// the source-of-truth rows. Batch it right after the subscription insert.
+export function createSubscriptionUnreadCountMutation(
   db: D1Database,
-  subscriptionId: number,
   userId: number,
   feedId: number,
-  unreadCount: number,
   now: string,
 ): D1PreparedStatement {
   return db.prepare(
-    `INSERT INTO subscription_unread_counts
-       (subscription_id, user_id, feed_id, unread_count, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (subscription_id) DO UPDATE SET
-       user_id = excluded.user_id,
-       feed_id = excluded.feed_id,
-       unread_count = excluded.unread_count,
-       updated_at = excluded.updated_at`,
-  ).bind(subscriptionId, userId, feedId, Math.max(unreadCount, 0), now);
+    `INSERT INTO subscription_unread_counts (subscription_id, user_id, feed_id, unread_count, updated_at)
+     SELECT s.id, s.user_id, s.feed_id, ${SUBSCRIPTION_UNREAD_COUNT}, ?
+     FROM subscriptions s
+     WHERE s.user_id = ? AND s.feed_id = ?
+     ON CONFLICT (subscription_id) DO NOTHING`,
+  ).bind(now, userId, feedId);
 }
 
-export function incrementUnreadForFeedMutation(
+// Recounts a subscription from the source-of-truth rows. Batch it after the
+// bulk read-state change it accounts for.
+export function recountSubscriptionUnreadMutation(
   db: D1Database,
-  feedId: number,
-  amount: number,
+  subscriptionId: number,
   now: string,
 ): D1PreparedStatement {
   return db.prepare(
     `UPDATE subscription_unread_counts
-     SET unread_count = unread_count + ?, updated_at = ?
-     WHERE feed_id = ?`,
-  ).bind(amount, now, feedId);
+     SET unread_count = (
+           SELECT ${SUBSCRIPTION_UNREAD_COUNT}
+           FROM subscriptions s WHERE s.id = subscription_unread_counts.subscription_id
+         ),
+         updated_at = ?
+     WHERE subscription_id = ?`,
+  ).bind(now, subscriptionId);
 }
 
-export function adjustArticleUnreadMutations(
+// Recounts the user's reading list from the source-of-truth rows. Batch it
+// after the bulk read-state change it accounts for.
+export function recountReadingListUnreadMutation(
   db: D1Database,
   userId: number,
-  feedId: number,
-  inReadingList: boolean,
-  delta: number,
-  now: string,
-): D1PreparedStatement[] {
-  if (delta === 0) return [];
-  const mutations: D1PreparedStatement[] = [
-    db.prepare(
-      `UPDATE subscription_unread_counts
-       SET unread_count = MAX(0, unread_count + ?), updated_at = ?
-       WHERE user_id = ? AND feed_id = ?`,
-    ).bind(delta, now, userId, feedId),
-  ];
-  if (inReadingList) {
-    mutations.push(
-      db.prepare(
-        `INSERT INTO user_unread_counts (user_id, reading_list_count, updated_at)
-         VALUES (?, MAX(0, ?), ?)
-         ON CONFLICT (user_id) DO UPDATE SET
-           reading_list_count = MAX(0, user_unread_counts.reading_list_count + ?),
-           updated_at = excluded.updated_at`,
-      ).bind(userId, delta, now, delta),
-    );
-  }
-  return mutations;
-}
-
-export function adjustReadingListUnreadMutation(
-  db: D1Database,
-  userId: number,
-  delta: number,
   now: string,
 ): D1PreparedStatement {
   return db.prepare(
     `INSERT INTO user_unread_counts (user_id, reading_list_count, updated_at)
-     VALUES (?, MAX(0, ?), ?)
-     ON CONFLICT (user_id) DO UPDATE SET
-       reading_list_count = MAX(0, user_unread_counts.reading_list_count + ?),
-       updated_at = excluded.updated_at`,
-  ).bind(userId, delta, now, delta);
-}
-
-export async function initializeSubscriptionUnreadCount(
-  db: D1Database,
-  subscriptionId: number,
-  userId: number,
-  feedId: number,
-  now: string,
-): Promise<number> {
-  // Effective unread is the disjoint union of explicit unread overrides and
-  // articles after the feed cursor with no explicit override. Keeping those
-  // branches separate lets SQLite use the sparse state index and the
-  // feed/id range index instead of scanning the whole feed.
-  const row = await db.prepare(
-    `SELECT
-       (SELECT COUNT(*)
-        FROM article_read_states ars
-        JOIN articles a ON a.id = ars.article_id
-        WHERE ars.user_id = ? AND ars.is_read = 0 AND a.feed_id = ?)
-       +
-       (SELECT COUNT(*)
-        FROM articles a
-        LEFT JOIN feed_read_cursors frc
-          ON frc.user_id = ? AND frc.feed_id = ?
-        WHERE a.feed_id = ?
-          AND a.id > COALESCE(frc.last_read_article_id, 0)
-          AND NOT EXISTS (
-            SELECT 1 FROM article_read_states ars
-            WHERE ars.user_id = ? AND ars.article_id = a.id
-          )) AS unread_count`,
-  ).bind(userId, feedId, userId, feedId, feedId, userId).first<{ unread_count: number }>();
-  const count = Number(row?.unread_count ?? 0);
-  await subscriptionUnreadCountMutation(db, subscriptionId, userId, feedId, count, now).run();
-  return count;
-}
-
-export async function recomputeReadingListUnreadCount(db: D1Database, userId: number, now: string): Promise<number> {
-  const row = await db.prepare(
-    `SELECT COUNT(a.id) AS unread_count
-     FROM articles a
-     JOIN article_user_collections rli
-       ON rli.article_id = a.id AND rli.user_id = ? AND rli.kind = 'reading_list'
-     LEFT JOIN article_read_states ars ON ars.user_id = ? AND ars.article_id = a.id
-     LEFT JOIN feed_read_cursors frc ON frc.user_id = ? AND frc.feed_id = a.feed_id
-     WHERE (${EFFECTIVE_IS_READ}) = 0`,
-  ).bind(userId, userId, userId).first<{ unread_count: number }>();
-  const count = Number(row?.unread_count ?? 0);
-  await db.prepare(
-    `INSERT INTO user_unread_counts (user_id, reading_list_count, updated_at)
-     VALUES (?, ?, ?)
+     VALUES (?, ${READING_LIST_UNREAD_COUNT}, ?)
      ON CONFLICT (user_id) DO UPDATE SET
        reading_list_count = excluded.reading_list_count,
        updated_at = excluded.updated_at`,
-  ).bind(userId, count, now).run();
-  return count;
+  ).bind(userId, userId, now);
+}
+
+// Counter updates for setting one article's read state. Each applies only
+// when the article is currently in the opposite state.
+export function readStateCounterMutations(
+  db: D1Database,
+  userId: number,
+  articleId: number,
+  feedId: number,
+  isRead: boolean,
+  now: string,
+): D1PreparedStatement[] {
+  const delta = isRead ? -1 : 1;
+  const wasRead = isRead ? 0 : 1;
+  return [
+    db.prepare(
+      `UPDATE subscription_unread_counts
+       SET unread_count = MAX(0, unread_count + ?), updated_at = ?
+       WHERE user_id = ? AND feed_id = ? AND ${ARTICLE_IS_READ} = ?`,
+    ).bind(delta, now, userId, feedId, userId, userId, articleId, wasRead),
+    db.prepare(
+      `UPDATE user_unread_counts
+       SET reading_list_count = MAX(0, reading_list_count + ?), updated_at = ?
+       WHERE user_id = ? AND ${ARTICLE_IS_READ} = ?
+         AND EXISTS (
+           SELECT 1 FROM article_user_collections
+           WHERE user_id = ? AND article_id = ? AND kind = 'reading_list'
+         )`,
+    ).bind(delta, now, userId, userId, userId, articleId, wasRead, userId, articleId),
+  ];
+}
+
+// Counter update for adding or removing an article in the reading list. It
+// applies only when the article is unread and the membership actually changes.
+export function readingListMembershipCounterMutation(
+  db: D1Database,
+  userId: number,
+  articleId: number,
+  active: boolean,
+  now: string,
+): D1PreparedStatement {
+  return db.prepare(
+    `UPDATE user_unread_counts
+     SET reading_list_count = MAX(0, reading_list_count + ?), updated_at = ?
+     WHERE user_id = ? AND ${ARTICLE_IS_READ} = 0
+       AND ${active ? "NOT EXISTS" : "EXISTS"} (
+         SELECT 1 FROM article_user_collections
+         WHERE user_id = ? AND article_id = ? AND kind = 'reading_list'
+       )`,
+  ).bind(active ? 1 : -1, now, userId, userId, userId, articleId, userId, articleId);
 }

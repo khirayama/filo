@@ -43,7 +43,7 @@ Content-Type: `application/json`
 - feed discovery redirect: max `5`
 - feed discovery / feed fetch timeout: `10s`
 - feed refresh interval: feed の投稿ペースから算出（`60m`〜`1440m`）。ペース不明時は success `60m`、not_modified `120m`
-- OPML import file size: max `5MB`
+- OPML import file size: max `1MB`
 - OPML import outline count: max `2000`
 - レスポンス読み込みの上限: `5MB`
 - queue job retry: max `5`
@@ -374,7 +374,6 @@ Deletes a tag owned by the current user.
       "title": "Post title",
       "sourceLanguage": "en",
       "canonicalUrl": "https://example.com/posts/123",
-      "rssSummary": "Short summary",
       "previewText": "Preview text from RSS summary or RSS content fallback",
       "publishedAt": "2026-05-10T22:00:00Z",
       "fetchedAt": "2026-05-11T11:00:00Z",
@@ -552,7 +551,7 @@ the same effective read-state rules as `GET /api/v1/articles?read=false`.
 - same normalized tag name は同じ tag に集約する
 - invalid feed URLs は skip し、job result summary に記録する
 - partial success を許容する
-- file size は最大 `5MB`、outline 件数は最大 `2000`
+- file size は最大 `1MB`、outline 件数は最大 `2000`
 - XML external entity は無効化し、XML depth と処理時間にも上限を設ける
 - job 状態は `opml_import_jobs` に保存し、response / read API の `jobId` は `opml_{id}` 形式で返す
 - response は `202 Accepted` とし、job metadata を返す

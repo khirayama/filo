@@ -3,20 +3,21 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import { ApiRequestError } from "../api/client";
 import type { Subscription } from "../api/types";
-import { AppShell, useIsDesktop } from "../components/AppShell";
+import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
-import { BlockingProgress, Badge, Button, EmptyState, ErrorBox, FilterChip, IconButton, MenuItem, Spinner, Toast, menuStyle, palette } from "../components/ui";
+import { SubscriptionHealth } from "../components/SubscriptionHealth";
+import { TagPicker } from "../components/TagPicker";
+import { BlockingProgress, Button, EmptyState, ErrorBox, IconButton, MenuItem, Spinner, Toast, palette, usePopover } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
-import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
+import { errorMessage } from "../lib/messages";
 import { enqueueFeedRefresh } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
 import { useBackOr } from "../lib/navigation";
 
 export function SubscriptionDetailPage() {
   const api = useApi();
-  const isDesktop = useIsDesktop();
   const navigate = useNavigate();
   const goBack = useBackOr("/subscriptions");
   const params = useParams();
@@ -27,7 +28,7 @@ export function SubscriptionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const { open: menuOpen, setOpen: setMenuOpen, ref: menuRef } = usePopover();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
@@ -43,6 +44,12 @@ export function SubscriptionDetailPage() {
     [subscriptionId, read, sort, readOrder]
   );
   const list = useArticleList(api, filters);
+
+  useEffect(() => {
+    if (!refreshNotice) return;
+    const timer = window.setTimeout(() => setRefreshNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [refreshNotice]);
 
   useEffect(() => {
     if (!markAllNotice) return;
@@ -66,18 +73,6 @@ export function SubscriptionDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [menuOpen]);
 
   const rename = async () => {
     if (!subscription) return;
@@ -166,159 +161,150 @@ export function SubscriptionDetailPage() {
 
   if (gone) {
     return (
-      <AppShell>
-        <main style={mainStyle}>
-          <h1>{t("購読が見つかりません")}</h1>
-          <p>{t("この購読は削除されたか、表示できません。")}</p>
-          <Link to="/subscriptions" style={{ color: "inherit" }}>
-            {t("購読一覧へ戻る")}
-          </Link>
+      <AppShell title={t("購読が見つかりません")} onBack={goBack}>
+        <main className="fl-page">
+          <EmptyState icon="rss">
+            <p>{t("この購読は削除されたか、表示できません。")}</p>
+            <Link to="/subscriptions" className="fl-btn fl-btn--secondary">
+              {t("購読一覧へ戻る")}
+            </Link>
+          </EmptyState>
         </main>
       </AppShell>
     );
   }
 
+  const title = subscription ? subscription.customTitle ?? subscription.feed.title : "";
+  const assignedTags = subscription ? allTags.filter((tag) => subscription.tagIds.includes(tag.id)) : [];
+
   return (
-    <AppShell>
-      <main aria-busy={markingAllRead} style={mainStyle}>
+    <AppShell
+      title={title}
+      onBack={goBack}
+      actions={
+        subscription ? (
+          <>
+            <IconButton
+              icon="refresh"
+              label={t("このフィードを更新")}
+              disabled={refreshing}
+              onClick={() => void refreshFeed()}
+            />
+            <IconButton
+              icon="checkCircle"
+              label={t("すべて既読にする")}
+              disabled={markingAllRead}
+              onClick={() => void markAllRead()}
+            />
+            <div ref={menuRef} style={{ position: "relative" }}>
+              <IconButton
+                icon="more"
+                label={t("購読の操作")}
+                ariaExpanded={menuOpen}
+                ariaHaspopup="menu"
+                ariaControls="filo-subscription-actions"
+                onClick={() => setMenuOpen((v) => !v)}
+              />
+              {menuOpen ? (
+                <div id="filo-subscription-actions" role="menu" aria-label={t("購読の操作")} className="fl-menu" style={{ minWidth: "200px" }}>
+                  <MenuItem
+                    label={t("名前を変更")}
+                    icon="pencil"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void rename();
+                    }}
+                  />
+                  {subscription.feed.siteUrl ? (
+                    <MenuItem
+                      label={t("サイトを開く")}
+                      icon="externalLink"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        window.open(subscription.feed.siteUrl ?? "", "_blank", "noreferrer");
+                      }}
+                    />
+                  ) : null}
+                  {subscription.feed.feedUrl ? (
+                    <MenuItem
+                      label={t("フィードURLを表示")}
+                      icon="rss"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        window.prompt(t("フィードURL"), subscription.feed.feedUrl);
+                      }}
+                    />
+                  ) : null}
+                  <div className="fl-menu-divider" />
+                  <MenuItem
+                    label={t("購読解除")}
+                    icon="trash"
+                    role="menuitem"
+                    danger
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void unsubscribe();
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+            <ArticleListControls
+              read={read}
+              sort={sort}
+              readOrder={readOrder}
+              defaultSort={settings?.articleSortOrder ?? "published_at_desc"}
+              setRead={setRead}
+              setSort={setSort}
+              setReadOrder={setReadOrder}
+              t={t}
+            />
+          </>
+        ) : undefined
+      }
+    >
+      <main aria-busy={markingAllRead} style={{ paddingBottom: "32px" }}>
         {loading ? (
           <Spinner />
         ) : subscription ? (
           <>
-            <header
+            <div
               style={{
                 alignItems: "center",
                 borderBottom: `1px solid ${palette.mutedBorder}`,
                 display: "flex",
+                flexWrap: "wrap",
                 gap: "8px",
-                padding: "8px 0",
-                ...(isDesktop ? { background: palette.bg, position: "sticky" as const, top: 0, zIndex: 10 } : {}),
+                padding: "10px var(--fl-page-gutter)",
               }}
             >
-              <IconButton icon="back" label={t("戻る")} onClick={goBack} />
-              {subscription.feed.faviconUrl ? (
-                <img src={subscription.feed.faviconUrl} alt="" width={20} height={20} style={{ borderRadius: "4px" }} />
-              ) : null}
-              <h1
-                style={{
-                  flex: 1,
-                  fontSize: "20px",
-                  margin: 0,
-                  minWidth: 0,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {subscription.customTitle ?? subscription.feed.title}
-              </h1>
-              <IconButton
-                icon="refresh"
-                label={t("このフィードを更新")}
-                disabled={refreshing}
-                onClick={() => void refreshFeed()}
-              />
-              <IconButton
-                icon="checkCircle"
-                label={t("すべて既読にする")}
-                disabled={markingAllRead}
-                onClick={() => void markAllRead()}
-              />
-              <div style={{ position: "relative" }}>
-                <IconButton
-                  icon="more"
-                  label={t("購読の操作")}
-                  ariaExpanded={menuOpen}
-                  ariaHaspopup="menu"
-                  ariaControls="filo-subscription-actions"
-                  onClick={() => setMenuOpen((v) => !v)}
-                />
-                {menuOpen ? (
-                  <div id="filo-subscription-actions" role="menu" aria-label={t("購読の操作")} style={{ ...menuStyle, minWidth: "180px" }}>
-                    <MenuItem
-                      label={t("名前を変更")}
-                      role="menuitem"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        void rename();
-                      }}
-                    />
-                    {subscription.feed.siteUrl ? (
-                      <MenuItem
-                        label={t("サイトを開く")}
-                        role="menuitem"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          window.open(subscription.feed.siteUrl ?? "", "_blank", "noreferrer");
-                        }}
-                      />
-                    ) : null}
-                    {subscription.feed.feedUrl ? (
-                      <MenuItem
-                        label={t("フィードURLを表示")}
-                        role="menuitem"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          window.prompt(t("フィードURL"), subscription.feed.feedUrl);
-                        }}
-                      />
-                    ) : null}
-                    <MenuItem
-                      label={t("購読解除")}
-                      role="menuitem"
-                      danger
-                      onClick={() => {
-                        setMenuOpen(false);
-                        void unsubscribe();
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-              <ArticleListControls
-                read={read}
-                sort={sort}
-                readOrder={readOrder}
-                defaultSort={settings?.articleSortOrder ?? "published_at_desc"}
-                setRead={setRead}
-                setSort={setSort}
-                setReadOrder={setReadOrder}
-                t={t}
-              />
-            </header>
-
-            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 0 0" }}>
+              <SubscriptionHealth subscription={subscription} />
               {subscription.initialFetchStatus === "failed" ? (
-                <>
-                  <Badge tone="danger">{initialFetchErrorMessage(subscription.initialFetchErrorCode, language)}</Badge>
-                  <Button small onClick={() => void retryInitial()}>
-                    {t("初回取得を再試行")}
-                  </Button>
-                </>
-              ) : subscription.initialFetchStatus === "fetching" ? (
-                <Badge>{t("記事取得中")}</Badge>
-              ) : subscription.feedHealthStatus === "paused" ? (
-                <Badge tone="danger">{t("更新停止中")}</Badge>
-              ) : subscription.feedHealthStatus === "stale" ? (
-                <Badge tone="warn">{t("しばらく更新なし")}</Badge>
+                <Button small onClick={() => void retryInitial()}>
+                  {t("初回取得を再試行")}
+                </Button>
               ) : null}
-              {allTags.map((tag) => (
-                <FilterChip
-                  key={tag.id}
-                  label={tag.name}
-                  active={subscription.tagIds.includes(tag.id)}
-                  onClick={() => void toggleTag(tag.id)}
-                />
+              {assignedTags.map((tag) => (
+                <Link key={tag.id} to={`/articles?tagId=${tag.id}`} className="fl-chip" style={{ textDecoration: "none" }}>
+                  {tag.color ? <span style={{ background: tag.color, borderRadius: "50%", height: "8px", width: "8px" }} /> : null}
+                  {tag.name}
+                </Link>
               ))}
+              <TagPicker
+                id="filo-subscription-tag-menu"
+                tags={allTags}
+                selectedIds={subscription.tagIds}
+                onToggle={(tagId) => void toggleTag(tagId)}
+                variant="button"
+              />
             </div>
 
             {refreshing ? <Spinner label={t("フィードを更新しています…")} /> : null}
-            {refreshNotice ? (
-              <p role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "13px", margin: "8px 0 0" }}>
-                {refreshNotice}
-              </p>
-            ) : null}
-            {error ? <ErrorBox message={error} onRetry={() => void load()} /> : null}
+            {refreshNotice ? <Toast message={refreshNotice} /> : null}
+            {error ? <div style={{ padding: "16px var(--fl-page-gutter) 0" }}><ErrorBox message={error} onRetry={() => void load()} /></div> : null}
             <ArticleRows
               articles={list.articles}
               loading={list.loading}
@@ -328,17 +314,18 @@ export function SubscriptionDetailPage() {
               onRetry={() => void list.reload()}
               onLoadMore={() => void list.loadMore()}
               onUpdateState={(id, patch) => void list.updateState(id, patch)}
+              showFeed={false}
               emptyContent={
                 subscription.initialFetchStatus === "fetching" ? (
-                  <EmptyState>{t("記事を取得しています…")}</EmptyState>
+                  <EmptyState icon="refresh">{t("記事を取得しています…")}</EmptyState>
                 ) : (
-                  <EmptyState>{t("表示できる記事がありません。")}</EmptyState>
+                  <EmptyState icon="inbox">{t("表示できる記事がありません。")}</EmptyState>
                 )
               }
             />
           </>
         ) : error ? (
-          <ErrorBox message={error} onRetry={() => void load()} />
+          <div style={{ padding: "16px var(--fl-page-gutter)" }}><ErrorBox message={error} onRetry={() => void load()} /></div>
         ) : null}
       </main>
       {markingAllRead ? <BlockingProgress message={t("既読に変更しています…")} /> : null}
@@ -346,7 +333,3 @@ export function SubscriptionDetailPage() {
     </AppShell>
   );
 }
-
-const mainStyle = {
-  padding: "16px var(--fl-page-gutter) 48px",
-} as const;

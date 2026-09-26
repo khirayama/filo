@@ -83,69 +83,37 @@ struct SubscriptionsScreen: View {
     @State private var renamingTag: Tag?
     @State private var renameText = ""
     @State private var collapsed: Set<Int> = []
+    @Environment(\.filoIsDesktop) private var isDesktop
+
+    private static let untaggedKey = -1
 
     var body: some View {
-        List {
-            if model.isLoading {
-                ProgressView(L10n.string("読み込み中…"))
-            } else if let error = model.errorMessage {
-                ErrorBanner(message: error) { Task { await model.load() } }
-            } else if model.subscriptions.isEmpty {
-                EmptyStateView {
-                    Text("まだ購読がありません。")
-                    NavigationLink(value: AppRoute.addFeed) {
-                        Text("フィードを追加")
-                    }
-                }
+        FiloPage("購読管理") {
+            if isDesktop {
+                NavigationLink(value: AppRoute.tags) { FiloButtonLabel(title: "タグ管理", icon: .tag, small: true) }
+                    .buttonStyle(FiloButtonStyle(small: true))
+                NavigationLink(value: AppRoute.addFeed) { FiloButtonLabel(title: "フィードを追加", icon: .plus, small: true) }
+                    .buttonStyle(FiloButtonStyle(kind: .primary, small: true))
+                    .padding(.trailing, 8)
             } else {
-                ForEach(model.tags) { tag in
-                    let items = model.subscriptions.filter { $0.tagIds.contains(tag.id) }
-                    if !items.isEmpty {
-                        tagSection(tag: tag, items: items)
-                    }
-                }
-                let untagged = model.subscriptions.filter { $0.tagIds.isEmpty }
-                if !untagged.isEmpty {
-                    Section {
-                        if !collapsed.contains(-1) {
-                            ForEach(untagged) { subscription in
-                                subscriptionRow(subscription, groupIds: untagged.map(\.id))
-                            }
-                        }
-                    } header: {
-                        HStack {
-                            Button {
-                                if collapsed.contains(-1) { collapsed.remove(-1) } else { collapsed.insert(-1) }
-                            } label: {
-                                FiloIcon(collapsed.contains(-1) ? .chevronRight : .chevronDown, size: 14)
-                            }
-                            .buttonStyle(.plain)
-                            Text("タグなし")
-                            Text(L10n.format("%ld件", untagged.count))
-                                .foregroundStyle(FiloPalette.muted)
-                            Spacer()
-                        }
-                    }
-                }
+                NavigationLink(value: AppRoute.tags) { FiloIcon(.tag) }
+                    .buttonStyle(FiloIconButtonStyle())
+                    .accessibilityLabel(Text(localized: "タグ管理"))
+                NavigationLink(value: AppRoute.addFeed) { FiloIcon(.plus) }
+                    .buttonStyle(FiloIconButtonStyle())
+                    .accessibilityLabel(Text(localized: "フィードを追加"))
             }
-        }
-        .scrollContentBackground(.hidden)
-        .background(FiloPalette.background)
-        .listRowBackground(FiloPalette.background)
-        .navigationTitle("購読管理")
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                NavigationLink(value: AppRoute.addFeed) {
-                    FiloIcon(.plus, size: 18)
-                }
-                .accessibilityLabel("フィード追加")
-                NavigationLink(value: AppRoute.tags) {
-                    FiloIcon(.tag, size: 18)
-                }
-                .accessibilityLabel("タグ管理")
+        } content: {
+            ScrollView {
+                content
+                    .frame(maxWidth: FiloMetrics.contentWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, isDesktop ? FiloMetrics.desktopGutter : FiloMetrics.gutter)
+                    .padding(.top, 24)
+                    .padding(.bottom, 64)
             }
+            .refreshable { await model.load() }
         }
-        .refreshable { await model.load() }
         .task { await model.load() }
         .alert("タグ名を変更", isPresented: Binding(get: { renamingTag != nil }, set: { if !$0 { renamingTag = nil } })) {
             TextField("タグ名", text: $renameText)
@@ -160,140 +128,118 @@ struct SubscriptionsScreen: View {
     }
 
     @ViewBuilder
-    private func tagSection(tag: Tag, items: [Subscription]) -> some View {
-        Section {
-            if !collapsed.contains(tag.id) {
+    private var content: some View {
+        if model.isLoading {
+            FiloSpinner()
+        } else if let error = model.errorMessage {
+            FiloErrorBox(message: error) { Task { await model.load() } }
+        } else if model.subscriptions.isEmpty {
+            FiloEmptyState(icon: .rss, message: "まだ購読がありません。") {
+                NavigationLink(value: AppRoute.addFeed) { FiloButtonLabel(title: "フィードを追加") }
+                    .buttonStyle(FiloButtonStyle(kind: .primary))
+            }
+        } else {
+            LazyVStack(alignment: .leading, spacing: 28) {
+                ForEach(model.tags) { tag in
+                    let items = model.subscriptions.filter { $0.tagIds.contains(tag.id) }
+                    if !items.isEmpty {
+                        group(key: tag.id, tag: tag, label: tag.name, items: items)
+                    }
+                }
+                let untagged = model.subscriptions.filter { $0.tagIds.isEmpty }
+                if !untagged.isEmpty {
+                    group(key: Self.untaggedKey, tag: nil, label: L10n.string("タグなし"), items: untagged)
+                }
+            }
+        }
+    }
+
+    private func group(key: Int, tag: Tag?, label: String, items: [Subscription]) -> some View {
+        let isCollapsed = collapsed.contains(key)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                FiloIconButton(isCollapsed ? .chevronRight : .chevronDown, label: "\(label): \(L10n.string(isCollapsed ? "展開" : "折りたたむ"))", size: 14) {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        if isCollapsed { collapsed.remove(key) } else { collapsed.insert(key) }
+                    }
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Group {
+                        if let tag {
+                            // タグ名タップでタグ絞り込み済み記事一覧へ遷移する (SCREENS.md)
+                            Button(label) { onSelectTag(tag.id) }
+                                .buttonStyle(.plain)
+                        } else {
+                            Text(label)
+                        }
+                    }
+                    .filoFont(15, .bold)
+                    .lineLimit(1)
+                    Text(L10n.format("%ld件の購読", items.count))
+                        .filoFont(12)
+                        .foregroundStyle(FiloPalette.muted)
+                        .fixedSize()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if let tag {
+                    HStack(spacing: 2) {
+                        FiloIconButton(.chevronUp, label: "タグを上へ", size: 16) { Task { await model.moveTag(tag.id, direction: -1) } }
+                        FiloIconButton(.chevronDown, label: "タグを下へ", size: 16) { Task { await model.moveTag(tag.id, direction: 1) } }
+                        FiloIconButton(.pencil, label: "名前変更", size: 16) {
+                            renameText = tag.name
+                            renamingTag = tag
+                        }
+                    }
+                }
+            }
+            .frame(minHeight: 40)
+            .padding(.bottom, 4)
+            .overlay(alignment: .bottom) { FiloDivider(color: FiloPalette.border) }
+            if !isCollapsed {
                 ForEach(items) { subscription in
                     subscriptionRow(subscription, groupIds: items.map(\.id))
                 }
             }
-        } header: {
-            HStack {
-                Button {
-                    if collapsed.contains(tag.id) { collapsed.remove(tag.id) } else { collapsed.insert(tag.id) }
-                } label: {
-                    FiloIcon(collapsed.contains(tag.id) ? .chevronRight : .chevronDown, size: 14)
-                }
-                .buttonStyle(.plain)
-                // タグ名タップでタグ絞り込み済み記事一覧へ遷移する (SCREENS.md)
-                Button {
-                    onSelectTag(tag.id)
-                } label: {
-                    Text(tag.name)
-                }
-                .buttonStyle(.plain)
-                Text(L10n.format("%ld件", items.count))
-                    .font(.caption)
-                    .foregroundStyle(FiloPalette.muted)
-                Spacer()
-                Button {
-                    Task { await model.moveTag(tag.id, direction: -1) }
-                } label: {
-                    FiloIcon(.chevronUp, size: 14)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("タグを上へ")
-                Button {
-                    Task { await model.moveTag(tag.id, direction: 1) }
-                } label: {
-                    FiloIcon(.chevronDown, size: 14)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("タグを下へ")
-                Button("名前変更") {
-                    renameText = tag.name
-                    renamingTag = tag
-                }
-                .font(.caption)
-            }
         }
     }
 
-    @ViewBuilder
     private func subscriptionRow(_ subscription: Subscription, groupIds: [Int]) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             NavigationLink(value: AppRoute.subscriptionDetail(subscription.id)) {
-                HStack(spacing: 8) {
-                    FaviconView(url: subscription.feed.faviconUrl)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(subscription.displayTitle)
-                            .font(.body.weight(.medium))
-                        Text(L10n.format("最終公開 %@", DateFormatting.relative(subscription.feed.latestPublishedAt).isEmpty ? "—" : DateFormatting.relative(subscription.feed.latestPublishedAt)))
-                            .font(.caption)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(subscription.displayTitle)
+                        .filoFont(14, .semibold)
+                        .lineLimit(1)
+                    FlowLayout(spacing: 12, lineSpacing: 4) {
+                        Text(L10n.format("最終公開 %@", DateFormatting.time(subscription.feed.latestPublishedAt).isEmpty ? "—" : DateFormatting.time(subscription.feed.latestPublishedAt)))
+                            .filoFont(12)
                             .foregroundStyle(FiloPalette.muted)
-                        healthBadge(subscription)
+                        SubscriptionHealthView(subscription: subscription)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if !model.tags.isEmpty {
-                Menu {
-                    ForEach(model.tags) { tag in
-                        Button {
-                            Task {
-                                var next = subscription.tagIds
-                                if let index = next.firstIndex(of: tag.id) { next.remove(at: index) } else { next.append(tag.id) }
-                                await model.setTags(subscription.id, tagIds: next)
-                            }
-                        } label: {
-                            Text(tag.name)
-                        }
-                    }
-                } label: {
-                    FiloIcon(.tag, size: 18)
+            HStack(spacing: 2) {
+                TagPicker(tags: model.tags, selectedIds: subscription.tagIds) { tagId in
+                    var next = subscription.tagIds
+                    if let index = next.firstIndex(of: tagId) { next.remove(at: index) } else { next.append(tagId) }
+                    Task { await model.setTags(subscription.id, tagIds: next) }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("タグを編集")
-            }
-            Button {
-                Task { await model.move(subscription.id, direction: -1, within: groupIds) }
-            } label: {
-                FiloIcon(.chevronUp, size: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(model.isBusy)
-            .accessibilityLabel("上へ")
-            Button {
-                Task { await model.move(subscription.id, direction: 1, within: groupIds) }
-            } label: {
-                FiloIcon(.chevronDown, size: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(model.isBusy)
-            .accessibilityLabel("下へ")
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
-        .contextMenu {
-            if !model.tags.isEmpty {
-                Section("タグ") {
-                    ForEach(model.tags) { tag in
-                        Button {
-                            Task {
-                                var next = subscription.tagIds
-                                if let index = next.firstIndex(of: tag.id) { next.remove(at: index) } else { next.append(tag.id) }
-                                await model.setTags(subscription.id, tagIds: next)
-                            }
-                        } label: {
-                            Text(tag.name)
-                        }
-                    }
+                FiloIconButton(.chevronUp, label: "上へ", size: 16) {
+                    Task { await model.move(subscription.id, direction: -1, within: groupIds) }
+                }
+                FiloIconButton(.chevronDown, label: "下へ", size: 16) {
+                    Task { await model.move(subscription.id, direction: 1, within: groupIds) }
                 }
             }
+            .disabled(model.isBusy)
         }
-    }
-
-    @ViewBuilder
-    private func healthBadge(_ subscription: Subscription) -> some View {
-        if subscription.initialFetchStatus == "failed" {
-            StatusBadge(label: ErrorMessages.initialFetchMessage(for: subscription.initialFetchErrorCode), tone: .danger)
-        } else if subscription.initialFetchStatus == "fetching" {
-            StatusBadge(label: "記事取得中")
-        } else if subscription.feedHealthStatus == "paused" {
-            StatusBadge(label: "更新停止中", tone: .danger)
-        } else if subscription.feedHealthStatus == "stale" {
-            StatusBadge(label: "しばらく更新なし", tone: .warn)
-        }
+        .foregroundStyle(FiloPalette.text)
+        .padding(.leading, FiloMetrics.disclosureIndent)
+        .padding(.vertical, 8)
+        .frame(minHeight: 56)
+        .overlay(alignment: .bottom) { FiloDivider() }
     }
 }

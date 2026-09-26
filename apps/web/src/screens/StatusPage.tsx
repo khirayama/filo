@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { FeedJob, StatusOverview, StatusSubscription } from "../api/types";
-import { AppShell } from "../components/AppShell";
+import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import {
   Badge,
@@ -11,13 +11,13 @@ import {
   ErrorBox,
   IconButton,
   Spinner,
+  Toast,
   formatTime,
+  formatTimeCompact,
   palette,
-  sectionStyle,
 } from "../components/ui";
 import { errorMessage } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
-import { useBackOr } from "../lib/navigation";
 
 // One busy marker for all manual operations: which operation, and for which
 // feed ("all" for the bulk buttons).
@@ -28,7 +28,7 @@ type StatusFilter = "all" | "attention" | "fetching" | "paused";
 
 export function StatusPage() {
   const api = useApi();
-  const goBack = useBackOr("/articles");
+  const isDesktop = useIsDesktop();
   const { language, t } = useAppData();
   const [status, setStatus] = useState<StatusOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +64,12 @@ export function StatusPage() {
   useEffect(() => {
     void load(true);
   }, [load]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   // Every manual operation shares the same shape: mark busy, clear the
   // notice, run, show the outcome, reload.
@@ -119,148 +125,175 @@ export function StatusPage() {
     }));
   };
 
+  const rowState = (sub: StatusSubscription) => {
+    const fetchBusy = isActiveJob(sub.fetchJob) || (refreshing && busy?.target === sub.feedId);
+    const rowError = sub.fetchJob?.status === "failed" ? sub.fetchJob.lastError ?? sub.lastError : hasFetchAttention(sub) ? sub.lastError : null;
+    return { fetchBusy, rowError };
+  };
+
+  const fetchButton = (sub: StatusSubscription, fetchBusy: boolean) => (
+    <IconButton
+      icon="refresh"
+      label={fetchBusy ? t("取得中…") : t("このフィードを取得")}
+      size={16}
+      disabled={refreshing || fetchBusy}
+      onClick={() => void refreshFeed(sub.feedId)}
+    />
+  );
+
   return (
-    <AppShell>
-      <main style={{ padding: "16px var(--fl-page-gutter) 48px" }}>
-        <header
-          style={{
-            alignItems: "center",
-            borderBottom: `1px solid ${palette.mutedBorder}`,
-            display: "flex",
-            gap: "8px",
-            padding: "8px 0",
-          }}
-        >
-          <IconButton icon="back" label={t("戻る")} onClick={goBack} />
-          <h1 style={{ flex: 1, fontSize: "20px", margin: 0 }}>{t("処理ステータス")}</h1>
+    <AppShell
+      title={t("処理ステータス")}
+      actions={
+        <>
           <IconButton icon="refresh" label={t("再読み込み")} onClick={() => void load(true)} />
-        </header>
+          <Button small kind="primary" disabled={refreshing} onClick={() => void refreshAll()}>
+            {refreshing && busy?.target === "all" ? t("取得中…") : t("すべて取得")}
+          </Button>
+        </>
+      }
+    >
+      <main className="fl-page">
+        <div className="fl-stack">
+          {error ? <ErrorBox message={error} onRetry={() => void load(true)} /> : null}
 
-        {error ? <ErrorBox message={error} onRetry={() => void load(true)} /> : null}
-
-        {loading || !status ? (
-          <Spinner />
-        ) : (
-          <>
-            <section style={sectionStyle}>
-              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "8px" }}>
-              <p role="heading" aria-level={2} style={{ flex: 1, fontWeight: 600, margin: 0, minWidth: "120px" }}>{t("操作")}</p>
-                <Button kind="primary" disabled={refreshing} onClick={() => void refreshAll()}>
-                  {refreshing && busy?.target === "all" ? t("取得中…") : t("すべて取得")}
-                </Button>
+          {loading || !status ? (
+            <Spinner />
+          ) : (
+            <>
+              <div className="fl-card fl-stat-grid">
+                <Stat label={t("購読")} value={String(status.feeds.total)} />
+                <Stat label={t("記事")} value={status.articles.total.toLocaleString()} />
+                <Stat label={t("最終取得")} value={status.feeds.lastFetchedAt ? (isDesktop ? formatTime : formatTimeCompact)(status.feeds.lastFetchedAt, language) : "—"} />
               </div>
-              {notice ? (
-                <p role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "13px", margin: "12px 0 0" }}>{notice}</p>
-              ) : null}
-              <p style={{ color: palette.muted, fontSize: "12px", margin: "12px 0 0" }}>
-                {t("購読")} {status.feeds.total}・{t("記事")} {status.articles.total}
-                {status.feeds.lastFetchedAt ? `・${t("最終取得")} ${formatTime(status.feeds.lastFetchedAt, language)}` : ""}
-              </p>
-            </section>
 
-            <section style={sectionStyle}>
-              <p role="heading" aria-level={2} style={{ fontWeight: 600, margin: "0 0 4px" }}>{t("購読一覧（{count}）", { count: status.subscriptionStatuses.length })}</p>
-              {status.subscriptionStatuses.length === 0 ? (
-                <EmptyState>{t("購読がありません。")}</EmptyState>
-              ) : (
-                <>
-                  <div style={{ alignItems: "end", display: "flex", flexWrap: "wrap", gap: "12px", margin: "12px 0" }}>
-                    <label style={{ display: "grid", gap: "4px", minWidth: "220px" }}>
-                      <span style={{ color: palette.muted, fontSize: "12px" }}>{t("検索")}</span>
+              <section aria-labelledby="filo-status-subscriptions">
+                <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "8px 12px", marginBottom: "12px" }}>
+                  <h2 id="filo-status-subscriptions" style={{ flex: "1 1 auto", fontSize: "15px", margin: 0 }}>
+                    {t("購読一覧（{count}）", { count: status.subscriptionStatuses.length })}
+                  </h2>
+                  {status.subscriptionStatuses.length > 0 ? (
+                    <div style={{ alignItems: "center", display: "flex", flex: isDesktop ? "0 1 auto" : "1 1 100%", gap: "8px" }}>
                       <input
                         type="search"
+                        className="fl-input"
                         value={filterText}
                         onChange={(e) => setFilterText(e.target.value)}
                         placeholder={t("購読名で検索")}
                         aria-label={t("購読名で検索")}
-                        style={{ border: `1px solid ${palette.border}`, borderRadius: "4px", fontSize: "14px", padding: "7px 8px", width: "220px" }}
+                        style={{ flex: 1, width: isDesktop ? "240px" : undefined }}
                       />
-                    </label>
-                    <label style={{ display: "grid", gap: "4px" }}>
-                      <span style={{ color: palette.muted, fontSize: "12px" }}>{t("状態")}</span>
                       <select
                         value={statusFilter}
+                        aria-label={t("状態")}
+                        className="fl-select"
                         onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                        style={{ border: `1px solid ${palette.border}`, borderRadius: "4px", fontSize: "14px", padding: "7px 8px" }}
                       >
                         <option value="all">{t("すべて")}</option>
                         <option value="attention">{t("問題あり")}</option>
                         <option value="fetching">{t("取得中")}</option>
                         <option value="paused">{t("停止")}</option>
                       </select>
-                    </label>
-                    <span role="status" aria-live="polite" style={{ color: palette.muted, fontSize: "12px", paddingBottom: "8px" }}>
-                      {visibleSubscriptions.length}/{status.subscriptionStatuses.length}
-                    </span>
-                  </div>
-                  {visibleSubscriptions.length === 0 ? (
-                    <EmptyState>{t("条件に一致する購読がありません。")}</EmptyState>
-                  ) : (
-                    <div style={{ overflowX: "auto" }}>
-                      <table aria-label={t("購読一覧")} style={{ borderCollapse: "collapse", minWidth: "900px", width: "100%" }}>
-                        <thead>
-                          <tr style={{ borderBottom: `2px solid ${palette.border}`, textAlign: "left" }}>
-                            <SortableHeader label={t("状態")} sortKey="status" sort={sort} onSort={changeSort} />
-                            <SortableHeader label={t("購読")} sortKey="feedTitle" sort={sort} onSort={changeSort} />
-                            <SortableHeader label={t("取得")} sortKey="fetchStatus" sort={sort} onSort={changeSort} />
-                            <SortableHeader label={t("最終取得")} sortKey="lastFetchedAt" sort={sort} onSort={changeSort} />
-                            <th scope="col" style={{ padding: "8px", whiteSpace: "nowrap" }}>{t("操作")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleSubscriptions.map((sub) => {
-                            const isError = hasAttention(sub);
-                            const fetchBusy = isActiveJob(sub.fetchJob) || (refreshing && busy?.target === sub.feedId);
-                            const rowError = sub.fetchJob?.status === "failed" ? sub.fetchJob.lastError ?? sub.lastError : hasFetchAttention(sub) ? sub.lastError : null;
-                            return (
-                              <tr key={sub.subscriptionId} style={{ background: isError ? palette.dangerBg : undefined, borderBottom: `1px solid ${palette.mutedBorder}`, verticalAlign: "top" }}>
-                                <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
-                                  <StatusBadge sub={sub} t={t} />
-                                </td>
-                                <td style={{ maxWidth: "260px", padding: "10px 8px" }}>
-                                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                                    <Link
-                                      to={`/subscriptions/${sub.subscriptionId}`}
-                                      style={{ color: "inherit", overflow: "hidden", textDecoration: "underline", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                                    >
-                                      {sub.feedTitle}
-                                    </Link>
-                                    {sub.feedStatus === "paused" ? <Badge tone="muted">{t("停止")}</Badge> : null}
-                                  </div>
-                                  {rowError ? (
-                                    <p style={{ color: palette.danger, fontSize: "12px", margin: "5px 0 0", overflowWrap: "anywhere" }}>{rowError}</p>
-                                  ) : null}
-                                </td>
-                                <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
-                                  <JobBadge label={t("取得")} job={sub.fetchJob} fallback={fetchFallbackBadge(sub.lastResult, t)} t={t} />
-                                </td>
-                                <td style={{ color: palette.muted, fontSize: "12px", padding: "10px 8px", whiteSpace: "nowrap" }}>
-                                  {sub.lastFetchedAt ? formatTime(sub.lastFetchedAt, language) : "—"}
-                                </td>
-                                <td style={{ padding: "8px" }}>
-                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                                    <RowAction
-                                      label={fetchBusy ? t("取得中…") : t("取得")}
-                                      title={t("このフィードを取得")}
-                                      disabled={refreshing || fetchBusy}
-                                      onClick={() => void refreshFeed(sub.feedId)}
-                                    />
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                      <span role="status" aria-live="polite" style={{ color: palette.muted, flexShrink: 0, fontSize: "12px", fontVariantNumeric: "tabular-nums", minWidth: "44px", textAlign: "right" }}>
+                        {visibleSubscriptions.length}/{status.subscriptionStatuses.length}
+                      </span>
                     </div>
-                  )}
-                </>
-              )}
-            </section>
-          </>
-        )}
+                  ) : null}
+                </div>
+                {status.subscriptionStatuses.length === 0 ? (
+                  <EmptyState icon="rss">{t("購読がありません。")}</EmptyState>
+                ) : visibleSubscriptions.length === 0 ? (
+                  <EmptyState>{t("条件に一致する購読がありません。")}</EmptyState>
+                ) : isDesktop ? (
+                  <table aria-label={t("購読一覧")} className="fl-table">
+                    <thead>
+                      <tr>
+                        <SortableHeader label={t("状態")} sortKey="status" sort={sort} onSort={changeSort} width="120px" />
+                        <SortableHeader label={t("購読")} sortKey="feedTitle" sort={sort} onSort={changeSort} />
+                        <SortableHeader label={t("取得")} sortKey="fetchStatus" sort={sort} onSort={changeSort} width="120px" />
+                        <SortableHeader label={t("最終取得")} sortKey="lastFetchedAt" sort={sort} onSort={changeSort} width="150px" />
+                        <th scope="col" style={{ padding: "8px 0", textAlign: "right", width: "48px" }}>
+                          <span style={{ border: 0, clip: "rect(0 0 0 0)", height: "1px", overflow: "hidden", position: "absolute", width: "1px" }}>{t("操作")}</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleSubscriptions.map((sub) => {
+                        const { fetchBusy, rowError } = rowState(sub);
+                        return (
+                          <tr key={sub.subscriptionId} style={hasAttention(sub) ? { background: palette.dangerBg } : undefined}>
+                            <td><StatusBadge sub={sub} t={t} /></td>
+                            <td style={{ maxWidth: 0, width: "100%" }}>
+                              <Link
+                                to={`/subscriptions/${sub.subscriptionId}`}
+                                className="fl-link"
+                                style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                              >
+                                {sub.feedTitle}
+                              </Link>
+                              {rowError ? (
+                                <p style={{ color: palette.danger, fontSize: "12px", margin: "4px 0 0", overflowWrap: "anywhere" }}>{rowError}</p>
+                              ) : null}
+                            </td>
+                            <td>
+                              <JobBadge label={t("取得")} job={sub.fetchJob} fallback={fetchFallbackBadge(sub.lastResult, t)} t={t} />
+                            </td>
+                            <td style={{ color: palette.muted, fontSize: "13px", whiteSpace: "nowrap" }}>
+                              {sub.lastFetchedAt ? formatTime(sub.lastFetchedAt, language) : "—"}
+                            </td>
+                            <td style={{ padding: "4px 0", textAlign: "right" }}>{fetchButton(sub, fetchBusy)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <ul aria-label={t("購読一覧")} className="fl-list" style={{ borderTop: `1px solid ${palette.mutedBorder}` }}>
+                    {visibleSubscriptions.map((sub) => {
+                      const { fetchBusy, rowError } = rowState(sub);
+                      return (
+                        <li key={sub.subscriptionId} className="fl-list-row" style={{ alignItems: "flex-start", gap: "8px" }}>
+                          <div style={{ display: "grid", flex: 1, gap: "4px", minWidth: 0 }}>
+                            <Link
+                              to={`/subscriptions/${sub.subscriptionId}`}
+                              className="fl-link"
+                              style={{ fontSize: "14px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                            >
+                              {sub.feedTitle}
+                            </Link>
+                            <div style={{ alignItems: "center", color: palette.muted, display: "flex", flexWrap: "wrap", fontSize: "12px", gap: "6px 10px" }}>
+                              <StatusBadge sub={sub} t={t} />
+                              {(sub.fetchJob && sub.fetchJob.status !== "completed") || sub.lastResult === "error" ? (
+                                <JobBadge label={t("取得")} job={sub.fetchJob} fallback={fetchFallbackBadge(sub.lastResult, t)} t={t} />
+                              ) : null}
+                              <span>{sub.lastFetchedAt ? formatTime(sub.lastFetchedAt, language) : "—"}</span>
+                            </div>
+                            {rowError ? (
+                              <p style={{ color: palette.danger, fontSize: "12px", margin: 0, overflowWrap: "anywhere" }}>{rowError}</p>
+                            ) : null}
+                          </div>
+                          {fetchButton(sub, fetchBusy)}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+        </div>
       </main>
+      {notice ? <Toast message={notice} /> : null}
     </AppShell>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="fl-stat">
+      <span className="fl-stat-label">{label}</span>
+      <span className="fl-stat-value">{value}</span>
+    </div>
   );
 }
 
@@ -328,11 +361,13 @@ function SortableHeader({
   sortKey,
   sort,
   onSort,
+  width,
 }: {
   label: string;
   sortKey: StatusSortKey;
   sort: { key: StatusSortKey; direction: SortDirection };
   onSort: (key: StatusSortKey) => void;
+  width?: string;
 }) {
   const active = sort.key === sortKey;
   const direction = active ? sort.direction : undefined;
@@ -340,14 +375,15 @@ function SortableHeader({
     <th
       scope="col"
       aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
-      style={{ padding: "0 8px", whiteSpace: "nowrap" }}
+      style={{ width }}
     >
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", font: "inherit", padding: "8px 0", textAlign: "left" }}
+        style={{ alignItems: "center", background: "transparent", border: "none", color: active ? palette.text : "inherit", cursor: "pointer", display: "inline-flex", font: "inherit", gap: "4px", padding: "8px 0", textAlign: "left" }}
       >
-        {label} <span aria-hidden="true" style={{ color: active ? palette.accent : palette.muted }}>{active ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+        {label}
+        <span aria-hidden="true" style={{ color: active ? palette.accent : palette.muted, opacity: active ? 1 : 0.6 }}>{active ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
       </button>
     </th>
   );
@@ -372,7 +408,7 @@ function isActiveJob(job: FeedJob | null): boolean {
 // list stays quiet unless something is queued, running, or broken.
 function JobBadge({ label, job, fallback, t }: { label: string; job: FeedJob | null; fallback?: { label: string; tone: "danger" | "warn" | "ok" | "muted" } | null; t: (source: string) => string }) {
   if (!job || job.status === "completed") {
-    return fallback ? <Badge tone={fallback.tone}>{fallback.label}</Badge> : null;
+    return fallback ? <Badge tone={fallback.tone}>{fallback.label}</Badge> : <span style={{ color: palette.muted }}>—</span>;
   }
   if (job.stalled) return <Badge tone="danger">{label}{t("中断")}</Badge>;
   if (job.status === "failed") return <Badge tone="danger">{label}{t("失敗")}</Badge>;
@@ -383,27 +419,4 @@ function JobBadge({ label, job, fallback, t }: { label: string; job: FeedJob | n
 function fetchFallbackBadge(lastResult: string | null, t: (source: string) => string) {
   if (lastResult === "error") return { label: t("取得失敗"), tone: "danger" as const };
   return null;
-}
-
-function RowAction({ label, title, disabled, onClick }: { label: string; title: string; disabled: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      title={title}
-      style={{
-        background: "none",
-        border: `1px solid ${palette.mutedBorder}`,
-        borderRadius: "4px",
-        color: palette.muted,
-        cursor: disabled ? "not-allowed" : "pointer",
-        fontSize: "11px",
-        padding: "2px 6px",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {label}
-    </button>
-  );
 }

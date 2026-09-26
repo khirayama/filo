@@ -84,12 +84,10 @@ export const tagRoutes = new Hono<AppContext>()
 
     const now = nowIso();
     const statements = tagIds.map((id, index) =>
-      c.env.DB.prepare("UPDATE tags SET sort_order = ?, updated_at = ? WHERE id = ? AND user_id = ?").bind(
-        (index + 1) * 10,
-        now,
-        id,
-        user.id
-      )
+      // Rows already in place are skipped, so a reorder only writes what moved.
+      c.env.DB.prepare(
+        "UPDATE tags SET sort_order = ?, updated_at = ? WHERE id = ? AND user_id = ? AND sort_order != ?",
+      ).bind((index + 1) * 10, now, id, user.id, (index + 1) * 10)
     );
     if (statements.length > 0) await c.env.DB.batch(statements);
     const { results: updated } = await c.env.DB.prepare(

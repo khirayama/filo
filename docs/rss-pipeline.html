@@ -367,7 +367,7 @@
 
 <h1>Filo — フィード取得・更新</h1>
 <p class="subtitle">
-  RSS の取得・更新。ユーザーの明示操作で始まり、cron はコンテンツに触れない。
+  RSS の取得・更新。ユーザー操作と毎時の cron が、購読者のいるフィードだけを取りに行く。
   <strong>翻訳はサーバーの仕事ではない</strong> — 一覧タイトルも本文も、クライアントが端末内の翻訳機能で訳す。
 </p>
 
@@ -452,7 +452,7 @@
     <span class="phase-file">routes/subscriptions.ts · routes/status.ts</span>
   </div>
   <div class="phase-body">
-    <p>フィード取得を始める経路は3つだけで、すべてユーザーの操作。cron はフィードに触れず、失敗した account deletion job の再投入だけを担当する。</p>
+    <p>フィード取得を始める経路は、下の3つのユーザー操作と毎時の cron。cron はクールダウンが明けた <code>active</code> フィードのうち、購読者が1人以上いるものだけを1回あたり最大200件投入する。誰も購読していないフィードは取得せず、再び購読されたときに再開する。</p>
     <table class="t">
       <thead>
         <tr><th>トリガー</th><th>reason</th><th>説明</th></tr>
@@ -559,7 +559,7 @@
       </li>
       <li>
         <div class="step-title">upsert（1フィードあたり最大200件）</div>
-        <div class="step-desc">既存記事はタイトル・本文・公開日時を更新（<code>COALESCE</code> で既存値を消さない）、新規記事は INSERT。新規記事にはフィードの宣言言語を <code>source_language</code> として持たせる。</div>
+        <div class="step-desc">既存記事は1回の読み取りで現在値を取り、変化があった記事だけタイトル・本文・公開日時を UPDATE する（<code>COALESCE</code> で既存値を消さない）。変化のない記事は書き込みゼロ。新規記事は INSERT し、フィードの宣言言語を <code>source_language</code> として持たせる。</div>
       </li>
       <li>
         <div class="step-title">状態とログを記録</div>
@@ -635,7 +635,7 @@
         <div class="ec-title">キュー / cron</div>
         <div class="ec-desc">
           ジョブ例外は60秒後にリトライ（最大5回）。<br>
-          cron（毎時）は account deletion job の再投入のみ。
+          cron（毎時）はフィードの定期取得、account deletion job の再投入、ログと本文キャッシュの期限切れ削除を行う。各処理は独立しており、1つが失敗しても他は止まらない。
         </div>
       </div>
     </div>

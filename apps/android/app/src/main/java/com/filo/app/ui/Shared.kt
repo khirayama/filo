@@ -1,7 +1,5 @@
 package com.filo.app.ui
 
-import android.content.Context
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,372 +11,199 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import com.filo.app.LanguagePreference
 import com.filo.app.api.ArticleListItem
+import com.filo.app.api.ErrorMessages
+import com.filo.app.api.Subscription
 import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.coroutines.resume
-import kotlinx.coroutines.suspendCancellableCoroutine
-import com.filo.app.WirePalette
 
-enum class BadgeTone { Muted, Warn, Danger, Ok }
-
+// Feed health as a quiet inline status; renders nothing for healthy feeds.
 @Composable
-fun StatusBadge(label: String, tone: BadgeTone = BadgeTone.Muted) {
-    val color = when (tone) {
-        BadgeTone.Muted -> MaterialTheme.colorScheme.onSurfaceVariant
-        BadgeTone.Warn -> if (MaterialTheme.colorScheme.background == WirePalette.DarkBackground) {
-            WirePalette.DarkWarn
-        } else {
-            WirePalette.Warn
-        }
-        BadgeTone.Danger -> MaterialTheme.colorScheme.error
-        BadgeTone.Ok -> MaterialTheme.colorScheme.tertiary
-    }
-    Surface(
-        shape = CircleShape,
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, color.copy(alpha = 0.6f)),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-        )
-    }
-}
-
-@Composable
-fun ErrorBanner(message: String, onRetry: (() -> Unit)? = null) {
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = message,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            if (onRetry != null) {
-                TextButton(onClick = onRetry) { Text(tr("再試行")) }
-            }
-        }
-    }
-}
-
-@Composable
-fun BlockingProgressOverlay(message: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.32f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            shape = MaterialTheme.shapes.small,
-            color = MaterialTheme.colorScheme.surface,
-            border = null,
-            tonalElevation = 3.dp,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                Text(message, color = MaterialTheme.colorScheme.onSurface)
-            }
-        }
-    }
-}
-
-@Composable
-fun FilterChipButton(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        onClick = onClick,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-        )
-    }
-}
-
-@Composable
-fun FaviconPlaceholder(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(16.dp)
-            .clip(RoundedCornerShape(3.dp))
-            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "F",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 9.sp,
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-        )
-    }
-}
-
-@Composable
-fun FaviconImage(url: String?, modifier: Modifier = Modifier, siteUrl: String? = null) {
-    val effectiveUrl = url ?: siteUrl?.let { site ->
-        try {
-            val host = java.net.URI(site).host ?: return@let null
-            "https://www.google.com/s2/favicons?domain=$host&sz=32"
-        } catch (_: Exception) { null }
-    }
-    if (effectiveUrl != null) {
-        var failed by remember(effectiveUrl) { mutableStateOf(false) }
-        if (failed) {
-            FaviconPlaceholder(modifier = modifier)
-        } else {
-            AsyncImage(
-                model = effectiveUrl,
-                contentDescription = null,
-                modifier = modifier
-                    .size(16.dp)
-                    .clip(RoundedCornerShape(3.dp)),
-                onError = { failed = true },
-            )
-        }
-    } else {
-        FaviconPlaceholder(modifier = modifier)
+fun SubscriptionHealth(subscription: Subscription) {
+    when {
+        subscription.initialFetchStatus == "failed" ->
+            FiloStatusText(ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode), BadgeTone.Danger)
+        subscription.initialFetchStatus == "fetching" -> FiloStatusText(tr("記事取得中"))
+        subscription.feedHealthStatus == "paused" -> FiloStatusText(tr("更新停止中"), BadgeTone.Danger)
+        subscription.feedHealthStatus == "stale" -> FiloStatusText(tr("しばらく更新なし"), BadgeTone.Warn)
     }
 }
 
 @Composable
 fun ArticleRow(
     article: ArticleListItem,
-    selected: Boolean = false,
-    onOpenFeed: (() -> Unit)? = null,
     onOpen: () -> Unit,
+    selected: Boolean = false,
+    // Off inside a single subscription, where every row has the same feed.
+    showFeed: Boolean = true,
+    onOpenFeed: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
     onToggleRead: (() -> Unit)? = null,
     onToggleReadingList: (() -> Unit)? = null,
     onToggleBookmark: (() -> Unit)? = null,
     translations: TitleTranslationStore? = null,
-    horizontalPadding: Dp = 16.dp,
 ) {
+    val colors = Filo.colors
     var showOriginal by remember { mutableStateOf(false) }
     // 翻訳は端末内で走るので、届いた分から順に差し替わる。行のトグルで原文に戻せる。
     val translatedTitle = translations?.titleFor(article.id)
     val isTranslated = translatedTitle != null
     val displayTitle = if (showOriginal) article.title else translatedTitle ?: article.title
     val isDesktop = LocalConfiguration.current.screenWidthDp >= 1024
-    val titleStyle = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp)
     val hoverInteractionSource = remember { MutableInteractionSource() }
     val isHovered by hoverInteractionSource.collectIsHoveredAsState()
+    val isRead = article.userState.isRead
+    val active = selected || (isDesktop && isHovered)
 
-    Surface(
-        color = if (isDesktop && isHovered) {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f)
-        } else {
-            Color.Transparent
-        },
-        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (isDesktop) Modifier.hoverable(hoverInteractionSource) else Modifier)
-            .alpha(if (article.userState.isRead) 0.55f else 1f),
-    ) {
-        if (isDesktop) {
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .then(if (isDesktop) Modifier.hoverable(hoverInteractionSource) else Modifier)
+        .background(if (active) colors.rowHover else colors.bg)
+        .drawBehind {
+            if (selected) drawRect(colors.accent, size = size.copy(width = 3.dp.toPx()))
+        }
+        .bottomBorder(colors.mutedBorder)
+
+    val title: @Composable (Modifier, Boolean) -> Unit = { modifier, singleLine ->
+        Text(
+            displayTitle,
+            fontSize = if (singleLine) 14.sp else 15.sp,
+            lineHeight = if (singleLine) 20.sp else 22.sp,
+            fontWeight = if (isRead) FontWeight.Normal else FontWeight.SemiBold,
+            color = if (isRead) colors.muted else colors.text,
+            maxLines = if (singleLine) 1 else 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = modifier.combinedClickable(onClick = onOpen, onLongClick = onLongPress),
+        )
+    }
+    val feed: @Composable (Modifier) -> Unit = { modifier ->
+        Text(
+            article.feedTitle,
+            fontSize = 12.sp,
+            color = colors.muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = modifier.then(if (onOpenFeed != null) Modifier.clickable(onClick = onOpenFeed) else Modifier),
+        )
+    }
+    val date: @Composable () -> Unit = {
+        Text(compactRelativeTime(article.publishedAt ?: article.fetchedAt), fontSize = 12.sp, color = colors.muted, maxLines = 1)
+    }
+    val toggle: @Composable () -> Unit = {
+        if (isTranslated) TranslationToggle(showOriginal) { showOriginal = !showOriginal }
+    }
+
+    if (isDesktop) {
+        // One dense line per article; the toggles replace the date on hover.
+        Row(
+            modifier = rowModifier.height(40.dp).padding(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showFeed) feed(Modifier.width(160.dp))
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                toggle()
+                title(Modifier.weight(1f, fill = false), true)
+                article.previewText?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        fontSize = 13.sp,
+                        color = colors.muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            if (active) {
+                ArticleActions(article, onToggleRead, onToggleReadingList, onToggleBookmark)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (article.userState.inReadingList) FiloIcon(FiloIconName.Playlist, size = 14.dp, tint = colors.accent)
+                    if (article.userState.isBookmarked) FiloIcon(FiloIconName.Bookmark, size = 14.dp, tint = colors.star, filled = true)
+                    date()
+                }
+            }
+        }
+    } else {
+        // Feed/date line, then a two-line title.
+        Column(modifier = rowModifier.padding(horizontal = Filo.Gutter, vertical = 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
-                    modifier = Modifier.width(120.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    feedTitle(article.feedTitle, onOpenFeed, Modifier.weight(1f))
-                    translationButton(isTranslated, showOriginal) { showOriginal = !showOriginal }
+                    if (showFeed) feed(Modifier.weight(1f, fill = false))
+                    toggle()
                 }
-                articleTitle(
-                    displayTitle,
-                    titleStyle,
-                    article.userState.isRead,
-                    Modifier.weight(1f).padding(start = 16.dp),
-                    singleLine = true,
-                    onOpen = onOpen,
-                    onLongPress = onLongPress,
-                )
-                Text(
-                    compactRelativeTime(article.publishedAt ?: article.fetchedAt),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                date()
+                // The 40dp touch targets overhang the 24dp line and the gutter,
+                // like the web's negative margins, so the icons end on the edge.
                 ArticleActions(
-                    article = article,
-                    onToggleRead = onToggleRead,
-                    onToggleReadingList = onToggleReadingList,
-                    onToggleBookmark = onToggleBookmark,
-                    visible = isHovered || selected || article.userState.inReadingList || article.userState.isBookmarked,
+                    article,
+                    onToggleRead,
+                    onToggleReadingList,
+                    onToggleBookmark,
+                    modifier = Modifier
+                        .height(24.dp)
+                        .wrapContentHeight(unbounded = true)
+                        .offset(x = 10.dp),
                 )
             }
-        } else {
-            Column(
-                modifier = Modifier
-                    .padding(horizontal = horizontalPadding)
-                    .padding(top = 1.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    feedTitle(article.feedTitle, onOpenFeed, Modifier.weight(1f))
-                    translationButton(isTranslated, showOriginal) { showOriginal = !showOriginal }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        compactRelativeTime(article.publishedAt ?: article.fetchedAt),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    ArticleActions(
-                        article = article,
-                        onToggleRead = onToggleRead,
-                        onToggleReadingList = onToggleReadingList,
-                        onToggleBookmark = onToggleBookmark,
-                    )
-                }
-                articleTitle(
-                    displayTitle,
-                    titleStyle,
-                    article.userState.isRead,
-                    Modifier.fillMaxWidth(),
-                    singleLine = false,
-                    onOpen = onOpen,
-                    onLongPress = onLongPress,
-                )
-            }
+            title(Modifier.fillMaxWidth().padding(top = 4.dp), false)
         }
     }
 }
 
 @Composable
-private fun feedTitle(title: String, onOpenFeed: (() -> Unit)?, modifier: Modifier) {
-    val feedModifier = if (onOpenFeed != null) modifier.clickable { onOpenFeed() } else modifier
-    Text(
-        title,
-        modifier = feedModifier,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
-}
-
-@Composable
-private fun translationButton(isTranslated: Boolean, showOriginal: Boolean, onClick: () -> Unit) {
-    if (isTranslated) {
-        // Surface(onClick = ...) can apply Material's minimum interactive size
-        // to the label. Draw/click the compact label directly so it stays the
-        // same 18dp high as the empty slot used before translation arrives.
-        Box(
-            modifier = Modifier
-                .height(18.dp)
-                .clip(MaterialTheme.shapes.extraSmall)
-                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), MaterialTheme.shapes.extraSmall)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                tr(if (showOriginal) "翻訳" else "原文"),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-        }
-    } else {
-        // Match the label's height before translation is available.
-        Spacer(modifier = Modifier.height(18.dp))
+private fun TranslationToggle(showOriginal: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(4.dp)
+    Box(
+        modifier = Modifier
+            .height(18.dp)
+            .clip(shape)
+            .border(1.dp, Filo.colors.border, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(tr(if (showOriginal) "翻訳" else "原文"), fontSize = 10.sp, lineHeight = 16.sp, color = Filo.colors.muted)
     }
-}
-
-@Composable
-private fun articleTitle(
-    title: String,
-    style: androidx.compose.ui.text.TextStyle,
-    isRead: Boolean,
-    modifier: Modifier,
-    singleLine: Boolean,
-    onOpen: () -> Unit,
-    onLongPress: (() -> Unit)? = null,
-) {
-    Text(
-        title,
-        style = style,
-        fontWeight = if (isRead) FontWeight.Normal else FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurface,
-        maxLines = if (singleLine) 1 else 2,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier.combinedClickable(onClick = onOpen, onLongClick = onLongPress),
-    )
 }
 
 @Composable
@@ -387,91 +212,101 @@ private fun ArticleActions(
     onToggleRead: (() -> Unit)?,
     onToggleReadingList: (() -> Unit)?,
     onToggleBookmark: (() -> Unit)?,
-    visible: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
+    val colors = Filo.colors
+    val state = article.userState
     Row(
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.alpha(if (visible) 1f else 0f),
     ) {
         if (onToggleRead != null) {
-            Surface(
-                onClick = onToggleRead,
-                color = Color.Transparent,
-                modifier = Modifier.size(32.dp),
-            ) {
-                FiloIcon(
-                    FiloIconName.CheckCircle,
-                    contentDescription = tr(if (article.userState.isRead) "未読にする" else "既読にする"),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(7.dp),
-                )
-            }
+            FiloIconButton(
+                FiloIconName.CheckCircle,
+                tr(if (state.isRead) "未読にする" else "既読にする"),
+                onToggleRead,
+                tint = if (state.isRead) colors.accent else null,
+                filled = false,
+            )
         }
         if (onToggleReadingList != null) {
-            Surface(
-                onClick = onToggleReadingList,
-                color = Color.Transparent,
-                modifier = Modifier.size(32.dp),
-            ) {
-                FiloIcon(
-                    FiloIconName.QueueAdd,
-                    contentDescription = tr(if (article.userState.inReadingList) "リーディングリストから削除" else "リーディングリストに追加"),
-                    tint = if (article.userState.inReadingList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(7.dp),
-                )
-            }
+            FiloIconButton(
+                FiloIconName.QueueAdd,
+                tr(if (state.inReadingList) "リーディングリストから削除" else "リーディングリストに追加"),
+                onToggleReadingList,
+                active = state.inReadingList,
+                tint = if (state.inReadingList) colors.accent else null,
+            )
         }
         if (onToggleBookmark != null) {
-            Surface(
-                onClick = onToggleBookmark,
-                color = Color.Transparent,
-                modifier = Modifier.size(32.dp),
-            ) {
-                FiloIcon(
-                    FiloIconName.Bookmark,
-                    contentDescription = tr(if (article.userState.isBookmarked) "ブックマークを解除" else "ブックマーク"),
-                    tint = if (article.userState.isBookmarked) WirePalette.Star else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(7.dp),
-                    filled = article.userState.isBookmarked,
-                )
+            FiloIconButton(
+                FiloIconName.Bookmark,
+                tr(if (state.isBookmarked) "ブックマークを解除" else "ブックマーク"),
+                onToggleBookmark,
+                active = state.isBookmarked,
+                tint = if (state.isBookmarked) colors.star else null,
+            )
+        }
+    }
+}
+
+// Relative times match apps/web/src/components/ui.tsx: minutes, hours and days
+// for the last week, then a locale date.
+private data class RelativeLabels(val now: String, val minutes: String, val hours: String, val days: String)
+
+private fun relativeTime(iso: String?, labels: RelativeLabels, datePattern: (String) -> String): String {
+    if (iso.isNullOrBlank()) return ""
+    return try {
+        val instant = Instant.from(DateTimeFormatter.ISO_DATE_TIME.parse(iso))
+        val minutes = (System.currentTimeMillis() - instant.toEpochMilli()) / 60_000
+        when {
+            minutes < 1 -> labels.now
+            minutes < 60 -> "$minutes${labels.minutes}"
+            minutes < 60 * 24 -> "${minutes / 60}${labels.hours}"
+            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}${labels.days}"
+            else -> {
+                val language = LanguagePreference.value
+                DateTimeFormatter.ofPattern(datePattern(language), Locale.forLanguageTag(language))
+                    .format(instant.atZone(ZoneId.systemDefault()))
             }
         }
+    } catch (e: Exception) {
+        ""
     }
 }
 
 fun relativeTime(iso: String?): String {
-    if (iso.isNullOrBlank()) return ""
-    return try {
-        val instant = Instant.from(DateTimeFormatter.ISO_DATE_TIME.parse(iso))
-        val minutes = (System.currentTimeMillis() - instant.toEpochMilli()) / 60_000
-        when {
-            minutes < 1 -> AppStrings.get("たった今")
-            minutes < 60 -> "$minutes${AppStrings.get("分前")}"
-            minutes < 60 * 24 -> "${minutes / 60}${AppStrings.get("時間前")}"
-            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}${AppStrings.get("日前")}"
-            else -> DateTimeFormatter.ofPattern("yyyy/M/d", Locale.getDefault())
-                .format(instant.atZone(java.time.ZoneId.systemDefault()))
+    val labels = when (LanguagePreference.value) {
+        "en" -> RelativeLabels("just now", " min ago", " hr ago", " days ago")
+        "zh" -> RelativeLabels("刚刚", "分钟前", "小时前", "天前")
+        "ko" -> RelativeLabels("방금", "분 전", "시간 전", "일 전")
+        "es" -> RelativeLabels("ahora", " min", " h", " días")
+        else -> RelativeLabels("たった今", "分前", "時間前", "日前")
+    }
+    return relativeTime(iso, labels) { language ->
+        when (language) {
+            "en" -> "MMM d, yyyy"
+            "es" -> "d MMM yyyy"
+            "ko" -> "yyyy년 M월 d일"
+            else -> "yyyy年M月d日"
         }
-    } catch (e: Exception) {
-        ""
     }
 }
 
 fun compactRelativeTime(iso: String?): String {
-    if (iso.isNullOrBlank()) return ""
-    return try {
-        val instant = Instant.from(DateTimeFormatter.ISO_DATE_TIME.parse(iso))
-        val minutes = (System.currentTimeMillis() - instant.toEpochMilli()) / 60_000
-        when {
-            minutes < 1 -> AppStrings.get("今")
-            minutes < 60 -> "${minutes}${AppStrings.get("分")}"
-            minutes < 60 * 24 -> "${minutes / 60}${AppStrings.get("時間")}"
-            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)}${AppStrings.get("日")}"
-            else -> DateTimeFormatter.ofPattern("M/d", Locale.getDefault())
-                .format(instant.atZone(java.time.ZoneId.systemDefault()))
+    val labels = when (LanguagePreference.value) {
+        "ja" -> RelativeLabels("今", "分", "時間", "日")
+        "zh" -> RelativeLabels("刚刚", "分", "时", "天")
+        "ko" -> RelativeLabels("방금", "분", "시간", "일")
+        "es" -> RelativeLabels("ahora", "m", "h", "d")
+        else -> RelativeLabels("now", "m", "h", "d")
+    }
+    return relativeTime(iso, labels) { language ->
+        when (language) {
+            "es" -> "d/M"
+            "ko" -> "M. d."
+            else -> "M/d"
         }
-    } catch (e: Exception) {
-        ""
     }
 }

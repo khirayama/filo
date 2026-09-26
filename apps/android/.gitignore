@@ -6,6 +6,7 @@ local.properties
 *.jks
 .DS_Store
 *.log
+android_*.png
 app/google-services.json
 app/src/debug/google-services.json
 app/src/release/google-services.json

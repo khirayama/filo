@@ -144,8 +144,6 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.google.material)
     implementation(libs.mlkit.translate)
-    implementation(libs.coil.compose)
-    implementation(libs.coil.network.okhttp)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.analytics)
 

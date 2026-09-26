@@ -1,96 +1,94 @@
 package com.filo.app
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PermanentDrawerSheet
-import androidx.compose.material3.PermanentNavigationDrawer
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.Typography
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import androidx.compose.animation.animateContentSize
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.core.view.WindowCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.NavType
 import androidx.navigation.navArgument
-import kotlinx.coroutines.launch
-import com.filo.app.ui.FiloIcon
-import com.filo.app.ui.FiloIconName
+import com.filo.app.ui.ButtonKind
+import com.filo.app.ui.Filo
+import com.filo.app.ui.FiloBrand
+import com.filo.app.ui.FiloButton
+import com.filo.app.ui.FiloDrawer
+import com.filo.app.ui.FiloSpinnerMark
+import com.filo.app.ui.FiloTextField
+import com.filo.app.ui.FiloTheme
+import com.filo.app.ui.SidebarNav
 import com.filo.app.ui.tr
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var sharedUrl by mutableStateOf<String?>(null)
@@ -109,7 +107,7 @@ class MainActivity : ComponentActivity() {
             FiloTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
+                    color = Filo.colors.bg,
                 ) {
                     AuthRoot(sharedUrl = sharedUrl, onSharedUrlConsumed = { sharedUrl = null })
                 }
@@ -131,34 +129,6 @@ class MainActivity : ComponentActivity() {
         }?.trim() ?: return null
         return Regex("https?://\\S+", RegexOption.IGNORE_CASE).find(candidate)?.value?.trimEnd('.', ',', ')', ']', '"')
     }
-}
-
-internal object WirePalette {
-    // Keep the native palette in lockstep with apps/web/src/global.css.
-    val Background = Color(0xFFFFFFFF)
-    val Surface = Color(0xFFFFFFFF)
-    val Text = Color(0xFF222222)
-    val Border = Color(0xFFD7D7D7)
-    val MutedBorder = Color(0xFFE0E0E0)
-    val Muted = Color(0xFF777777)
-    val Accent = Color(0xFF1A56DB)
-    val OnAccent = Color(0xFFFFFFFF)
-    val Danger = Color(0xFFB3261E)
-    val DangerBackground = Color(0xFFFFEBE9)
-    val Star = Color(0xFFE8A100)
-    val Ok = Color(0xFF2F6A3D)
-    val Warn = Color(0xFF9A6700)
-    val DarkBackground = Color(0xFF16181C)
-    val DarkSurface = Color(0xFF1E2126)
-    val DarkText = Color(0xFFE4E4E4)
-    val DarkBorder = Color(0xFF464A52)
-    val DarkMutedBorder = Color(0xFF33373E)
-    val DarkMuted = Color(0xFF9AA0A8)
-    val DarkAccent = Color(0xFF6A9BFF)
-    val DarkOnAccent = Color(0xFF10233F)
-    val DarkDanger = Color(0xFFEF7B74)
-    val DarkOk = Color(0xFF7BCB8A)
-    val DarkWarn = Color(0xFFF2C46D)
 }
 
 @Composable
@@ -235,87 +205,6 @@ object ThemePreference {
         context.getSharedPreferences("filo_theme", Context.MODE_PRIVATE)
 }
 
-@Composable
-private fun FiloTheme(content: @Composable () -> Unit) {
-    val darkTheme = when (ThemePreference.value) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
-    }
-    MaterialTheme(
-        colorScheme =
-            if (darkTheme) {
-                darkColorScheme(
-                    primary = WirePalette.DarkAccent,
-                    onPrimary = WirePalette.DarkOnAccent,
-                    tertiary = WirePalette.DarkOk,
-                    onTertiary = WirePalette.DarkBackground,
-                    secondary = WirePalette.DarkText,
-                    onSecondary = WirePalette.DarkBackground,
-                    background = WirePalette.DarkBackground,
-                    onBackground = WirePalette.DarkText,
-                    surface = WirePalette.DarkSurface,
-                    onSurface = WirePalette.DarkText,
-                    surfaceVariant = WirePalette.DarkSurface,
-                    onSurfaceVariant = WirePalette.DarkMuted,
-                    outline = WirePalette.DarkBorder,
-                    outlineVariant = WirePalette.DarkMutedBorder,
-                    error = WirePalette.DarkDanger,
-                    onError = WirePalette.DarkBackground,
-                    errorContainer = Color(0xFF3A1F1E),
-                    onErrorContainer = WirePalette.DarkDanger,
-                    secondaryContainer = Color(0xFF33373E),
-                    onSecondaryContainer = WirePalette.DarkText,
-                )
-            } else {
-                lightColorScheme(
-                    primary = WirePalette.Accent,
-                    onPrimary = WirePalette.OnAccent,
-                    tertiary = WirePalette.Ok,
-                    onTertiary = WirePalette.Background,
-                    secondary = WirePalette.Text,
-                    onSecondary = WirePalette.Background,
-                    background = WirePalette.Background,
-                    surface = WirePalette.Surface,
-                    onBackground = WirePalette.Text,
-                    onSurface = WirePalette.Text,
-                    surfaceVariant = Color(0xFFF6F6F6),
-                    onSurfaceVariant = WirePalette.Muted,
-                    outline = WirePalette.Border,
-                    outlineVariant = WirePalette.MutedBorder,
-                    error = WirePalette.Danger,
-                    onError = WirePalette.Background,
-                    errorContainer = WirePalette.DangerBackground,
-                    onErrorContainer = WirePalette.Danger,
-                    secondaryContainer = Color(0xFFF0F0F0),
-                    onSecondaryContainer = WirePalette.Text,
-                )
-            },
-        typography = Typography(
-            bodyLarge = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-            bodyMedium = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-            bodySmall = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
-            labelLarge = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-            labelMedium = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
-            labelSmall = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
-            titleLarge = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, lineHeight = 24.sp),
-            titleMedium = androidx.compose.ui.text.TextStyle(fontSize = 18.sp, lineHeight = 22.sp),
-        ),
-        content = content,
-    )
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            (view.context as? ComponentActivity)?.window?.let { window ->
-                WindowCompat.getInsetsController(window, view).apply {
-                    isAppearanceLightStatusBars = !darkTheme
-                    isAppearanceLightNavigationBars = !darkTheme
-                }
-            }
-        }
-    }
-}
-
 @Preview(showBackground = true)
 @Composable
 private fun AuthScreenPreview() {
@@ -337,6 +226,9 @@ private fun AuthScreenPreview() {
     }
 }
 
+// Mirrors the web's narrow auth layout (global.css `.auth-*`, ≤760px): brand
+// at the top, then a vertically centred form with labels above the fields.
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AuthScreen(
     uiState: AuthUiState,
@@ -352,81 +244,56 @@ private fun AuthScreen(
     onResetPassword: () -> Unit,
     onBackToSignIn: () -> Unit,
 ) {
-    Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.background,
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            MaterialTheme.colorScheme.background,
-                        ),
+    val colors = Filo.colors
+    val submit = when (uiState.mode) {
+        AuthMode.SignIn -> onSignIn
+        AuthMode.SignUp -> onSignUp
+        AuthMode.ResetPasswordRequest -> onSendResetCode
+        AuthMode.ResetPasswordVerify -> onVerifyResetCode
+        AuthMode.ResetPasswordNewPassword -> onResetPassword
+    }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.bg)
+            .drawBehind {
+                drawRect(
+                    Brush.radialGradient(
+                        listOf(colors.accent.copy(alpha = 0.18f), Color.Transparent),
+                        center = Offset(size.width * 0.1f, size.height * 0.12f),
+                        radius = size.maxDimension * 0.4f,
                     ),
                 )
-                .safeDrawingPadding()
-                .imePadding(),
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 96.dp, y = (-64).dp)
-                .size(250.dp)
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
-                            Color.Transparent,
-                        ),
+                drawRect(
+                    Brush.radialGradient(
+                        listOf(Color(0xFFFF4DB8).copy(alpha = 0.14f), Color.Transparent),
+                        center = Offset(size.width * 0.9f, size.height * 0.88f),
+                        radius = size.maxDimension * 0.38f,
                     ),
-                    CircleShape,
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .offset(x = (-110).dp, y = 74.dp)
-                .size(220.dp)
-                .background(Color(0xFFFF4DB8).copy(alpha = 0.10f), CircleShape),
-        )
-
+                )
+            }
+            .safeDrawingPadding()
+            .imePadding(),
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .heightIn(min = maxHeight)
+                .padding(horizontal = 22.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            AuthBrandMark()
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "Filo",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = tr("リーディングリスト"),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            FiloBrand(size = 40.dp, nameStyle = TextStyle(fontSize = 16.sp))
+            Column(
                 modifier = Modifier
+                    .padding(vertical = 42.dp)
+                    .widthIn(max = 420.dp)
                     .fillMaxWidth()
-                    .widthIn(max = 520.dp)
-                    .animateContentSize(),
-                shape = RoundedCornerShape(28.dp),
-                shadowElevation = 18.dp,
-                tonalElevation = 2.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
+                    .align(Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                Text(
-                    text =
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
                         when (uiState.mode) {
                             AuthMode.SignIn -> tr("サインイン")
                             AuthMode.SignUp -> tr("アカウント作成")
@@ -434,144 +301,233 @@ private fun AuthScreen(
                             AuthMode.ResetPasswordVerify -> tr("リセットコードを入力")
                             AuthMode.ResetPasswordNewPassword -> tr("新しいパスワードを設定")
                         },
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text =
+                        fontSize = 36.sp,
+                        lineHeight = 38.sp,
+                        letterSpacing = (-0.045).em,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.text,
+                    )
+                    Text(
                         when (uiState.mode) {
-                            AuthMode.SignIn -> tr("メールアドレスとパスワードでサインインします。")
-                            AuthMode.SignUp -> tr("メールアドレスとパスワードでアカウントを作成します。")
+                            AuthMode.SignIn, AuthMode.SignUp -> tr("URLをリーディングリストに保存します。")
                             AuthMode.ResetPasswordRequest -> tr("登録済みのメールアドレスにリセット用のリンクを送信します。")
                             AuthMode.ResetPasswordVerify -> tr("メールに記載されたリセットコードを入力してください。")
                             AuthMode.ResetPasswordNewPassword -> tr("新しいパスワードを入力してください。")
                         },
-                    style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 16.sp,
+                        lineHeight = 26.sp,
+                        color = colors.muted,
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    when (uiState.mode) {
+                        AuthMode.SignIn, AuthMode.SignUp -> {
+                            EmailField(uiState.email, onEmailChanged)
+                            PasswordField(
+                                label = tr("パスワード"),
+                                value = uiState.password,
+                                onValueChange = onPasswordChanged,
+                                hint = tr("8文字以上のパスワード"),
+                                isNew = uiState.mode == AuthMode.SignUp,
+                                onDone = submit,
+                            )
+                        }
+                        AuthMode.ResetPasswordRequest -> EmailField(uiState.email, onEmailChanged, onDone = submit)
+                        AuthMode.ResetPasswordVerify -> {
+                            EmailField(uiState.email, onEmailChanged, enabled = false)
+                            AuthField(tr("リセットコード")) {
+                                AuthInput(
+                                    value = uiState.code,
+                                    onValueChange = onCodeChanged,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                                )
+                            }
+                        }
+                        AuthMode.ResetPasswordNewPassword -> {
+                            PasswordField(tr("新しいパスワード"), uiState.password, onPasswordChanged, isNew = true)
+                            PasswordField(
+                                tr("新しいパスワード（確認）"),
+                                uiState.confirmPassword,
+                                onConfirmPasswordChanged,
+                                isNew = true,
+                                onDone = submit,
+                            )
+                        }
+                    }
+                }
+
+                uiState.errorMessage?.let { AuthNotice(tr(it), error = true) }
+                uiState.statusMessage?.let { AuthNotice(tr(it), error = false) }
+
+                AuthPrimaryButton(
+                    text = when (uiState.mode) {
+                        AuthMode.SignIn -> tr("サインイン")
+                        AuthMode.SignUp -> tr("アカウント作成")
+                        AuthMode.ResetPasswordRequest -> tr("リセットメールを送信")
+                        AuthMode.ResetPasswordVerify -> tr("コードを確認")
+                        AuthMode.ResetPasswordNewPassword -> tr("パスワードを変更")
+                    },
+                    isLoading = uiState.isSubmitting,
+                    onClick = submit,
                 )
 
-                if (uiState.mode == AuthMode.SignIn || uiState.mode == AuthMode.SignUp) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AuthFeatureChip(tr("リーディングリスト"))
-                        AuthFeatureChip(tr("読み上げ"))
-                        AuthFeatureChip(tr("翻訳"))
-                    }
-                }
-
-                when (uiState.mode) {
-                    AuthMode.SignIn -> {
-                        EmailField(uiState.email, onEmailChanged)
-                        PasswordField(tr("パスワード"), uiState.password, onPasswordChanged)
-                        SubmitButton(
-                            text = tr("サインイン"),
-                            isLoading = uiState.isSubmitting,
-                            onClick = onSignIn,
-                        )
-                        TextButton(onClick = { onModeChanged(AuthMode.ResetPasswordRequest) }) {
-                            Text(tr("パスワードをお忘れですか？"))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    when (uiState.mode) {
+                        AuthMode.SignIn -> {
+                            AuthLink(tr("パスワードをお忘れですか？")) { onModeChanged(AuthMode.ResetPasswordRequest) }
+                            AuthLink(tr("アカウントを作成")) { onModeChanged(AuthMode.SignUp) }
                         }
-                        TextButton(onClick = { onModeChanged(AuthMode.SignUp) }) {
-                            Text(tr("アカウントを作成"))
-                        }
+                        AuthMode.SignUp -> AuthLink(tr("サインインへ戻る")) { onModeChanged(AuthMode.SignIn) }
+                        AuthMode.ResetPasswordRequest, AuthMode.ResetPasswordVerify -> AuthLink(tr("サインインへ戻る"), onBackToSignIn)
+                        AuthMode.ResetPasswordNewPassword -> Unit
                     }
-
-                    AuthMode.SignUp -> {
-                        EmailField(uiState.email, onEmailChanged)
-                        PasswordField(tr("パスワード"), uiState.password, onPasswordChanged)
-                        SubmitButton(
-                            text = tr("アカウント作成"),
-                            isLoading = uiState.isSubmitting,
-                            onClick = onSignUp,
-                        )
-                        TextButton(onClick = { onModeChanged(AuthMode.SignIn) }) {
-                            Text(tr("サインインへ戻る"))
-                        }
-                    }
-
-                    AuthMode.ResetPasswordRequest -> {
-                        EmailField(uiState.email, onEmailChanged)
-                        SubmitButton(
-                            text = tr("リセットメールを送信"),
-                            isLoading = uiState.isSubmitting,
-                            onClick = onSendResetCode,
-                        )
-                        OutlinedButton(onClick = onBackToSignIn) {
-                            Text(tr("サインインへ戻る"))
-                        }
-                    }
-
-                    AuthMode.ResetPasswordVerify -> {
-                        EmailField(uiState.email, onEmailChanged, enabled = false)
-                        CodeField(uiState.code, onCodeChanged)
-                        SubmitButton(
-                            text = tr("コードを確認"),
-                            isLoading = uiState.isSubmitting,
-                            onClick = onVerifyResetCode,
-                        )
-                        OutlinedButton(onClick = onBackToSignIn) {
-                            Text(tr("サインインへ戻る"))
-                        }
-                    }
-
-                    AuthMode.ResetPasswordNewPassword -> {
-                        PasswordField(tr("新しいパスワード"), uiState.password, onPasswordChanged)
-                        PasswordField(tr("新しいパスワード（確認）"), uiState.confirmPassword, onConfirmPasswordChanged)
-                        SubmitButton(
-                            text = tr("パスワードを変更"),
-                            isLoading = uiState.isSubmitting,
-                            onClick = onResetPassword,
-                        )
-                    }
-                }
-
-                uiState.statusMessage?.let {
-                    Text(text = tr(it), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodyMedium)
-                }
-                uiState.errorMessage?.let {
-                    Text(text = tr(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-        }
+            Spacer(Modifier)
         }
     }
 }
 
 @Composable
-private fun AuthBrandMark() {
-    Box(
-        modifier = Modifier
-            .size(72.dp)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(Color(0xFF4FC3FF), Color(0xFF7C5CFF), Color(0xFFFF4DB8)),
-                ),
-                RoundedCornerShape(22.dp),
+private fun AuthField(label: String, hint: String? = null, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Filo.colors.text)
+        content()
+        if (hint != null) Text(hint, fontSize = 12.sp, color = Filo.colors.muted)
+    }
+}
+
+@Composable
+private fun AuthInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    password: Boolean = false,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+) {
+    val colors = Filo.colors
+    FiloTextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
+        visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        height = 52.dp,
+        shape = RoundedCornerShape(14.dp),
+        background = colors.bg.copy(alpha = 0.72f).compositeOver(colors.surface),
+        textSize = 16,
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun EmailField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean = true,
+    onDone: (() -> Unit)? = null,
+) {
+    AuthField(tr("メールアドレス")) {
+        AuthInput(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+                keyboardType = KeyboardType.Email,
+                imeAction = if (onDone != null) ImeAction.Done else ImeAction.Next,
             ),
-        contentAlignment = Alignment.Center,
-    ) {
-        FiloIcon(
-            name = FiloIconName.Bookmark,
-            size = 32.dp,
-            tint = Color.White,
-            filled = true,
+            keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }),
+            modifier = Modifier.semantics { contentType = ContentType.EmailAddress },
         )
     }
 }
 
 @Composable
-private fun AuthFeatureChip(label: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-        contentColor = MaterialTheme.colorScheme.primary,
-        shape = RoundedCornerShape(999.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
-    ) {
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
+private fun PasswordField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    hint: String? = null,
+    isNew: Boolean = false,
+    onDone: (() -> Unit)? = null,
+) {
+    AuthField(label, hint) {
+        AuthInput(
+            value = value,
+            onValueChange = onValueChange,
+            password = true,
+            keyboardOptions = KeyboardOptions(
+                autoCorrectEnabled = false,
+                keyboardType = KeyboardType.Password,
+                imeAction = if (onDone != null) ImeAction.Done else ImeAction.Next,
+            ),
+            keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }),
+            modifier = Modifier.semantics {
+                contentType = if (isNew) ContentType.NewPassword else ContentType.Password
+            },
         )
     }
+}
+
+@Composable
+private fun AuthNotice(message: String, error: Boolean) {
+    val colors = Filo.colors
+    Text(
+        message,
+        fontSize = 13.sp,
+        lineHeight = 20.sp,
+        color = if (error) colors.danger else colors.ok,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (error) colors.dangerBg else colors.okBg, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    )
+}
+
+@Composable
+private fun AuthPrimaryButton(text: String, isLoading: Boolean, onClick: () -> Unit) {
+    val colors = Filo.colors
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 54.dp)
+            .shadow(12.dp, shape, ambientColor = colors.accent, spotColor = colors.accent)
+            .clip(shape)
+            .background(Brush.linearGradient(listOf(colors.accent, Color(0xFF7658E8))))
+            .clickable(enabled = !isLoading, onClick = onClick)
+            .padding(start = 19.dp, end = 17.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(if (isLoading) tr("処理中…") else text, color = colors.onAccent, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+        if (isLoading) FiloSpinnerMark() else Text("↗", color = colors.onAccent, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+    }
+}
+
+@Composable
+private fun AuthLink(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = Filo.colors.accent,
+        modifier = Modifier
+            .clip(RoundedCornerShape(Filo.RadiusSm))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+    )
 }
 
 @Composable
@@ -589,16 +545,7 @@ private fun RssNavigation(
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     val isReadingBrowser = currentRoute?.startsWith("reading") == true
-    val hideGlobalNavigation = isReadingBrowser || currentRoute in setOf(
-        "subscriptions",
-        "tags",
-        "status",
-        "drawer",
-        "addFeed",
-        "addArticle",
-        "subscription/{id}",
-        "accountDeletion?token={token}",
-    )
+    var drawerOpen by remember { mutableStateOf(false) }
 
     fun navigateSingleTop(route: String) {
         navController.navigate(route) {
@@ -606,15 +553,12 @@ private fun RssNavigation(
         }
     }
 
-    fun navigateFromDrawer(route: String) {
+    // Sidebar destinations are siblings of the articles view: they replace
+    // whatever is stacked above it instead of piling up (iOS `navigate`).
+    fun navigateFromSidebar(route: String) {
         navController.navigate(route) {
+            popUpTo("articles")
             launchSingleTop = true
-        }
-    }
-
-    fun openDrawer() {
-        if (currentRoute != "drawer") {
-            navigateSingleTop("drawer")
         }
     }
 
@@ -649,378 +593,262 @@ private fun RssNavigation(
     ) {
         BoxWithConstraints(modifier = Modifier.weight(1f)) {
             val isDesktop = maxWidth >= 1024.dp
-            val drawerActiveBackStackEntry =
-                if (currentRoute == "drawer") navController.previousBackStackEntry else currentBackStackEntry
-            val drawerContent: @Composable () -> Unit = {
-                com.filo.app.ui.RssSourcesDrawerContent(
+            // Top-level screens open the drawer from their header on phones;
+            // on wide screens the sidebar is always visible.
+            val openMenu: (() -> Unit)? = if (isDesktop) null else ({ drawerOpen = true })
+            val sidebar: @Composable (onClose: (() -> Unit)?) -> Unit = { onClose ->
+                fun go(action: () -> Unit) {
+                    drawerOpen = false
+                    action()
+                }
+                SidebarNav(
                     tags = articlesModel.tags,
                     subscriptions = articlesModel.subscriptions,
                     unreadCounts = articlesModel.unreadCounts,
                     selectedTagId = articlesModel.selectedTagId,
                     readingListOnly = articlesModel.readingListOnly,
                     bookmarkedOnly = articlesModel.bookmarkedOnly,
-                    activeRoute = drawerActiveBackStackEntry?.destination?.route,
-                    activeSubscriptionId = drawerActiveBackStackEntry?.arguments?.getString("id")?.toIntOrNull(),
-                    showCloseButton = !isDesktop,
-                    onCloseDrawer = { navController.navigateUp() },
+                    activeRoute = currentRoute,
+                    activeSubscriptionId = currentBackStackEntry?.arguments?.getString("id")?.toIntOrNull(),
+                    onClose = onClose,
                     onSelectView = { tagId, readingList, bookmarked ->
-                        articlesModel.selectedTagId = tagId
-                        articlesModel.readingListOnly = readingList
-                        articlesModel.bookmarkedOnly = bookmarked
-                        navController.popBackStack("articles", false)
+                        go {
+                            articlesModel.selectedTagId = tagId
+                            articlesModel.readingListOnly = readingList
+                            articlesModel.bookmarkedOnly = bookmarked
+                            navController.popBackStack("articles", false)
+                        }
                     },
-                    onOpenSubscription = {
-                        navigateFromDrawer("subscription/$it")
-                    },
-                    onOpenAddFeed = {
-                        navigateFromDrawer("addFeed")
-                    },
-                    onOpenAddArticle = {
-                        navigateFromDrawer("addArticle")
-                    },
-                    onOpenSubscriptions = {
-                        navigateFromDrawer("subscriptions")
-                    },
-                    onOpenTags = {
-                        navigateFromDrawer("tags")
-                    },
-                    onOpenStatus = {
-                        navigateFromDrawer("status")
-                    },
-                    onOpenSettings = {
-                        navigateFromDrawer("settings")
-                    },
+                    onOpenSubscription = { go { navigateFromSidebar("subscription/$it") } },
+                    onOpenAddFeed = { go { navigateSingleTop("addFeed") } },
+                    onOpenAddArticle = { go { navigateSingleTop("addArticle") } },
+                    onOpenSubscriptions = { go { navigateFromSidebar("subscriptions") } },
+                    onOpenTags = { go { navigateFromSidebar("tags") } },
+                    onOpenStatus = { go { navigateFromSidebar("status") } },
+                    onOpenSettings = { go { navigateFromSidebar("settings") } },
                 )
             }
             val navContent: @Composable () -> Unit = {
                 NavHost(
-            navController = navController,
-            startDestination = "articles",
-            modifier = Modifier.fillMaxSize(),
-            enterTransition = {
-                if (targetState.destination.route == "drawer") {
-                    slideInHorizontally(
-                        initialOffsetX = { -it },
-                        animationSpec = tween(280),
-                    )
-                } else {
-                    slideInHorizontally(
-                        initialOffsetX = { it },
-                        animationSpec = tween(280),
-                    )
-                }
-            },
-            exitTransition = {
-                if (targetState.destination.route == "drawer") {
-                    ExitTransition.None
-                } else {
-                    slideOutHorizontally(
-                        targetOffsetX = { -it / 3 },
-                        animationSpec = tween(280),
-                    )
-                }
-            },
-            popEnterTransition = {
-                if (initialState.destination.route == "drawer" ||
-                    targetState.destination.route == "drawer"
+                    navController = navController,
+                    startDestination = "articles",
+                    modifier = Modifier.fillMaxSize(),
+                    enterTransition = { slideInHorizontally(tween(280)) { it } },
+                    exitTransition = { slideOutHorizontally(tween(280)) { -it / 3 } },
+                    popEnterTransition = { slideInHorizontally(tween(280)) { -it / 3 } },
+                    popExitTransition = { slideOutHorizontally(tween(280)) { it } },
                 ) {
-                    EnterTransition.None
-                } else {
-                    slideInHorizontally(
-                        initialOffsetX = { -it / 3 },
-                        animationSpec = tween(280),
-                    )
-                }
-            },
-            popExitTransition = {
-                if (initialState.destination.route == "drawer") {
-                    slideOutHorizontally(
-                        targetOffsetX = { -it },
-                        animationSpec = tween(280),
-                    )
-                } else {
-                    slideOutHorizontally(
-                        targetOffsetX = { it },
-                        animationSpec = tween(280),
-                    )
-                }
-            },
-        ) {
-        composable("articles") { entry ->
-            val selectedTagId by entry.savedStateHandle
-                .getStateFlow<Int?>("selectedTagId", null)
-                .collectAsState()
-            val initialReadingList by entry.savedStateHandle
-                .getStateFlow("readingList", false)
-                .collectAsState()
-            com.filo.app.ui.ArticlesScreen(
-                translations = titleTranslations,
-                model = articlesModel,
-                showDesktopSidebar = false,
-                showMobileDrawer = false,
-                showMobileMenu = true,
-                onCloseMobileDrawer = { navController.navigateUp() },
-                onOpenMobileDrawer = { openDrawer() },
-                initialSelectedTagId = selectedTagId,
-                onInitialSelectedTagConsumed = {
-                    entry.savedStateHandle.remove<Int>("selectedTagId")
-                },
-                initialReadingList = initialReadingList,
-                onInitialReadingListConsumed = {
-                    entry.savedStateHandle.remove<Boolean>("readingList")
-                },
-                onOpenSubscription = { navigateSingleTop("subscription/$it") },
-                onOpenSubscriptions = { navigateSingleTop("subscriptions") },
-                onOpenAddFeed = {
-                    navigateSingleTop("addFeed")
-                },
-                onOpenAddArticle = {
-                    navigateSingleTop("addArticle")
-                },
-                onStartReading = { autoplay ->
-                    navigateSingleTop("reading/$autoplay")
-                },
-                onOpenArticle = { article ->
-                    Analytics.track("select_item", mapOf("article_id" to article.id))
-                    article.canonicalUrl?.let { url ->
-                        navController.navigate(
-                            "reading-article/${article.id}?url=${Uri.encode(url)}" +
-                                "&title=${Uri.encode(article.title)}" +
-                                "&language=${Uri.encode(article.sourceLanguage ?: "")}",
-                        ) { launchSingleTop = true }
+                    screen("articles") { entry ->
+                        val selectedTagId by entry.savedStateHandle
+                            .getStateFlow<Int?>("selectedTagId", null)
+                            .collectAsState()
+                        val initialReadingList by entry.savedStateHandle
+                            .getStateFlow("readingList", false)
+                            .collectAsState()
+                        com.filo.app.ui.ArticlesScreen(
+                            translations = titleTranslations,
+                            model = articlesModel,
+                            onOpenMenu = openMenu,
+                            initialSelectedTagId = selectedTagId,
+                            onInitialSelectedTagConsumed = {
+                                entry.savedStateHandle.remove<Int>("selectedTagId")
+                            },
+                            initialReadingList = initialReadingList,
+                            onInitialReadingListConsumed = {
+                                entry.savedStateHandle.remove<Boolean>("readingList")
+                            },
+                            onOpenSubscription = { navigateSingleTop("subscription/$it") },
+                            onOpenAddFeed = { navigateSingleTop("addFeed") },
+                            onStartReading = { autoplay -> navigateSingleTop("reading/$autoplay") },
+                            onOpenArticle = { article ->
+                                Analytics.track("select_item", mapOf("article_id" to article.id))
+                                article.canonicalUrl?.let { url ->
+                                    navController.navigate(
+                                        "reading-article/${article.id}?url=${Uri.encode(url)}" +
+                                            "&title=${Uri.encode(article.title)}" +
+                                            "&language=${Uri.encode(article.sourceLanguage ?: "")}",
+                                    ) { launchSingleTop = true }
+                                }
+                            },
+                        )
                     }
-                },
-                onOpenTags = { navigateSingleTop("tags") },
-                onOpenStatus = { navigateSingleTop("status") },
-                onOpenSettings = { navigateSingleTop("settings") },
-            )
-        }
-        composable("drawer") {
-            Surface(modifier = Modifier.fillMaxSize()) {
-                drawerContent()
-            }
-        }
-        composable("reading/{autoplay}") { entry ->
-            com.filo.app.ui.ReadingSessionScreen(
-                player = readingPlayer,
-                autoplay = entry.arguments?.getString("autoplay").toBoolean(),
-                onBack = { navController.navigateUp() },
-            )
-        }
-        composable(
-            "reading-page?url={url}",
-            arguments = listOf(navArgument("url") { type = NavType.StringType }),
-        ) { entry ->
-            com.filo.app.ui.ReadingSessionScreen(
-                player = readingPlayer,
-                autoplay = false,
-                temporaryUrl = entry.arguments?.getString("url"),
-                onBack = { navController.navigateUp() },
-            )
-        }
-        composable(
-            "reading-article/{articleId}?url={url}&title={title}&language={language}",
-            arguments = listOf(
-                navArgument("articleId") { type = NavType.IntType },
-                navArgument("url") { type = NavType.StringType },
-                navArgument("title") { type = NavType.StringType },
-                navArgument("language") { type = NavType.StringType },
-            ),
-        ) { entry ->
-            val article = com.filo.app.api.ReadingSessionArticle(
-                id = entry.arguments?.getInt("articleId") ?: 0,
-                title = entry.arguments?.getString("title").orEmpty(),
-                sourceLanguage = entry.arguments?.getString("language")?.takeIf { it.isNotBlank() },
-                canonicalUrl = entry.arguments?.getString("url"),
-                feedTitle = com.filo.app.ui.AppStrings.get("記事"),
-            )
-            com.filo.app.ui.ReadingSessionScreen(
-                player = readingPlayer,
-                autoplay = false,
-                directArticle = article,
-                onBack = { navController.navigateUp() },
-            )
-        }
-        composable("subscriptions") {
-            com.filo.app.ui.SubscriptionsScreen(
-                onBack = { navController.navigateUp() },
-                onOpenSubscription = { navigateSingleTop("subscription/$it") },
-                onOpenAddFeed = { navigateSingleTop("addFeed") },
-                onOpenTags = { navigateSingleTop("tags") },
-                onSelectTag = { tagId ->
-                    navController.getBackStackEntry("articles")
-                        .savedStateHandle["selectedTagId"] = tagId
-                    navController.popBackStack("articles", false)
-                },
-            )
-        }
-        composable("addFeed") {
-            com.filo.app.ui.AddFeedScreen(
-                onBack = { navController.navigateUp() },
-                onOpenArticles = { navController.popBackStack("articles", false) },
-                onCreated = { articlesModel.reload() },
-            )
-        }
-        composable("addArticle") {
-            com.filo.app.ui.AddArticleScreen(
-                initialUrl = sharedUrl.orEmpty(),
-                onBack = {
-                    onSharedUrlConsumed()
-                    navController.navigateUp()
-                },
-                onSaved = {
-                    onSharedUrlConsumed()
-                    scope.launch { articlesModel.reload() }
-                    navController.getBackStackEntry("articles")
-                        .savedStateHandle["readingList"] = true
-                    navController.popBackStack("articles", false)
-                },
-            )
-        }
-        composable("tags") { com.filo.app.ui.TagsScreen(onBack = { navController.navigateUp() }) }
-        composable("status") {
-            com.filo.app.ui.StatusScreen(
-                onBack = { navController.navigateUp() },
-                onOpenSubscription = { navigateSingleTop("subscription/$it") },
-            )
-        }
-        composable("settings") {
-            com.filo.app.ui.SettingsScreen(
-                translations = titleTranslations,
-                onBack = { navController.navigateUp() },
-                onSignOut = onSignOut,
-                onDeletionAccepted = { token ->
-                    navigateSingleTop("accountDeletion?token=${Uri.encode(token)}")
-                },
-            )
-        }
-        composable("subscription/{id}") { entry ->
-            val id = entry.arguments?.getString("id")?.toIntOrNull() ?: return@composable
-            com.filo.app.ui.SubscriptionDetailScreen(
-                translations = titleTranslations,
-                subscriptionId = id,
-                onBack = { navController.navigateUp() },
-                onOpenArticle = { article ->
-                    article.canonicalUrl?.let { url ->
-                        navController.navigate(
-                            "reading-article/${article.id}?url=${Uri.encode(url)}" +
-                                "&title=${Uri.encode(article.title)}" +
-                                "&language=${Uri.encode(article.sourceLanguage ?: "")}",
-                        ) { launchSingleTop = true }
+                    screen("reading/{autoplay}") { entry ->
+                        com.filo.app.ui.ReadingSessionScreen(
+                            player = readingPlayer,
+                            autoplay = entry.arguments?.getString("autoplay").toBoolean(),
+                            onBack = { navController.navigateUp() },
+                        )
                     }
-                },
-            )
-        }
-            composable("accountDeletion?token={token}") { entry ->
-                com.filo.app.ui.AccountDeletionScreen(
-                    deletionToken = entry.arguments?.getString("token"),
-                    onSignOut = onSignOut,
-                    onBackToSettings = { navController.navigateUp() },
-                )
-            }
-        }
+                    screen(
+                        "reading-page?url={url}",
+                        arguments = listOf(navArgument("url") { type = NavType.StringType }),
+                    ) { entry ->
+                        com.filo.app.ui.ReadingSessionScreen(
+                            player = readingPlayer,
+                            autoplay = false,
+                            temporaryUrl = entry.arguments?.getString("url"),
+                            onBack = { navController.navigateUp() },
+                        )
+                    }
+                    screen(
+                        "reading-article/{articleId}?url={url}&title={title}&language={language}",
+                        arguments = listOf(
+                            navArgument("articleId") { type = NavType.IntType },
+                            navArgument("url") { type = NavType.StringType },
+                            navArgument("title") { type = NavType.StringType },
+                            navArgument("language") { type = NavType.StringType },
+                        ),
+                    ) { entry ->
+                        val article = com.filo.app.api.ReadingSessionArticle(
+                            id = entry.arguments?.getInt("articleId") ?: 0,
+                            title = entry.arguments?.getString("title").orEmpty(),
+                            sourceLanguage = entry.arguments?.getString("language")?.takeIf { it.isNotBlank() },
+                            canonicalUrl = entry.arguments?.getString("url"),
+                            feedTitle = com.filo.app.ui.AppStrings.get("記事"),
+                        )
+                        com.filo.app.ui.ReadingSessionScreen(
+                            player = readingPlayer,
+                            autoplay = false,
+                            directArticle = article,
+                            onBack = { navController.navigateUp() },
+                        )
+                    }
+                    screen("subscriptions") {
+                        com.filo.app.ui.SubscriptionsScreen(
+                            onOpenMenu = openMenu,
+                            onOpenSubscription = { navigateSingleTop("subscription/$it") },
+                            onOpenAddFeed = { navigateSingleTop("addFeed") },
+                            onOpenTags = { navigateSingleTop("tags") },
+                            onSelectTag = { tagId ->
+                                navController.getBackStackEntry("articles")
+                                    .savedStateHandle["selectedTagId"] = tagId
+                                navController.popBackStack("articles", false)
+                            },
+                        )
+                    }
+                    screen("addFeed") {
+                        com.filo.app.ui.AddFeedScreen(
+                            onBack = { navController.navigateUp() },
+                            onOpenArticles = { navController.popBackStack("articles", false) },
+                            onCreated = { articlesModel.reload() },
+                        )
+                    }
+                    screen("addArticle") {
+                        com.filo.app.ui.AddArticleScreen(
+                            initialUrl = sharedUrl.orEmpty(),
+                            onBack = {
+                                onSharedUrlConsumed()
+                                navController.navigateUp()
+                            },
+                            onSaved = {
+                                onSharedUrlConsumed()
+                                scope.launch { articlesModel.reload() }
+                                navController.getBackStackEntry("articles")
+                                    .savedStateHandle["readingList"] = true
+                                navController.popBackStack("articles", false)
+                            },
+                        )
+                    }
+                    screen("tags") { com.filo.app.ui.TagsScreen(onOpenMenu = openMenu) }
+                    screen("status") {
+                        com.filo.app.ui.StatusScreen(
+                            onOpenMenu = openMenu,
+                            onOpenSubscription = { navigateSingleTop("subscription/$it") },
+                        )
+                    }
+                    screen("settings") {
+                        com.filo.app.ui.SettingsScreen(
+                            translations = titleTranslations,
+                            onOpenMenu = openMenu,
+                            onSignOut = onSignOut,
+                            onDeletionAccepted = { token ->
+                                navigateSingleTop("accountDeletion?token=${Uri.encode(token)}")
+                            },
+                        )
+                    }
+                    screen("subscription/{id}") { entry ->
+                        val id = entry.arguments?.getString("id")?.toIntOrNull() ?: return@screen
+                        com.filo.app.ui.SubscriptionDetailScreen(
+                            translations = titleTranslations,
+                            subscriptionId = id,
+                            onBack = { navController.navigateUp() },
+                            onSelectTag = { tagId ->
+                                navController.getBackStackEntry("articles")
+                                    .savedStateHandle["selectedTagId"] = tagId
+                                navController.popBackStack("articles", false)
+                            },
+                            onOpenArticle = { article ->
+                                article.canonicalUrl?.let { url ->
+                                    navController.navigate(
+                                        "reading-article/${article.id}?url=${Uri.encode(url)}" +
+                                            "&title=${Uri.encode(article.title)}" +
+                                            "&language=${Uri.encode(article.sourceLanguage ?: "")}",
+                                    ) { launchSingleTop = true }
+                                }
+                            },
+                        )
+                    }
+                    screen("accountDeletion?token={token}") { entry ->
+                        com.filo.app.ui.AccountDeletionScreen(
+                            deletionToken = entry.arguments?.getString("token"),
+                            onSignOut = onSignOut,
+                            onBackToSettings = { navController.navigateUp() },
+                        )
+                    }
+                }
             }
             if (isDesktop) {
-                PermanentNavigationDrawer(
-                    drawerContent = {
-                        PermanentDrawerSheet(
-                            modifier = Modifier.width(280.dp),
-                            drawerShape = RectangleShape,
-                        ) { drawerContent() }
-                    },
-                ) { navContent() }
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    if (currentRoute != "articles" &&
-                        currentRoute != "settings" &&
-                        !hideGlobalNavigation
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(51.dp)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            IconButton(onClick = ::openDrawer) {
-                                FiloIcon(FiloIconName.Menu, contentDescription = tr("メニュー"))
+                val sidebarBorder = Filo.colors.mutedBorder
+                Row(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .width(280.dp)
+                            .fillMaxSize()
+                            .background(Filo.colors.sidebar)
+                            .drawBehind {
+                                drawRect(
+                                    sidebarBorder,
+                                    topLeft = Offset(size.width - 1.dp.toPx(), 0f),
+                                    size = size.copy(width = 1.dp.toPx()),
+                                )
                             }
-                            Text("Filo", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        }
-                        HorizontalDivider()
-                    }
-                    navContent()
+                            .padding(12.dp),
+                    ) { sidebar(null) }
+                    Box(Modifier.weight(1f)) { navContent() }
+                }
+            } else {
+                navContent()
+                FiloDrawer(open = drawerOpen && !isReadingBrowser, onClose = { drawerOpen = false }) {
+                    sidebar { drawerOpen = false }
                 }
             }
         }
         if (readingPlayer.isPlaying && !isReadingBrowser) {
             com.filo.app.ui.ReadingMiniPlayer(readingPlayer)
         }
-
     }
 }
 
-@Composable
-private fun EmailField(value: String, onValueChange: (String) -> Unit, enabled: Boolean = true) {
-    OutlinedTextField(
-        enabled = enabled,
-        label = { Text(tr("メールアドレス")) },
-        modifier = Modifier.fillMaxWidth(),
-        onValueChange = onValueChange,
-        singleLine = true,
-        shape = RoundedCornerShape(16.dp),
-        value = value,
-    )
+// Every destination paints the page background, so the slide transition never
+// shows the outgoing screen through the incoming one (iOS `FiloPage` does the same).
+private fun NavGraphBuilder.screen(
+    route: String,
+    arguments: List<NamedNavArgument> = emptyList(),
+    content: @Composable (NavBackStackEntry) -> Unit,
+) = composable(route, arguments) { entry ->
+    Box(Modifier.fillMaxSize().background(Filo.colors.bg)) { content(entry) }
 }
-@Composable
-private fun PasswordField(label: String, value: String, onValueChange: (String) -> Unit) {
-    OutlinedTextField(
-        label = { Text(label) },
-        modifier = Modifier.fillMaxWidth(),
-        onValueChange = onValueChange,
-        singleLine = true,
-        shape = RoundedCornerShape(16.dp),
-        value = value,
-        visualTransformation = PasswordVisualTransformation(),
-    )
-}
-@Composable
-private fun CodeField(value: String, onValueChange: (String) -> Unit) {
-    OutlinedTextField(
-        label = { Text(tr("リセットコード")) },
-        modifier = Modifier.fillMaxWidth(),
-        onValueChange = onValueChange,
-        singleLine = true,
-        shape = RoundedCornerShape(16.dp),
-        value = value,
-    )
-}
-@Composable
-private fun SubmitButton(text: String, isLoading: Boolean, onClick: () -> Unit) {
-    Button(
-        modifier = Modifier.fillMaxWidth(),
-        enabled = !isLoading,
-        onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-    ) {
-        if (isLoading) {
-            CircularProgressIndicator(color = Color.White, modifier = Modifier.height(18.dp))
-        } else {
-            Text(text)
-        }
-    }
-}
+
 @Composable
 private fun CenteredLoading() {
-    Column(
+    Box(
         modifier = Modifier.fillMaxSize().safeDrawingPadding(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+        contentAlignment = Alignment.Center,
     ) {
-        CircularProgressIndicator()
+        FiloSpinnerMark(size = 24.dp)
     }
 }
+
 @Composable
 private fun CenteredMessage(
     title: String,
@@ -1030,17 +858,13 @@ private fun CenteredMessage(
 ) {
     Column(
         modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(body, style = MaterialTheme.typography.bodyLarge)
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Filo.colors.text)
+        Text(body, fontSize = 14.sp, color = Filo.colors.muted)
         if (actionLabel != null && onAction != null) {
-            Spacer(modifier = Modifier.height(20.dp))
-            Button(onClick = onAction) {
-                Text(actionLabel)
-            }
+            FiloButton(actionLabel, onAction, kind = ButtonKind.Primary, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
