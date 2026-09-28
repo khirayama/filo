@@ -9,6 +9,18 @@ private struct ReadingTranslationRequest: Equatable {
     let token: Int
 }
 
+// What "read aloud" captures from the page: the page (displayed text, then
+// Readability, then the server's extraction) or the current selection.
+enum ReadingCaptureKind {
+    case page
+    case selection
+}
+
+struct ReadingCaptureRequest: Equatable {
+    let id: Int
+    let kind: ReadingCaptureKind
+}
+
 @MainActor
 final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     @Published var items: [ReadingSessionItem] = []
@@ -17,9 +29,10 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published var isLoading = false
     @Published var isPlaying = false
     @Published var isReadingBrowserVisible = false
-    @Published var extractedText: String?
-    @Published var extractedLanguage: String?
-    @Published var isExtracting = false
+    @Published private(set) var isPreparing = false
+    @Published private(set) var captureRequest: ReadingCaptureRequest?
+    @Published private(set) var isPageLoaded = false
+    @Published var hasSelection = false
     @Published var errorMessage: String?
     @Published var isAddingToReadingList = false
     @Published private(set) var removedReadingListArticleIds: Set<Int> = []
@@ -35,11 +48,13 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var startingAutoplay = false
     private var temporary = false
     private var translationToken = 0
+    private var nextCaptureId = 0
+    private var playbackGeneration = 0
     private var pendingOriginalText: String?
-    private var playWhenExtractionReady = false
+    private var speechLanguage: String?
     private var playbackArticleId: Int? = nil
     private var playbackArticleTitle: String? = nil
-    private var playbackTemporary = false
+    private var playbackKind = ReadingCaptureKind.page
 
     var currentItem: ReadingSessionItem? {
         guard index >= 0, index < items.count else { return nil }
@@ -91,7 +106,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                     sourceLanguage: nil,
                     canonicalUrl: temporaryUrl,
                     publishedAt: nil,
-                    feed: .init(id: 0, title: L10n.string("共有ページ"), faviconUrl: nil),
+                    feed: .init(id: 0, title: L10n.string("共有ページ")),
                 )
                 items = [ReadingSessionItem(articleId: 0, sortOrder: 0, article: article, createdAt: nil, isRead: false)]
                 index = 0
@@ -103,77 +118,91 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 index = items.firstIndex(where: { !$0.isRead }) ?? -1
                 if index < 0 { errorMessage = L10n.string("未読の記事がありません。") }
             }
-            resetExtractedContent()
+            resetPage()
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
         isLoading = false
     }
 
-    func receiveExtracted(text: String, language: String?) {
-        extractedText = clean(text)
-        extractedLanguage = language ?? currentItem?.article.sourceLanguage
-        isExtracting = false
-        let shouldPlay = startingAutoplay || playWhenExtractionReady
-        startingAutoplay = false
-        playWhenExtractionReady = false
-        if shouldPlay {
+    func pageLoaded() {
+        isPageLoaded = true
+        if startingAutoplay {
+            startingAutoplay = false
             play()
         }
     }
 
-    func extractionFailed() {
-        isExtracting = false
-        if temporary {
-            startingAutoplay = false
-            playWhenExtractionReady = false
-            errorMessage = L10n.string("本文を抽出できませんでした。")
+    func play() {
+        requestCapture(.page)
+    }
+
+    func playSelection() {
+        if hasSelection { requestCapture(.selection) }
+    }
+
+    private func requestCapture(_ kind: ReadingCaptureKind) {
+        guard currentItem != nil else { return }
+        pause()
+        errorMessage = nil
+        isPreparing = true
+        nextCaptureId += 1
+        captureRequest = ReadingCaptureRequest(id: nextCaptureId, kind: kind)
+    }
+
+    // The page's answer to a capture request. An empty page capture falls back
+    // to the server's extraction for reading-list articles.
+    func receiveCapture(_ request: ReadingCaptureRequest, text: String?, language: String?) {
+        guard captureRequest?.id == request.id else { return }
+        captureRequest = nil
+        let generation = playbackGeneration
+        if let text, !text.isEmpty {
+            speak(text, language: language, kind: request.kind)
             return
         }
-        guard let articleId = currentItem?.articleId else {
-            startingAutoplay = false
-            playWhenExtractionReady = false
+        guard request.kind == .page, !temporary, let articleId = currentItem?.articleId, articleId > 0 else {
+            isPreparing = false
+            errorMessage = L10n.string(request.kind == .selection ? "読み上げる文章がありません。" : "本文を抽出できませんでした。")
             return
         }
         Task {
-            _ = try? await APIClient.shared.requestArticleContent(articleId)
-            for _ in 0 ..< 12 {
-                try? await Task.sleep(for: .milliseconds(500))
-                guard let content = try? await APIClient.shared.getArticleContent(articleId) else { continue }
-                if content.status == "ready", let text = content.text {
-                    receiveExtracted(text: text, language: content.sourceLanguage)
-                    return
-                }
-                if content.status == "error" { break }
+            let content = await fetchServerText(articleId)
+            guard generation == playbackGeneration else { return }
+            if let content {
+                speak(content.text, language: content.language, kind: .page)
+            } else {
+                isPreparing = false
+                errorMessage = L10n.string("本文を抽出できませんでした。")
             }
-            startingAutoplay = false
-            playWhenExtractionReady = false
-            errorMessage = L10n.string("本文を抽出できませんでした。")
         }
     }
 
-    func play() {
-        guard let text = extractedText, !text.isEmpty else {
-            if isExtracting {
-                playWhenExtractionReady = true
-                return
+    private func fetchServerText(_ articleId: Int) async -> (text: String, language: String?)? {
+        _ = try? await APIClient.shared.requestArticleContent(articleId)
+        for _ in 0 ..< 12 {
+            if let content = try? await APIClient.shared.getArticleContent(articleId) {
+                if content.status == "ready", let text = content.text { return (text, content.sourceLanguage) }
+                if content.status == "error" { return nil }
             }
-            extractionFailed()
-            return
+            try? await Task.sleep(for: .milliseconds(500))
         }
-        let source = extractedLanguage ?? currentItem?.article.sourceLanguage
+        return nil
+    }
+
+    // Finishing the page of a reading-list article marks it read; a selection
+    // or a shared page does not.
+    private func speak(_ value: String, language: String?, kind: ReadingCaptureKind) {
+        let text = clean(value)
+        playbackArticleId = kind == .page && !temporary ? currentItem?.articleId : nil
+        playbackArticleTitle = currentItem?.article.title
+        playbackKind = kind
+        let source = language ?? currentItem?.article.sourceLanguage
         if let source, source.split(separator: "-").first != targetLanguage.split(separator: "-").first {
-            playbackArticleId = currentItem?.articleId
-            playbackArticleTitle = currentItem?.article.title
-            playbackTemporary = temporary
             pendingOriginalText = text
             translationToken += 1
             translationRequest = ReadingTranslationRequest(source: source, target: targetLanguage, token: translationToken)
             return
         }
-        playbackArticleId = currentItem?.articleId
-        playbackArticleTitle = currentItem?.article.title
-        playbackTemporary = temporary
         beginSpeaking(text, language: source)
     }
 
@@ -201,25 +230,23 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     private func beginSpeaking(_ text: String, language: String?) {
-        if synthesizer.isPaused {
-            synthesizer.continueSpeaking()
-            isPlaying = true
-            return
-        }
         synthesizer.stopSpeaking(at: .immediate)
-        extractedLanguage = language
+        speechLanguage = language
         chunks = Self.split(text)
         chunkIndex = 0
+        isPreparing = false
         isPlaying = true
         speakCurrentChunk()
     }
 
     func pause() {
+        playbackGeneration += 1
         translationToken += 1
         translationRequest = nil
         pendingOriginalText = nil
         startingAutoplay = false
-        playWhenExtractionReady = false
+        captureRequest = nil
+        isPreparing = false
         synthesizer.stopSpeaking(at: .immediate)
         isPlaying = false
     }
@@ -230,7 +257,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             markArticleRead(currentItem?.articleId)
             pause()
             index = nextIndex
-            resetExtractedContent()
+            resetPage()
             return
         }
         guard let nextIndex = readingListItems.firstIndex(where: { $0.articleId == articleId }) else { return }
@@ -238,7 +265,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         pause()
         items = readingListItems
         index = nextIndex
-        resetExtractedContent()
+        resetPage()
     }
 
     func selectNext() {
@@ -254,13 +281,25 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     func setRate(_ value: Float) {
         rate = min(3, max(0.75, value))
         UserDefaults.standard.set(rate, forKey: "filo:readingRate")
-        if isPlaying { play() }
+        restartIfPlaying()
     }
 
     func setVoice(_ identifier: String?) {
         voiceIdentifier = identifier
         UserDefaults.standard.set(identifier, forKey: "filo:readingVoice")
-        if isPlaying { play() }
+        restartIfPlaying()
+    }
+
+    func setLanguage(_ language: String) {
+        targetLanguage = language
+        voiceIdentifier = nil
+        UserDefaults.standard.removeObject(forKey: "filo:readingVoice")
+        restartIfPlaying()
+    }
+
+    // A settings change while speaking restarts with the new settings.
+    private func restartIfPlaying() {
+        if isPlaying { requestCapture(playbackKind) }
     }
 
     func addCurrentPageToReadingList() {
@@ -317,23 +356,18 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         return result
     }
 
-    private func resetExtractedContent() {
-        let preservePlayback = isPlaying
-        extractedText = nil
-        extractedLanguage = nil
-        isExtracting = currentItem?.article.canonicalUrl != nil
-        playWhenExtractionReady = false
-        if !preservePlayback {
-            chunks = []
-            chunkIndex = 0
-        }
+    private func resetPage() {
+        isPageLoaded = false
+        hasSelection = false
+        chunks = []
+        chunkIndex = 0
     }
 
     private func speakCurrentChunk() {
         guard chunkIndex < chunks.count else { return }
         let utterance = AVSpeechUtterance(string: chunks[chunkIndex])
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * rate
-        let language = extractedLanguage ?? currentItem?.article.sourceLanguage ?? targetLanguage
+        let language = speechLanguage ?? targetLanguage
         utterance.voice = voiceIdentifier.flatMap(AVSpeechSynthesisVoice.init(identifier:))
             ?? AVSpeechSynthesisVoice(language: language)
         synthesizer.speak(utterance)
@@ -347,9 +381,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             return
         }
         isPlaying = false
-        if !playbackTemporary {
-            markArticleRead(playbackArticleId)
-        }
+        markArticleRead(playbackArticleId)
     }
 
     private func markArticleRead(_ articleId: Int?) {
@@ -424,43 +456,36 @@ struct ReadingSessionScreen: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        FiloPage(player.currentItem?.article.title ?? L10n.string("リーディングリスト"), showsBack: true) {
             if player.isLoading {
-                ProgressView(L10n.string("読み込み中…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                FiloSpinner().frame(maxHeight: .infinity)
             } else if let item = player.currentItem, let url = item.article.canonicalUrl {
-                ReadingWebView(url: url) { text, language in
-                    player.receiveExtracted(text: text, language: language)
-                } onFailure: {
-                    player.extractionFailed()
-                }
+                ReadingWebView(
+                    url: url,
+                    captureRequest: player.captureRequest,
+                    onLoaded: player.pageLoaded,
+                    onCaptured: player.receiveCapture,
+                    onSelectionChanged: { player.hasSelection = $0 },
+                )
                 .id(item.articleId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                EmptyStateView { Text(player.errorMessage ?? L10n.string("未読の記事がありません。")) }
+                FiloEmptyState(icon: .playlist, message: player.errorMessage ?? "未読の記事がありません。")
             }
         }
-        .navigationTitle(player.currentItem?.article.title ?? L10n.string("リーディングリスト"))
-        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isReadingListPresented) {
-            NavigationStack {
-                ReadingListView(
-                    items: player.visibleReadingListItems,
-                    currentArticleId: player.currentItem?.articleId ?? -1,
-                    onSelect: { articleId in
-                        player.select(articleId: articleId)
-                        isReadingListPresented = false
-                    },
-                    onRemove: player.removeFromReadingList,
-                )
-                .navigationTitle("リーディングリスト")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("閉じる") { isReadingListPresented = false }
-                    }
-                }
-            }
+            ReadingListView(
+                items: player.visibleReadingListItems,
+                currentArticleId: player.currentItem?.articleId ?? -1,
+                onSelect: { articleId in
+                    player.select(articleId: articleId)
+                    isReadingListPresented = false
+                },
+                onRemove: player.removeFromReadingList,
+                onClose: { isReadingListPresented = false },
+            )
             .presentationDetents([.medium, .large])
+            .presentationBackground(FiloPalette.background)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ReadingSettingsPanel(player: player) {
@@ -475,7 +500,7 @@ struct ReadingSessionScreen: View {
         .modifier(ReadingTranslationTask(player: player))
         .background(
             VStack(spacing: 0) {
-                Button("", action: { if player.isPlaying { player.pause() } else { player.play() } }).keyboardShortcut(.space, modifiers: [])
+                Button("", action: { if player.isPlaying || player.isPreparing { player.pause() } else { player.play() } }).keyboardShortcut(.space, modifiers: [])
                 Button("", action: player.selectNext).keyboardShortcut("j", modifiers: [])
                 Button("", action: player.selectPrevious).keyboardShortcut("k", modifiers: [])
                 Button("", action: player.addCurrentPageToReadingList).keyboardShortcut("s", modifiers: [])
@@ -514,60 +539,89 @@ private struct ReadingTranslationTask: ViewModifier {
     }
 }
 
+// The native counterpart of the extension popup controls: one primary action,
+// the reading-list actions, then labelled voice/language/speed settings.
 private struct ReadingSettingsPanel: View {
     @ObservedObject var player: ReadingPlayerStore
     let onShowReadingList: () -> Void
 
+    private static let languages: [(code: String, name: String)] = [
+        ("ja", "日本語"), ("en", "English"), ("zh", "简体中文"), ("ko", "한국어"), ("es", "Español"),
+    ]
+    private static let rates: [Float] = [0.75, 1, 1.25, 1.5, 2, 3]
+
     var body: some View {
-        VStack(spacing: 8) {
-            Button {
-                if player.isPlaying { player.pause() } else { player.play() }
-            } label: {
-                HStack(spacing: 6) {
-                    FiloIcon(player.isPlaying ? .pause : .play, size: 18, color: FiloPalette.onAccent)
-                    Text(L10n.string(player.isPlaying ? "停止" : "このページを読み上げ"))
-                }
+        let busy = player.isPlaying || player.isPreparing
+        VStack(spacing: 10) {
+            FiloButton(
+                busy ? "読み上げを停止" : "このページを読み上げ",
+                icon: busy ? .pause : .play,
+                kind: .primary,
+                fullWidth: true,
+            ) {
+                if busy { player.pause() } else { player.play() }
             }
-            .buttonStyle(.borderedProminent)
-            HStack {
-                Button {
-                    onShowReadingList()
-                } label: {
-                    HStack(spacing: 6) {
-                        FiloIcon(.list, size: 18)
-                        Text("リスト")
-                    }
-                }
-                .disabled(player.isTemporary)
-                Button {
+            .disabled(player.currentItem == nil)
+            if let message = player.errorMessage, player.currentItem != nil {
+                Text(message)
+                    .filoFont(13)
+                    .foregroundStyle(FiloPalette.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 8) {
+                FiloButton("リスト", icon: .playlist, small: true, fullWidth: true, action: onShowReadingList)
+                    .disabled(player.isTemporary)
+                FiloButton("追加", icon: .queueAdd, small: true, fullWidth: true) {
                     player.addCurrentPageToReadingList()
-                } label: {
-                    HStack(spacing: 6) {
-                        FiloIcon(.queueAdd, size: 18)
-                        Text("リストに追加")
-                    }
                 }
-                    .disabled(player.isAddingToReadingList)
+                .disabled(player.isAddingToReadingList || player.currentItem == nil)
+                FiloButton("選択範囲を読み上げ", icon: .play, small: true, fullWidth: true, action: player.playSelection)
+                    .disabled(!player.hasSelection)
             }
-            HStack {
-                Picker("声", selection: Binding(
-                    get: { player.voiceIdentifier ?? "" },
-                    set: { player.setVoice($0.isEmpty ? nil : $0) }
-                )) {
-                    Text("自動").tag("")
-                    ForEach(player.availableVoices, id: \.identifier) { Text($0.name).tag($0.identifier) }
-                }.labelsHidden()
-                Picker("言語", selection: $player.targetLanguage) {
-                    ForEach(["ja", "en", "zh", "ko", "es"], id: \.self) { Text($0).tag($0) }
-                }.labelsHidden()
-                Picker("速度", selection: Binding(get: { player.rate }, set: player.setRate)) {
-                    ForEach([Float(0.75), 1, 1.25, 1.5, 2, 3], id: \.self) { Text("\($0, specifier: "%.2g")x").tag($0) }
-                }.labelsHidden()
+            HStack(spacing: 8) {
+                setting("声") {
+                    FiloSelect(
+                        selection: Binding(
+                            get: { player.voiceIdentifier ?? "" },
+                            set: { player.setVoice($0.isEmpty ? nil : $0) },
+                        ),
+                        options: [("", L10n.string("自動"))] + player.availableVoices.map { ($0.identifier, $0.name) },
+                        label: "声",
+                    )
+                }
+                setting("言語") {
+                    FiloSelect(
+                        selection: Binding(get: { player.targetLanguage }, set: player.setLanguage),
+                        options: Self.languages.map { ($0.code, $0.name) },
+                        label: "言語",
+                    )
+                }
+                .frame(maxWidth: 120)
+                setting("速度") {
+                    FiloSelect(
+                        selection: Binding(get: { player.rate }, set: player.setRate),
+                        options: Self.rates.map { ($0, "\($0.formatted())x") },
+                        label: "速度",
+                    )
+                }
+                .frame(maxWidth: 88)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
+        .padding(.horizontal, FiloMetrics.gutter)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background(FiloPalette.surface.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { FiloDivider() }
+    }
+
+    private func setting<Control: View>(_ label: String, @ViewBuilder control: () -> Control) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(localized: label)
+                .filoFont(12, .semibold)
+                .foregroundStyle(FiloPalette.muted)
+            control()
+        }
     }
 }
 
@@ -576,21 +630,21 @@ struct ReadingMiniPlayer: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            FiloIcon(.play, size: 14, color: FiloPalette.accent, filled: true)
             Text(player.currentPlaybackTitle ?? player.currentItem?.article.title ?? L10n.string("読み上げ中"))
+                .filoFont(14)
+                .foregroundStyle(FiloPalette.text)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button {
+            FiloButton("停止", icon: .pause, kind: .ghost, small: true) {
                 player.pause()
-            } label: {
-                HStack(spacing: 6) {
-                    FiloIcon(.close, size: 16)
-                    Text("停止")
-                }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, FiloMetrics.gutter)
+        .padding(.trailing, FiloMetrics.gutter - 8)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(FiloPalette.surface.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { FiloDivider() }
     }
 }
 
@@ -599,146 +653,188 @@ private struct ReadingListView: View {
     let currentArticleId: Int
     let onSelect: (Int) -> Void
     let onRemove: (Int) -> Void
+    let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if items.isEmpty {
-                Text("リーディングリストに記事がありません。")
-                    .foregroundStyle(FiloPalette.muted)
+        VStack(spacing: 0) {
+            HStack {
+                Text(localized: "リーディングリスト")
+                    .filoFont(16, .bold)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 16)
+                FiloIconButton(.close, label: "閉じる", action: onClose)
+            }
+            .padding(.leading, FiloMetrics.gutter)
+            .padding(.trailing, FiloMetrics.gutter - 8)
+            .frame(height: FiloMetrics.headerHeight)
+            .overlay(alignment: .bottom) { FiloDivider() }
+            if items.isEmpty {
+                FiloEmptyState(icon: .playlist, message: "リーディングリストに記事がありません。")
+                Spacer(minLength: 0)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(items) { item in
-                            HStack(spacing: 8) {
-                                Button {
-                                    onSelect(item.articleId)
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        FiloIcon(
-                                            .checkCircle,
-                                            size: 14,
-                                            color: item.articleId == currentArticleId ? FiloPalette.accent : FiloPalette.muted,
-                                            filled: item.articleId == currentArticleId,
-                                        )
-                                        Text(item.article.title)
-                                            .font(.body)
-                                            .lineLimit(2)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(item.article.canonicalUrl == nil)
-                                Button {
-                                    onRemove(item.articleId)
-                                } label: {
-                                    FiloIcon(.trash, size: 18)
-                                }
-                                .buttonStyle(.borderless)
-                                .foregroundStyle(FiloPalette.muted)
-                                .disabled(item.articleId <= 0)
-                            }
-                            .padding(.vertical, 8)
+                            row(item)
                         }
                     }
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .foregroundStyle(FiloPalette.text)
+    }
+
+    private func row(_ item: ReadingSessionItem) -> some View {
+        let isCurrent = item.articleId == currentArticleId
+        return HStack(spacing: 8) {
+            Button {
+                onSelect(item.articleId)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.article.title)
+                        .filoFont(15, isCurrent ? .semibold : .regular)
+                        .lineSpacing(4)
+                        .lineLimit(2)
+                    Text(verbatim: "\(L10n.string(item.isRead ? "既読" : "未読")) · \(item.article.feed.title)")
+                        .filoFont(12)
+                        .foregroundStyle(FiloPalette.muted)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(item.article.canonicalUrl == nil)
+            FiloIconButton(.trash, label: "リーディングリストから削除", size: 16, danger: true) {
+                onRemove(item.articleId)
+            }
+            .disabled(item.articleId <= 0)
+            .padding(.trailing, -10)
+        }
+        .padding(.horizontal, FiloMetrics.gutter)
+        .padding(.vertical, 12)
+        .background(isCurrent ? FiloPalette.rowHover : .clear)
+        .overlay(alignment: .leading) {
+            if isCurrent { Rectangle().fill(FiloPalette.accent).frame(width: 3) }
+        }
+        .overlay(alignment: .bottom) { FiloDivider() }
     }
 }
 
 private struct ReadingWebView: UIViewRepresentable {
     let url: String
-    let onExtracted: (String, String?) -> Void
-    let onFailure: () -> Void
+    let captureRequest: ReadingCaptureRequest?
+    let onLoaded: () -> Void
+    let onCaptured: (ReadingCaptureRequest, String?, String?) -> Void
+    let onSelectionChanged: (Bool) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onExtracted: onExtracted, onFailure: onFailure) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onLoaded: onLoaded, onCaptured: onCaptured, onSelectionChanged: onSelectionChanged)
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let controller = WKUserContentController()
-        controller.add(context.coordinator, name: "filoReader")
+        controller.add(context.coordinator, name: "filoSelection")
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.alwaysBounceVertical = true
         webView.navigationDelegate = context.coordinator
+        context.coordinator.webView = webView
         if let value = URL(string: url) { webView.load(URLRequest(url: value)) }
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.request(captureRequest)
+    }
 
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
-        let onExtracted: (String, String?) -> Void
-        let onFailure: () -> Void
+        weak var webView: WKWebView?
+        private let onLoaded: () -> Void
+        private let onCaptured: (ReadingCaptureRequest, String?, String?) -> Void
+        private let onSelectionChanged: (Bool) -> Void
+        private var loaded = false
+        private var pending: ReadingCaptureRequest?
+        private var handledId: Int?
 
-        init(onExtracted: @escaping (String, String?) -> Void, onFailure: @escaping () -> Void) {
-            self.onExtracted = onExtracted
-            self.onFailure = onFailure
+        private static let scripts: String = ["Readability", "FiloCapture"]
+            .compactMap { name in
+                Bundle.main.path(forResource: name, ofType: "js").flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+            }
+            .joined(separator: ";\n")
+
+        init(
+            onLoaded: @escaping () -> Void,
+            onCaptured: @escaping (ReadingCaptureRequest, String?, String?) -> Void,
+            onSelectionChanged: @escaping (Bool) -> Void,
+        ) {
+            self.onLoaded = onLoaded
+            self.onCaptured = onCaptured
+            self.onSelectionChanged = onSelectionChanged
+        }
+
+        // Capture when asked, once the page has loaded.
+        func request(_ request: ReadingCaptureRequest?) {
+            guard let request, request.id != handledId else { return }
+            pending = request
+            if loaded { capturePending() }
+        }
+
+        private func capturePending() {
+            guard let request = pending, let webView else { return }
+            pending = nil
+            handledId = request.id
+            let kind = request.kind == .selection ? "selection" : "page"
+            Task {
+                var captured = await Self.capture(webView, kind: kind)
+                // A page that renders after load gets one more try.
+                if captured == nil, request.kind == .page {
+                    try? await Task.sleep(for: .milliseconds(800))
+                    captured = await Self.capture(webView, kind: kind)
+                }
+                onCaptured(request, captured?.text, captured?.language)
+            }
+        }
+
+        private static func capture(_ webView: WKWebView, kind: String) async -> (text: String, language: String?)? {
+            let result = try? await webView.evaluateJavaScript("window.__filoCapture ? window.__filoCapture('\(kind)') : null")
+            guard let body = result as? [String: Any], let text = body["text"] as? String, !text.isEmpty else { return nil }
+            return (text, body["lang"] as? String)
+        }
+
+        private func finishLoading(_ webView: WKWebView) {
+            let script = Self.scripts + """
+            ;(() => {
+              const report = () => window.webkit.messageHandlers.filoSelection.postMessage(window.__filoHasSelection());
+              document.addEventListener('selectionchange', report);
+              report();
+            })();
+            """
+            webView.evaluateJavaScript(script) { [weak self] _, _ in
+                guard let self else { return }
+                loaded = true
+                onLoaded()
+                capturePending()
+            }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard let path = Bundle.main.path(forResource: "Readability", ofType: "js"),
-                  let readability = try? String(contentsOfFile: path, encoding: .utf8) else {
-                onFailure(); return
-            }
-            let script = """
-            \(readability)
-            (() => {
-              const normalize = value => String(value || '').replace(/\\s+/g, ' ').trim();
-              const extract = () => {
-                try {
-                  const article = new Readability(document.cloneNode(true), { charThreshold: 100 }).parse();
-                  const text = (() => {
-                    if (!article) return '';
-                    const root = document.implementation.createHTMLDocument('').body;
-                    root.innerHTML = article.content || '';
-                    const blocks = new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','FIGCAPTION','DT','DD']);
-                    const lines = [];
-                    const visit = node => Array.from(node.children).forEach(child => {
-                      if (blocks.has(child.tagName)) { const value = normalize(child.textContent); if (value) lines.push(value); }
-                      else visit(child);
-                    });
-                    visit(root);
-                    if (!lines.length) lines.push(...normalize(article.textContent).split(/\\n+/).filter(Boolean));
-                    const title = normalize(article.title) || normalize(document.title);
-                    return [title, ...(lines[0] === title ? lines.slice(1) : lines)].filter(Boolean).join('\\n\\n');
-                  })();
-                  return text.length >= 100
-                    ? { text, lang: article.lang || document.documentElement.lang || null }
-                    : { error: true };
-                } catch (_) {
-                  return { error: true };
-                }
-              };
-              const send = result => window.webkit.messageHandlers.filoReader.postMessage(result);
-              setTimeout(() => {
-                const first = extract();
-                if (first.text) send(first);
-                else setTimeout(() => send(extract()), 800);
-              }, 500);
-            })();
-            """
-            webView.evaluateJavaScript(script) { _, error in if error != nil { self.onFailure() } }
+            finishLoading(webView)
         }
 
+        // A failed load still lets the reader fall back to the server's extraction.
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            onFailure()
+            finishLoading(webView)
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            onFailure()
+            finishLoading(webView)
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let body = message.body as? [String: Any], let text = body["text"] as? String else {
-                onFailure(); return
-            }
-            onExtracted(text, body["lang"] as? String)
+            onSelectionChanged(message.body as? Bool ?? false)
         }
     }
 }

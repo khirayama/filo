@@ -4,6 +4,7 @@ packages:
     url: https://github.com/firebase/firebase-ios-sdk
     exactVersion: 11.15.0
 options:
+  developmentLanguage: ja
   deploymentTarget:
     iOS: "18.0"
 settings:

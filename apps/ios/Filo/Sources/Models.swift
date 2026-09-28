@@ -5,7 +5,6 @@ struct FeedSummary: Codable, Hashable {
     let title: String
     var siteUrl: String?
     var feedUrl: String?
-    var faviconUrl: String?
     var language: String?
     var latestPublishedAt: String?
 }
@@ -85,7 +84,6 @@ struct ArticleListItem: Codable, Identifiable, Hashable {
     var title: String
     var sourceLanguage: String?
     var canonicalUrl: String?
-    var rssSummary: String?
     var previewText: String?
     var publishedAt: String?
     var fetchedAt: String
@@ -98,7 +96,6 @@ struct ReadingSessionArticle: Codable, Hashable {
     struct Feed: Codable, Hashable {
         let id: Int
         let title: String
-        let faviconUrl: String?
     }
     let id: Int
     let title: String
@@ -116,11 +113,7 @@ extension ReadingSessionArticle {
             sourceLanguage: article.sourceLanguage,
             canonicalUrl: article.canonicalUrl,
             publishedAt: article.publishedAt,
-            feed: .init(
-                id: article.feed.id,
-                title: article.feed.title,
-                faviconUrl: article.feed.faviconUrl,
-            ),
+            feed: .init(id: article.feed.id, title: article.feed.title),
         )
     }
 }
@@ -266,6 +259,30 @@ enum DateFormatting {
         formatter.locale = Locale(identifier: language == "zh" ? "zh-Hans" : language)
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    // web formatTime: relative within a week, then a dated label.
+    static func time(_ value: String?) -> String {
+        guard let date = parse(value) else { return "" }
+        let language = UserDefaults.standard.string(forKey: "filo:language") ?? "ja"
+        let labels: (now: String, m: String, h: String, d: String) = switch language {
+        case "en": ("just now", " min ago", " hr ago", " days ago")
+        case "zh": ("刚刚", "分钟前", "小时前", "天前")
+        case "ko": ("방금", "분 전", "시간 전", "일 전")
+        case "es": ("ahora", " min", " h", " días")
+        default: ("たった今", "分前", "時間前", "日前")
+        }
+        let minutes = Int(Date().timeIntervalSince(date) / 60)
+        if minutes < 1 { return labels.now }
+        if minutes < 60 { return "\(minutes)\(labels.m)" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)\(labels.h)" }
+        let days = hours / 24
+        if days < 7 { return "\(days)\(labels.d)" }
+        return date.formatted(
+            .dateTime.year().month(.abbreviated).day()
+                .locale(Locale(identifier: language == "zh" ? "zh-Hans" : language))
+        )
     }
 
     static func compact(_ value: String?) -> String {

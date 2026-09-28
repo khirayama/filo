@@ -7,137 +7,121 @@ struct TagsScreen: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var newName = ""
+    @State private var isCreating = false
     @State private var editingTagId: Int?
     @State private var editName = ""
     @State private var editColor = ""
-    @State private var pendingDelete: [Tag] = []
-    @State private var showDeleteConfirm = false
+    @State private var pendingDelete: Tag?
     @State private var isReordering = false
+    @Environment(\.filoIsDesktop) private var isDesktop
 
     var body: some View {
-        List {
-            Section {
-                HStack {
-                    TextField("新しいタグ名", text: $newName)
-                    Button("追加") { Task { await create() } }
-                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-            if let errorMessage {
-                ErrorBanner(message: errorMessage) { Task { await load() } }
-            }
-            if isLoading {
-                ProgressView(L10n.string("読み込み中…"))
-            } else if tags.isEmpty {
-                EmptyStateView { Text("タグがありません。上の入力欄から作成できます。") }
-            } else {
-                Section {
-                    ForEach(tags) { tag in
-                        if editingTagId == tag.id {
-                            VStack(spacing: 8) {
-                                HStack(spacing: 8) {
-                                    TextField("タグ名", text: $editName)
-                                        .textFieldStyle(.roundedBorder)
-                                    ColorPicker("色", selection: Binding(
-                                        get: {
-                                            if let hex = parseHexColor(editColor) { return hex }
-                                            return .blue
-                                        },
-                                        set: { newColor in
-                                            editColor = newColor.toHex()
-                                        }
-                                    ), supportsOpacity: false)
-                                    .labelsHidden()
-                                    if !editColor.isEmpty {
-                                        Button("色を解除") { editColor = "" }
-                                            .font(.caption)
-                                    }
-                                }
-                                HStack(spacing: 8) {
-                                    Button("保存") {
-                                        Task { await saveEdit(tag) }
-                                    }
-                                    .disabled(editName.trimmingCharacters(in: .whitespaces).isEmpty)
-                                    Button("キャンセル") {
-                                        editingTagId = nil
-                                    }
-                                }
-                                .font(.callout)
-                            }
-                        } else {
-                            HStack {
-                                if let color = tag.color, let parsed = parseHexColor(color) {
-                                    Circle()
-                                        .fill(parsed)
-                                        .frame(width: 12, height: 12)
-                                }
-                                VStack(alignment: .leading) {
-                                    Text(tag.name)
-                                    Text(L10n.format("%ld件の購読", tag.subscriptionCount))
-                                        .font(.caption)
-                                        .foregroundStyle(FiloPalette.muted)
-                                }
-                                Spacer()
-                                Button("編集") {
-                                    editingTagId = tag.id
-                                    editName = tag.name
-                                    editColor = tag.color ?? ""
-                                }
-                                .font(.callout)
+        FiloPage("タグ管理") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 8) {
+                        FiloTextField(placeholder: "新しいタグ名", text: $newName) { Task { await create() } }
+                        FiloButton("追加", icon: .plus, kind: .primary) { Task { await create() } }
+                            .disabled(isCreating || newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    if let errorMessage {
+                        FiloErrorBox(message: errorMessage) { Task { await load() } }
+                    }
+                    if isLoading {
+                        FiloSpinner()
+                    } else if tags.isEmpty {
+                        FiloEmptyState(icon: .tag, message: "タグがありません。上の入力欄から作成できます。")
+                    } else {
+                        LazyVStack(spacing: 0) {
+                            ForEach(tags) { tag in
+                                row(tag)
                             }
                         }
+                        .overlay(alignment: .top) { FiloDivider() }
                     }
-                    .onMove { source, destination in
-                        reorderTags(from: source, to: destination)
+                }
+                .frame(maxWidth: FiloMetrics.contentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, isDesktop ? FiloMetrics.desktopGutter : FiloMetrics.gutter)
+                .padding(.top, 24)
+                .padding(.bottom, 64)
+            }
+        }
+        .task { await load() }
+        .confirmationDialog(
+            L10n.format("タグ%@を削除しますか？購読は削除されません。", pendingDelete.map { "「\($0.name)」" } ?? ""),
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible,
+        ) {
+            Button("削除する", role: .destructive) {
+                if let tag = pendingDelete { Task { await delete(tag) } }
+                pendingDelete = nil
+            }
+            Button("キャンセル", role: .cancel) { pendingDelete = nil }
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ tag: Tag) -> some View {
+        Group {
+            if editingTagId == tag.id {
+                FlowLayout(spacing: 8) {
+                    ColorPicker(L10n.string("色"), selection: Binding(
+                        get: { parseHexColor(editColor) ?? Color(hex: 0x3B82F6) },
+                        set: { editColor = $0.toHex() },
+                    ), supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: FiloMetrics.controlHeight, height: FiloMetrics.controlHeight)
+                    FiloTextField(placeholder: "タグ名", text: $editName) { Task { await saveEdit(tag) } }
+                        .frame(minWidth: 160, maxWidth: 400)
+                    HStack(spacing: 6) {
+                        if !editColor.isEmpty {
+                            FiloButton("色を解除", kind: .ghost) { editColor = "" }
+                        }
+                        FiloButton("キャンセル") { editingTagId = nil }
+                        FiloButton("保存", kind: .primary) { Task { await saveEdit(tag) } }
+                            .disabled(editName.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
-                    .onDelete { offsets in
-                        pendingDelete = offsets.map { tags[$0] }
-                        showDeleteConfirm = true
+                }
+            } else {
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(tag.color.flatMap(parseHexColor) ?? FiloPalette.border)
+                        .frame(width: 10, height: 10)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tag.name)
+                            .filoFont(14, .semibold)
+                            .lineLimit(1)
+                        Text(L10n.format("%ld件の購読", tag.subscriptionCount))
+                            .filoFont(12)
+                            .foregroundStyle(FiloPalette.muted)
                     }
-                    .moveDisabled(isReordering)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 2) {
+                        FiloIconButton(.chevronUp, label: "上へ", size: 16) { move(tag, by: -1) }
+                        FiloIconButton(.chevronDown, label: "下へ", size: 16) { move(tag, by: 1) }
+                        FiloIconButton(.pencil, label: "編集", size: 16) {
+                            editingTagId = tag.id
+                            editName = tag.name
+                            editColor = tag.color ?? ""
+                        }
+                        FiloIconButton(.trash, label: "削除", size: 16, danger: true) { pendingDelete = tag }
+                    }
+                    .disabled(isReordering)
                 }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(FiloPalette.background)
-        .listRowBackground(FiloPalette.background)
-        .navigationTitle("タグ管理")
-        .toolbar { EditButton() }
-        .task { await load() }
-        .confirmationDialog(
-            deleteConfirmTitle,
-            isPresented: $showDeleteConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("削除する", role: .destructive) {
-                let removed = pendingDelete
-                pendingDelete = []
-                Task { await deleteTags(removed) }
-            }
-            Button("キャンセル", role: .cancel) { pendingDelete = [] }
-        }
+        .foregroundStyle(FiloPalette.text)
+        .padding(.vertical, 8)
+        .padding(.leading, 4)
+        .frame(minHeight: 56)
+        .overlay(alignment: .bottom) { FiloDivider() }
     }
 
-    private var deleteConfirmTitle: String {
-        let names = pendingDelete.map { "「\($0.name)」" }.joined()
-        return L10n.format("タグ%@を削除しますか？購読は削除されません。", names)
-    }
-
-    private func deleteTags(_ removed: [Tag]) async {
-        do {
-            for tag in removed {
-                try await APIClient.shared.deleteTag(tag.id)
-            }
-        } catch {
-            errorMessage = ErrorMessages.message(for: error)
-        }
-        await load()
-    }
-
-    private func reorderTags(from source: IndexSet, to destination: Int) {
-        guard !isReordering else { return }
+    private func move(_ tag: Tag, by offset: Int) {
+        guard !isReordering, let index = tags.firstIndex(of: tag), tags.indices.contains(index + offset) else { return }
         let original = tags
-        tags.move(fromOffsets: source, toOffset: destination)
+        tags.swapAt(index, index + offset)
         let reorderedIds = tags.map(\.id)
         isReordering = true
         Task {
@@ -152,11 +136,20 @@ struct TagsScreen: View {
         }
     }
 
+    private func delete(_ tag: Tag) async {
+        do {
+            try await APIClient.shared.deleteTag(tag.id)
+        } catch {
+            errorMessage = ErrorMessages.message(for: error)
+        }
+        await load()
+    }
+
     private func load() async {
-        isLoading = true
-        errorMessage = nil
+        isLoading = tags.isEmpty
         do {
             tags = try await APIClient.shared.listTags()
+            errorMessage = nil
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
@@ -164,13 +157,17 @@ struct TagsScreen: View {
     }
 
     private func create() async {
+        let name = newName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !isCreating else { return }
+        isCreating = true
         do {
-            _ = try await APIClient.shared.createTag(name: newName.trimmingCharacters(in: .whitespaces))
+            _ = try await APIClient.shared.createTag(name: name)
             newName = ""
             await load()
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
+        isCreating = false
     }
 
     private func saveEdit(_ tag: Tag) async {
