@@ -3,7 +3,7 @@ import { requireArticleAccess } from "../lib/articleAccess";
 import type { AppContext } from "../lib/auth";
 import { enqueueArticleContent } from "../lib/articleContentJobs";
 import { errors } from "../lib/errors";
-import { nowIso, parseId } from "../lib/util";
+import { isoOffset, nowIso, parseId } from "../lib/util";
 
 interface ContentRow {
   text: string | null;
@@ -39,8 +39,11 @@ export const contentRoutes = new Hono<AppContext>()
     const user = c.get("user");
     const articleId = parseId(c.req.param("articleId"));
     await requireArticleAccess(c.env.DB, user.id, articleId);
-    await c.env.DB.prepare("UPDATE article_contents SET updated_at = ? WHERE article_id = ? AND status = 'ready'")
-      .bind(nowIso(), articleId).run().catch(() => undefined);
+    // Keep the cache entry alive while it is used, but touch it at most once
+    // a day so repeated reads do not each cost a row write.
+    await c.env.DB.prepare(
+      "UPDATE article_contents SET updated_at = ? WHERE article_id = ? AND status = 'ready' AND updated_at < ?",
+    ).bind(nowIso(), articleId, isoOffset(-24 * 60)).run().catch(() => undefined);
     const content = await c.env.DB.prepare(
       `SELECT ac.text, ac.html, a.source_language, ac.status, ac.error_message
        FROM article_contents ac JOIN articles a ON a.id = ac.article_id

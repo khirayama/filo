@@ -5,7 +5,7 @@ import { runAccountDeletion } from "./jobs/accountDeletion";
 import { runFetchFeed } from "./jobs/fetchFeed";
 import { runExtractContent } from "./jobs/extractContent";
 import { runOpmlImport } from "./jobs/opmlImport";
-import { requireAdmin, requireUser, requireUserOrSystem, type AppContext, type OpsContext } from "./lib/auth";
+import { requireAdmin, requireUser, type AppContext } from "./lib/auth";
 import { ApiError, errors } from "./lib/errors";
 import { resolveCorsOrigin } from "./lib/origin";
 import { enforceRateLimit, rateLimitRoute } from "./lib/rateLimit";
@@ -110,6 +110,7 @@ authed.route("/tags", tagRoutes);
 authed.route("/articles", articleRoutes);
 authed.route("/articles", contentRoutes);
 authed.route("/opml", opmlRoutes);
+authed.route("/status", statusRoutes);
 
 const admin = new Hono<AppContext>();
 admin.use("*", requireUser, requireAdmin);
@@ -117,20 +118,6 @@ admin.route("/", adminRoutes);
 authed.route("/admin", admin);
 
 app.route("/api/v1", authed);
-
-// Ops routes — accept user auth or system (cron) auth
-const ops = new Hono<OpsContext>();
-ops.use("*", requireUserOrSystem, async (c, next) => {
-  const user = c.get("user");
-  await enforceRateLimit(c.env.API_RATE_LIMITER, [
-    c.req.header("CF-Connecting-IP") ?? "unknown-ip",
-    user ? String(user.id) : "system",
-    rateLimitRoute(c.req.method, c.req.path),
-  ]);
-  await next();
-});
-ops.route("/status", statusRoutes);
-app.route("/api/v1", ops);
 
 async function handleJob(env: Env, message: JobMessage): Promise<void> {
   switch (message.jobType) {
@@ -149,6 +136,92 @@ async function handleJob(env: Env, message: JobMessage): Promise<void> {
   }
 }
 
+const scheduledTasks: Record<string, (env: Env) => Promise<void>> = {
+  // Refresh active feeds whose per-feed cooldown has elapsed. The cooldown is
+  // calculated by runFetchFeed from each feed's cadence. A feed nobody
+  // subscribes to any more is left alone; it resumes when someone subscribes.
+  async refreshDueFeeds(env) {
+    const now = nowIso();
+    const activeJobFreshAfter = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { results: dueFeeds } = await env.DB.prepare(
+      `SELECT f.id
+       FROM feeds f
+       LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
+       WHERE f.status = 'active'
+         AND (fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?)
+         AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.feed_id = f.id)
+         AND NOT EXISTS (
+           SELECT 1 FROM feed_jobs fj
+           WHERE fj.feed_id = f.id
+             AND fj.status IN ('pending', 'running')
+             AND fj.updated_at > ?
+         )
+       ORDER BY fs.next_fetch_after IS NOT NULL, fs.next_fetch_after
+       LIMIT 200`,
+    )
+      .bind(now, activeJobFreshAfter)
+      .all<{ id: number }>();
+
+    const feedMessages = dueFeeds.map((feed) => ({
+      body: { jobType: "fetch_feed" as const, feedId: feed.id, reason: "refresh" as const, attempt: 1 },
+    }));
+    for (let i = 0; i < feedMessages.length; i += 100) {
+      await env.JOBS.sendBatch(feedMessages.slice(i, i + 100));
+    }
+  },
+
+  // Retry recoverable account deletion jobs (max 5 attempts).
+  async retryAccountDeletions(env) {
+    const { results: failedDeletions } = await env.DB.prepare(
+      "SELECT id FROM account_deletion_jobs WHERE status = 'failed' AND attempt_count < 5 LIMIT 10",
+    ).all<{ id: number }>();
+    if (failedDeletions.length === 0) return;
+    await env.JOBS.sendBatch(failedDeletions.map((job) => ({
+      body: { jobType: "account_deletion" as const, deletionJobId: job.id, attempt: 1 },
+    })));
+  },
+
+  // Operational logs are useful for diagnosis, but must not grow with every
+  // scheduled fetch forever. Delete in bounded batches so the cleanup itself
+  // cannot create a large D1 read/write spike.
+  async expireFetchLogs(env) {
+    const logRetentionBefore = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    await env.DB.prepare("DELETE FROM feed_fetch_logs WHERE started_at < ? LIMIT 500")
+      .bind(logRetentionBefore)
+      .run();
+  },
+
+  // Re-enqueue extraction jobs left pending if an API request stopped between
+  // reserving the row and successfully sending to Queues.
+  async recoverContentExtractions(env) {
+    const extractionRecoveryBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const recoveredExtractions = await env.DB.prepare(
+      `UPDATE article_contents
+       SET updated_at = ?
+       WHERE article_id IN (
+         SELECT article_id FROM article_contents
+         WHERE status = 'pending' AND updated_at < ?
+         ORDER BY updated_at ASC
+         LIMIT 100
+       )
+       RETURNING article_id`,
+    ).bind(nowIso(), extractionRecoveryBefore).all<{ article_id: number }>();
+    const extractionMessages = recoveredExtractions.results.map((row) => ({
+      body: { jobType: "extract_content" as const, articleId: row.article_id },
+    }));
+    if (extractionMessages.length > 0) await env.JOBS.sendBatch(extractionMessages);
+  },
+
+  // Article content is a short-lived fallback cache. Reads refresh updated_at
+  // (at most daily), so this removes entries about seven days after last use.
+  async expireArticleContents(env) {
+    const contentRetentionBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    await env.DB.prepare(
+      "DELETE FROM article_contents WHERE status IN ('ready', 'error') AND updated_at < ? LIMIT 500",
+    ).bind(contentRetentionBefore).run();
+  },
+};
+
 export default {
   fetch: app.fetch,
 
@@ -165,83 +238,15 @@ export default {
   },
 
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Each maintenance task is independent: one failing must not skip the rest.
     ctx.waitUntil(
-      (async () => {
-        // Refresh active feeds whose per-feed cooldown has elapsed. The
-        // cooldown is calculated by runFetchFeed from each feed's cadence.
-        const now = nowIso();
-        const activeJobFreshAfter = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-        const { results: dueFeeds } = await env.DB.prepare(
-          `SELECT f.id
-           FROM feeds f
-           LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
-           WHERE f.status = 'active'
-             AND (fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?)
-             AND NOT EXISTS (
-               SELECT 1 FROM feed_jobs fj
-               WHERE fj.feed_id = f.id
-                 AND fj.status IN ('pending', 'running')
-                 AND fj.updated_at > ?
-             )
-           ORDER BY fs.next_fetch_after IS NOT NULL, fs.next_fetch_after
-           LIMIT 200`,
-        )
-          .bind(now, activeJobFreshAfter)
-          .all<{ id: number }>();
-
-        const feedMessages = dueFeeds.map((feed) => ({
-          body: { jobType: "fetch_feed" as const, feedId: feed.id, reason: "refresh" as const, attempt: 1 },
-        }));
-        for (let i = 0; i < feedMessages.length; i += 100) {
-          await env.JOBS.sendBatch(feedMessages.slice(i, i + 100));
+      Promise.allSettled(Object.entries(scheduledTasks).map(async ([name, task]) => {
+        try {
+          await task(env);
+        } catch (error) {
+          console.error(`scheduled task ${name} failed:`, error);
         }
-
-        // Retry recoverable account deletion jobs (max 5 attempts).
-        const { results: failedDeletions } = await env.DB.prepare(
-          "SELECT id FROM account_deletion_jobs WHERE status = 'failed' AND attempt_count < 5 LIMIT 10",
-        ).all<{ id: number }>();
-        const deletionMessages = failedDeletions.map((job) => ({
-          body: { jobType: "account_deletion" as const, deletionJobId: job.id, attempt: 1 },
-        }));
-        for (let i = 0; i < deletionMessages.length; i += 100) {
-          await env.JOBS.sendBatch(deletionMessages.slice(i, i + 100));
-        }
-
-        // Operational logs are useful for diagnosis, but must not grow with
-        // every scheduled fetch forever. Delete in bounded batches so the
-        // cleanup itself cannot create a large D1 read/write spike.
-        const logRetentionBefore = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-        await env.DB.prepare(
-          "DELETE FROM feed_fetch_logs WHERE started_at < ? LIMIT 500",
-        ).bind(logRetentionBefore).run();
-
-        // Re-enqueue extraction jobs left pending if an API request stopped
-        // between reserving the row and successfully sending to Queues.
-        const extractionRecoveryBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-        const extractionRecoveryAt = nowIso();
-        const recoveredExtractions = await env.DB.prepare(
-          `UPDATE article_contents
-           SET updated_at = ?
-           WHERE article_id IN (
-             SELECT article_id FROM article_contents
-             WHERE status = 'pending' AND updated_at < ?
-             ORDER BY updated_at ASC
-             LIMIT 100
-           )
-           RETURNING article_id`,
-        ).bind(extractionRecoveryAt, extractionRecoveryBefore).all<{ article_id: number }>();
-        const extractionMessages = recoveredExtractions.results.map((row) => ({
-          body: { jobType: "extract_content" as const, articleId: row.article_id },
-        }));
-        if (extractionMessages.length > 0) await env.JOBS.sendBatch(extractionMessages);
-
-        // Article content is a short-lived fallback cache. Touching updated_at
-        // on reads lets this remove entries seven days after their last use.
-        const contentRetentionBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-        await env.DB.prepare(
-          "DELETE FROM article_contents WHERE status IN ('ready', 'error') AND updated_at < ? LIMIT 500",
-        ).bind(contentRetentionBefore).run();
-      })(),
+      })),
     );
   },
 } satisfies ExportedHandler<Env, JobMessage>;

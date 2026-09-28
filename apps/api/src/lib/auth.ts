@@ -6,7 +6,6 @@ import { nowIso } from "./util";
 
 export interface AuthedUser { id: number; authUserId: string; isAdmin: boolean; }
 export type AppContext = { Bindings: Env; Variables: { user: AuthedUser; requestId: string } };
-export type OpsContext = { Bindings: Env; Variables: { user: AuthedUser | null; requestId: string } };
 type AuthIdentity = { id: string; email: string };
 
 function requestHeaders(authHeader?: string | Headers): Headers {
@@ -28,14 +27,17 @@ async function resolveUser(env: Env, authHeader?: string | Headers): Promise<Aut
   const id = identity.id;
 
   // A tombstone is authoritative even while the Better Auth session remains
-  // valid (the deletion queue may still be retrying).
-  const tombstone = await env.DB.prepare(
-    "SELECT 1 AS found FROM deleted_user_tombstones WHERE auth_user_id = ? LIMIT 1",
-  ).bind(id).first<{ found: number }>();
-  if (tombstone) throw errors.forbidden();
+  // valid (the deletion queue may still be retrying). It is looked up in the
+  // same round trip as the application row.
+  const lookup = await env.DB.prepare(
+    `SELECT EXISTS (SELECT 1 FROM deleted_user_tombstones WHERE auth_user_id = ?) AS tombstoned,
+            u.id, u.email
+     FROM (SELECT 1) LEFT JOIN users u ON u.auth_user_id = ?`,
+  ).bind(id, id).first<{ tombstoned: number; id: number | null; email: string | null }>();
+  if (lookup?.tombstoned === 1) throw errors.forbidden();
 
-  let row = await env.DB.prepare("SELECT id, email FROM users WHERE auth_user_id = ? LIMIT 1")
-    .bind(id).first<{ id: number; email: string | null }>();
+  let row: { id: number; email: string | null } | null =
+    lookup?.id != null ? { id: lookup.id, email: lookup.email } : null;
   let needsProvisioning = false;
 
   if (!row) {
@@ -81,5 +83,4 @@ async function resolveUser(env: Env, authHeader?: string | Headers): Promise<Aut
   return { id: row.id, authUserId: id, isAdmin: admins.includes(id) };
 }
 export const requireUser: MiddlewareHandler<AppContext> = async (c, next) => { c.set("user", await resolveUser(c.env, c.req.raw.headers)); await next(); };
-export const requireUserOrSystem: MiddlewareHandler<OpsContext> = async (c, next) => { if (c.req.header("Authorization") === `Bearer ${c.env.CRON_SECRET}`) { c.set("user", null); await next(); return; } c.set("user", await resolveUser(c.env, c.req.raw.headers)); await next(); };
 export const requireAdmin: MiddlewareHandler<AppContext> = async (c, next) => { if (!c.get("user").isAdmin) throw errors.adminRequired(); await next(); };

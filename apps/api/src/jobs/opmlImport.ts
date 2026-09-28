@@ -1,8 +1,8 @@
 import type { Env } from "../env";
-import { discoverFeed, faviconUrlFor } from "../lib/discovery";
+import { discoverFeed } from "../lib/discovery";
 import { parseOpml } from "../lib/opml";
 import { canonicalizeFeedUrl } from "../lib/net";
-import { attachTags, resolveTagIdsByNames } from "../lib/tagops";
+import { createSubscription, findOrCreateFeed } from "../lib/subscriptions";
 import { nowIso } from "../lib/util";
 
 interface OpmlJobRow {
@@ -74,10 +74,10 @@ export async function runOpmlImport(env: Env, opmlJobId: number): Promise<void> 
         throw new Error("invalid feed URL");
       }
 
-      let feed = await env.DB.prepare("SELECT id FROM feeds WHERE feed_url = ?")
+      let feedId = (await env.DB.prepare("SELECT id FROM feeds WHERE feed_url = ?")
         .bind(feedUrl)
-        .first<{ id: number }>();
-      if (!feed) {
+        .first<{ id: number }>())?.id;
+      if (feedId === undefined) {
         let discovered: Awaited<ReturnType<typeof discoverFeed>> | null = null;
         let discoveryError: unknown = null;
         for (const inputUrl of [outline.feedUrl, outline.siteUrl]) {
@@ -90,61 +90,16 @@ export async function runOpmlImport(env: Env, opmlJobId: number): Promise<void> 
           }
         }
         if (!discovered) throw discoveryError instanceof Error ? discoveryError : new Error("feed discovery failed");
-        feed = await env.DB.prepare("SELECT id FROM feeds WHERE feed_url = ?")
-          .bind(discovered.feedUrl)
-          .first<{ id: number }>();
-        if (!feed) {
-          const ts = nowIso();
-          feed = await env.DB.prepare(
-            `INSERT INTO feeds (feed_url, site_url, title, description, favicon_url, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'active', ?, ?) RETURNING id`
-          )
-            .bind(
-              discovered.feedUrl,
-              discovered.parsed.siteUrl,
-              discovered.parsed.title,
-              discovered.parsed.description,
-              await faviconUrlFor(discovered.parsed.siteUrl, discovered.feedUrl),
-              ts,
-              ts
-            )
-            .first<{ id: number }>();
-        }
+        feedId = await findOrCreateFeed(env.DB, discovered);
       }
-      if (!feed) throw new Error("could not create feed");
 
-      const existing = await env.DB.prepare("SELECT id FROM subscriptions WHERE user_id = ? AND feed_id = ?")
-        .bind(job.user_id, feed.id)
-        .first();
-      if (existing) {
+      const subscriptionId = await createSubscription(env.DB, env.JOBS, job.user_id, feedId, {
+        customTitle: outline.title,
+        tagNames: outline.tagNames,
+      });
+      if (subscriptionId === null) {
         skipped++;
         continue;
-      }
-
-      const fetchState = await env.DB.prepare("SELECT last_success_fetched_at FROM feed_fetch_states WHERE feed_id = ?")
-        .bind(feed.id)
-        .first<{ last_success_fetched_at: string | null }>();
-      const hasArticles = await env.DB.prepare("SELECT id FROM articles WHERE feed_id = ? LIMIT 1").bind(feed.id).first();
-      const isReady = Boolean(fetchState?.last_success_fetched_at) || Boolean(hasArticles);
-
-      const maxOrder = await env.DB.prepare("SELECT COALESCE(MAX(sort_order), 0) AS m FROM subscriptions WHERE user_id = ?")
-        .bind(job.user_id)
-        .first<{ m: number }>();
-      const ts = nowIso();
-      const inserted = await env.DB.prepare(
-        `INSERT INTO subscriptions (user_id, feed_id, custom_title, sort_order, initial_fetch_status, initial_fetch_requested_at, initial_fetch_completed_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
-      )
-        .bind(job.user_id, feed.id, outline.title, (maxOrder?.m ?? 0) + 10, isReady ? "ready" : "fetching", ts, isReady ? ts : null, ts, ts)
-        .first<{ id: number }>();
-      if (!inserted) throw new Error("could not create subscription");
-
-      if (outline.tagNames.length > 0) {
-        const tagIds = await resolveTagIdsByNames(env.DB, job.user_id, outline.tagNames);
-        await attachTags(env.DB, inserted.id, tagIds);
-      }
-      if (!isReady) {
-        await env.JOBS.send({ jobType: "fetch_feed", feedId: feed.id, reason: "initial", attempt: 1 });
       }
       created++;
     } catch (error) {

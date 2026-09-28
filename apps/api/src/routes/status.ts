@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import type { OpsContext } from "../lib/auth";
+import type { AppContext } from "../lib/auth";
 import { errors } from "../lib/errors";
 import {
   serializeFeedJob,
@@ -12,18 +12,12 @@ import type { JobMessage } from "../env";
 import { recordD1Meta } from "../lib/observability";
 import { nowIso, parseId, toIso } from "../lib/util";
 
-interface FeedAggRow {
-  total: number;
-  active: number;
-  paused: number;
-  last_fetched_at: string | null;
-}
-
 interface SubscriptionStatusRow {
   subscription_id: number;
   feed_title: string;
   feed_id: number;
   feed_status: string;
+  article_count: number;
   last_result: string | null;
   last_error: string | null;
   last_fetched_at: string | null;
@@ -58,9 +52,8 @@ function jobFromColumns(
 
 // Resolve a :feedId path param, rejecting any feed the current user does not
 // subscribe to. Every per-feed operation below is scoped this way.
-async function subscribedFeedId(c: Context<OpsContext>): Promise<{ userId: number; feedId: number }> {
+async function subscribedFeedId(c: Context<AppContext>): Promise<{ userId: number; feedId: number }> {
   const user = c.get("user");
-  if (!user) throw errors.unauthorized();
   const feedId = parseId(c.req.param("feedId") ?? "");
   const subscribed = await c.env.DB
     .prepare("SELECT id FROM subscriptions WHERE user_id = ? AND feed_id = ?")
@@ -70,37 +63,16 @@ async function subscribedFeedId(c: Context<OpsContext>): Promise<{ userId: numbe
   return { userId: user.id, feedId };
 }
 
-export const statusRoutes = new Hono<OpsContext>()
+export const statusRoutes = new Hono<AppContext>()
   .get("/", async (c) => {
-    const user = c.get("user");
-    if (!user) throw errors.unauthorized();
-    const userId = user.id;
+    const userId = c.get("user").id;
     const now = nowIso();
 
-    const feedAgg = await c.env.DB.prepare(
-      `SELECT
-         COUNT(*) AS total,
-         SUM(CASE WHEN f.status = 'active' THEN 1 ELSE 0 END) AS active,
-         SUM(CASE WHEN f.status = 'paused' THEN 1 ELSE 0 END) AS paused,
-         MAX(fs.last_fetched_at) AS last_fetched_at
-       FROM feeds f
-       JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?
-       LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id`
-    )
-      .bind(userId)
-      .first<FeedAggRow>();
-
-    const articleAgg = await c.env.DB.prepare(
-      `SELECT COALESCE(SUM(f.article_count), 0) AS n
-       FROM feeds f
-       JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?`
-    )
-      .bind(userId)
-      .first<{ n: number }>();
-
+    // One pass over the user's subscriptions; the summary counts are derived
+    // from the same rows instead of separate aggregate queries.
     const subStatusResult = await c.env.DB.prepare(
       `SELECT s.id AS subscription_id, COALESCE(s.custom_title, f.title) AS feed_title,
-              f.id AS feed_id, f.status AS feed_status,
+              f.id AS feed_id, f.status AS feed_status, f.article_count,
               fs.last_result, fs.last_error, fs.last_fetched_at,
               fs.consecutive_failures,
               fj.status AS fetch_status, fj.requested_at AS fetch_requested_at,
@@ -120,16 +92,22 @@ export const statusRoutes = new Hono<OpsContext>()
     recordD1Meta("status.subscription_statuses", subStatusResult.meta, { returned: subStatusResult.results.length });
     const { results: subStatusRows } = subStatusResult;
 
+    let lastFetchedAt: string | null = null;
+    for (const row of subStatusRows) {
+      const fetchedAt = toIso(row.last_fetched_at);
+      if (fetchedAt && (!lastFetchedAt || fetchedAt > lastFetchedAt)) lastFetchedAt = fetchedAt;
+    }
+
     return c.json({
       data: {
         generatedAt: now,
         feeds: {
-          total: feedAgg?.total ?? 0,
-          active: feedAgg?.active ?? 0,
-          paused: feedAgg?.paused ?? 0,
-          lastFetchedAt: toIso(feedAgg?.last_fetched_at ?? null),
+          total: subStatusRows.length,
+          active: subStatusRows.filter((row) => row.feed_status === "active").length,
+          paused: subStatusRows.filter((row) => row.feed_status === "paused").length,
+          lastFetchedAt,
         },
-        articles: { total: articleAgg?.n ?? 0 },
+        articles: { total: subStatusRows.reduce((sum, row) => sum + row.article_count, 0) },
         subscriptionStatuses: subStatusRows.map((row) => ({
           subscriptionId: row.subscription_id,
           feedTitle: row.feed_title,
@@ -156,43 +134,29 @@ export const statusRoutes = new Hono<OpsContext>()
       .json<{ force?: unknown }>()
       .catch(() => ({}) as { force?: unknown });
     const force = body.force === true;
-    const user = c.get("user");
+    const userId = c.get("user").id;
     const now = nowIso();
 
-    // Two independent axes: a user request is scoped to that user's
-    // subscriptions (system/cron auth covers every feed), and a non-forced
-    // request additionally honours the per-feed cooldown.
-    const joins: string[] = [];
-    const conditions = ["f.status = 'active'"];
-    const binds: unknown[] = [];
-    if (user) {
-      joins.push("JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?");
-      binds.push(user.id);
-    }
-    if (!force) {
-      joins.push("LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id");
-      conditions.push("(fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?)");
-      binds.push(now);
-    }
+    // Read the user's active feeds once: the same rows decide what to enqueue
+    // and how many were skipped by the per-feed cooldown (ignored by force)
+    // or by a fetch that is already in flight.
+    const { results } = await c.env.DB.prepare(
+      `SELECT f.id,
+              (fs.next_fetch_after IS NULL OR fs.next_fetch_after <= ?) AS due,
+              fj.status AS fetch_status, fj.updated_at AS fetch_updated_at
+       FROM subscriptions s
+       JOIN feeds f ON f.id = s.feed_id
+       LEFT JOIN feed_fetch_states fs ON fs.feed_id = f.id
+       LEFT JOIN feed_jobs fj ON fj.feed_id = f.id AND fj.user_id = s.user_id
+       WHERE s.user_id = ? AND f.status = 'active'`,
+    )
+      .bind(now, userId)
+      .all<{ id: number; due: number; fetch_status: string | null; fetch_updated_at: string | null }>();
 
-    if (user) {
-      joins.push("LEFT JOIN feed_jobs fj ON fj.feed_id = f.id AND fj.user_id = ?");
-      binds.push(user.id);
-    }
-
-    const jobColumns = user
-      ? "fj.status AS fetch_status, fj.updated_at AS fetch_updated_at"
-      : "NULL AS fetch_status, NULL AS fetch_updated_at";
-    const { results } = await c.env.DB
-      .prepare(`SELECT f.id, ${jobColumns}
-                FROM feeds f ${joins.join(" ")} WHERE ${conditions.join(" AND ")} LIMIT 200`)
-      .bind(...binds)
-      .all<{ id: number; fetch_status: string | null; fetch_updated_at: string | null }>();
-
-    const queueRows = results.filter((row) =>
-      !user || shouldEnqueueFeedJob(row.fetch_status, row.fetch_updated_at),
-    );
-    if (user) await upsertFeedJobs(c.env.DB, user.id, queueRows.map((row) => row.id));
+    const queueRows = results
+      .filter((row) => (force || row.due === 1) && shouldEnqueueFeedJob(row.fetch_status, row.fetch_updated_at))
+      .slice(0, 200);
+    await upsertFeedJobs(c.env.DB, userId, queueRows.map((row) => row.id));
     const messages: Array<{ body: JobMessage }> = queueRows.map((row) => ({
       body: { jobType: "fetch_feed", feedId: row.id, reason: "refresh", attempt: 1 },
     }));
@@ -200,19 +164,9 @@ export const statusRoutes = new Hono<OpsContext>()
       await c.env.JOBS.sendBatch(messages.slice(i, i + 100));
     }
 
-    // surface how many active feeds were skipped by the fetch cooldown so
-    // clients can explain a no-op refresh instead of failing silently
-    let skipped = 0;
-    if (!force) {
-      const scope = user ? "JOIN subscriptions s ON s.feed_id = f.id AND s.user_id = ?" : "";
-      const active = await c.env.DB
-        .prepare(`SELECT COUNT(*) AS n FROM feeds f ${scope} WHERE f.status = 'active'`)
-        .bind(...(user ? [user.id] : []))
-        .first<{ n: number }>();
-      skipped = Math.max((active?.n ?? 0) - queueRows.length, 0);
-    }
-
-    if (force && user) skipped = Math.max(results.length - queueRows.length, 0);
+    // Surface how many active feeds were not enqueued so clients can explain
+    // a no-op refresh instead of failing silently.
+    const skipped = results.length - queueRows.length;
     return c.json({ data: { accepted: true, enqueued: queueRows.length, skipped, queuedAt: now } }, 202);
   })
   .post("/refresh/:feedId", async (c) => {

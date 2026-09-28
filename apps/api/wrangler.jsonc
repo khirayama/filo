@@ -98,5 +98,4 @@
   }
   // Secrets (set via `wrangler secret put`):
   //   CURSOR_SECRET       - HMAC key for tamper-evident pagination cursors
-  //   CRON_SECRET         - Bearer token for internal cron → API calls
 }

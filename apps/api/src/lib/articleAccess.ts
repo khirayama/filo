@@ -5,15 +5,6 @@ import { recordD1Meta } from "./observability";
 export interface ArticleRow {
   id: number;
   feed_id: number;
-  guid: string | null;
-  canonical_url: string | null;
-  title: string;
-  author: string | null;
-  rss_summary: string | null;
-  rss_content_html: string | null;
-  source_language: string | null;
-  published_at: string | null;
-  fetched_at: string;
 }
 
 export interface ArticleAccess {
@@ -23,7 +14,8 @@ export interface ArticleAccess {
 }
 
 export async function requireArticleAccess(db: D1Database, userId: number, articleId: number): Promise<ArticleAccess> {
-  const article = await db.prepare("SELECT * FROM articles WHERE id = ?").bind(articleId).first<ArticleRow>();
+  // Access only needs the owning feed; the article body is not read here.
+  const article = await db.prepare("SELECT id, feed_id FROM articles WHERE id = ?").bind(articleId).first<ArticleRow>();
   if (!article) throw errors.notFound("article_not_found", "Article not found");
 
   const subscription = await db

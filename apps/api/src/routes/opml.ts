@@ -4,7 +4,9 @@ import { errors } from "../lib/errors";
 import { buildOpml, type OpmlExportEntry } from "../lib/opml";
 import { nowIso, toIso } from "../lib/util";
 
-const MAX_OPML_BYTES = 5 * 1024 * 1024;
+// The file is held in a D1 row until the worker parses it, and D1 caps a
+// single value at 2MB. 2000 outlines fit comfortably within 1MB.
+const MAX_OPML_BYTES = 1024 * 1024;
 
 interface OpmlJobRow {
   id: number;
@@ -55,7 +57,7 @@ export const opmlRoutes = new Hono<AppContext>()
     if (!form) throw errors.validation("invalid form data");
     const file = form.get("file") as unknown;
     if (!(file instanceof File)) throw errors.validation("file field is required");
-    if (file.size > MAX_OPML_BYTES) throw errors.tooLarge("OPML file exceeds 5MB");
+    if (file.size > MAX_OPML_BYTES) throw errors.tooLarge("OPML file exceeds 1MB");
     const xml = await file.text();
 
     const now = nowIso();

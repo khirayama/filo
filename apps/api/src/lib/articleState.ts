@@ -1,4 +1,4 @@
-import { adjustArticleUnreadMutations, adjustReadingListUnreadMutation } from "./readCursor";
+import { readingListMembershipCounterMutation, readStateCounterMutations } from "./readCursor";
 import type { ArticleStateRow } from "./serialize";
 import { nowIso } from "./util";
 
@@ -99,13 +99,11 @@ export async function setArticleCollection(
   const currentMembership = kind === "reading_list" ? before.in_reading_list : before.is_bookmarked;
   if (currentMembership === (active ? 1 : 0)) return before;
 
-  const mutations = [collectionMutation(db, userId, articleId, kind, active, now)];
-  if (kind === "reading_list" && before.is_read === 0) {
-    const membershipDelta = active
-      ? 1
-      : -1;
-    mutations.push(adjustReadingListUnreadMutation(db, userId, membershipDelta, now));
-  }
+  // The counter statement runs first so it sees the membership before the change.
+  const mutations = kind === "reading_list"
+    ? [readingListMembershipCounterMutation(db, userId, articleId, active, now)]
+    : [];
+  mutations.push(collectionMutation(db, userId, articleId, kind, active, now));
   await db.batch(mutations);
   return {
     ...before,
@@ -127,11 +125,11 @@ export async function setArticleReadState(
   const nextRead = isRead ? 1 : 0;
   if (nextRead === before.is_read) return before;
 
-  const delta = nextRead === 1 ? -1 : 1;
   const now = nowIso();
+  // The counter statements run first so they see the state before the change.
   await db.batch([
+    ...readStateCounterMutations(db, userId, articleId, feedId, isRead, now),
     readStateMutation(db, userId, articleId, isRead, now),
-    ...adjustArticleUnreadMutations(db, userId, feedId, before.in_reading_list === 1, delta, now),
   ]);
   return { ...before, is_read: nextRead };
 }
