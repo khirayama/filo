@@ -3,7 +3,8 @@ import { authClient } from "../auth-client";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { DeletionStatus } from "../api/types";
-import { Badge, InlineButton, Spinner, pageStyle, palette, sectionStyle, shellStyle } from "../components/ui";
+import { Badge, Button, Spinner, palette } from "../components/ui";
+import { Brand } from "../components/Brand";
 import { useAppData } from "../components/AppDataContext";
 
 export function AccountDeletionPage() {
@@ -39,35 +40,36 @@ export function AccountDeletionPage() {
   }, [api, signOut]);
 
   return (
-    <main style={pageStyle}>
-      <section style={shellStyle}>
-        <h1>{t("アカウント削除")}</h1>
-        <section style={sectionStyle}>
+    <main style={{ padding: "48px var(--fl-page-gutter)" }}>
+      <section style={{ display: "grid", gap: "20px", margin: "0 auto", maxWidth: "560px" }}>
+        <Brand size={28} />
+        <h1 style={{ fontSize: "22px", margin: 0 }}>{t("アカウント削除")}</h1>
+        <section className="fl-card" style={{ display: "grid", gap: "12px", justifyItems: "start", lineHeight: 1.6, padding: "20px" }}>
           {!status ? (
             <Spinner label={t("状態を確認しています…")} />
           ) : status.status === "completed" ? (
             <>
               <Badge tone="ok">{t("削除完了")}</Badge>
-              <p>{t("アカウントの削除が完了しました。ご利用ありがとうございました。")}</p>
-              <p style={{ color: palette.muted, fontSize: "13px" }}>
+              <p style={{ margin: 0 }}>{t("アカウントの削除が完了しました。ご利用ありがとうございました。")}</p>
+              <p style={{ color: palette.muted, fontSize: "13px", margin: 0 }}>
                 {t("再ログインしてもデータは復元されません。")}
               </p>
             </>
           ) : status.status === "failed" ? (
             <>
               <Badge tone="danger">{t("削除処理に失敗しました")}</Badge>
-              <p>{t("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。")}</p>
+              <p style={{ margin: 0 }}>{t("削除処理は自動的に再試行されます。時間をおいてもこの状態が続く場合はお問い合わせください。")}</p>
             </>
           ) : status.status === "none" ? (
             <>
-              <p>{t("進行中の削除処理はありません。")}</p>
-              <InlineButton onClick={() => navigate("/settings")}>{t("設定へ戻る")}</InlineButton>
+              <p style={{ margin: 0 }}>{t("進行中の削除処理はありません。")}</p>
+              <Button small onClick={() => navigate("/settings")}>{t("設定へ戻る")}</Button>
             </>
           ) : (
             <>
               <Badge>{t("削除処理中（{status}）…", { status: t(status.status === "pending" ? "待機中" : "実行中") })}</Badge>
-              <p>{t("アカウントとデータを削除しています。このまましばらくお待ちください。")}</p>
-              <p style={{ color: palette.muted, fontSize: "13px" }}>
+              <p style={{ margin: 0 }}>{t("アカウントとデータを削除しています。このまましばらくお待ちください。")}</p>
+              <p style={{ color: palette.muted, fontSize: "13px", margin: 0 }}>
                 {t("この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。")}
               </p>
             </>

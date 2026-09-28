@@ -34,7 +34,6 @@ export function AuthPage({ mode }: { mode: "sign-in" | "sign-up" }) {
   return (
     <form className="auth-form" onSubmit={submit}>
       <div className="auth-heading">
-        <p className="auth-kicker">{mode === "sign-in" ? t("サインイン") : t("アカウント作成")}</p>
         <h1>{mode === "sign-in" ? t("サインイン") : t("アカウント作成")}</h1>
         <p>{t("URLをリーディングリストに保存します。")}</p>
       </div>
@@ -94,7 +93,6 @@ export function ForgotPasswordPage() {
     return (
       <section className="auth-form auth-form-status">
         <div className="auth-heading">
-          <p className="auth-kicker">{t("送信中…")}</p>
           <h1>{t("メールを確認してください")}</h1>
         </div>
         <p className="auth-status" role="status">{t("パスワードリセット用のメールを送信しました。メール内のリンクを開いて新しいパスワードを設定してください。")}</p>
@@ -106,7 +104,6 @@ export function ForgotPasswordPage() {
   return (
     <form className="auth-form" onSubmit={submit}>
       <div className="auth-heading">
-        <p className="auth-kicker">{t("パスワードをリセット")}</p>
         <h1>{t("パスワードをリセット")}</h1>
         <p>{t("登録済みのメールアドレスにパスワードリセット用のリンクを送信します。")}</p>
       </div>

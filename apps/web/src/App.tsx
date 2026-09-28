@@ -36,14 +36,13 @@ function AuthLayout({ children }: { children: ReactNode }) {
             <span className="auth-story-status">FILO READER</span>
           </div>
           <div className="auth-story-copy">
-            <p className="auth-kicker">{t("リーディングリスト")}</p>
             <h2>{t("リーディングリスト")}</h2>
             <p className="auth-story-description">
               {t("URLをリーディングリストに保存します。")}
             </p>
           </div>
           <div className="auth-story-pills" aria-hidden="true">
-            <span>{t("リーディングリスト")}</span>
+            <span>RSS</span>
             <span>{t("読み上げ")}</span>
             <span>{t("翻訳")}</span>
           </div>

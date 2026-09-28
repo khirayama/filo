@@ -4,7 +4,7 @@ import type { Subscription } from "../api/types";
 import { groupSubscriptionsByTag } from "../lib/grouping";
 import { useAppData } from "./AppDataContext";
 import { Brand } from "./Brand";
-import { Icon, IconButton, palette } from "./ui";
+import { Icon, IconButton, MenuItem, usePopover, type IconName } from "./ui";
 
 export const SIDEBAR_WIDTH = 280;
 const DESKTOP_QUERY = "(min-width: 1024px)";
@@ -26,7 +26,20 @@ function isDrawerHistoryEntry(location: ReturnType<typeof useLocation>): boolean
 
 const DRAWER_ANIMATION_MS = 200;
 
-export function AppShell({ children, mobileHeaderContent }: { children: ReactNode; mobileHeaderContent?: ReactNode }) {
+// Every signed-in screen shares one header: an optional back button (task
+// screens), the title, and trailing actions. On mobile the header is the app
+// bar itself, led by the menu button unless the screen has a back button.
+export function AppShell({
+  title,
+  onBack,
+  actions,
+  children,
+}: {
+  title: ReactNode;
+  onBack?: () => void;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
   const { t } = useAppData();
   const isDesktop = useIsDesktop();
   const location = useLocation();
@@ -103,19 +116,40 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [drawerMounted, drawerShown]);
 
+  const lead = onBack ? (
+    <IconButton icon="back" label={t("戻る")} onClick={onBack} />
+  ) : !isDesktop ? (
+    <IconButton
+      icon="menu"
+      label={t("メニュー")}
+      ariaExpanded={drawerRequested}
+      ariaHaspopup="dialog"
+      ariaControls="filo-mobile-drawer"
+      onClick={openDrawer}
+    />
+  ) : null;
+
+  const header = (
+    <header data-filo-page-header="true" className={`fl-page-header${lead ? " fl-page-header--with-lead" : ""}`}>
+      {lead}
+      <div className="fl-page-header-title" style={lead ? { marginLeft: "4px" } : undefined}>
+        <h1>{title}</h1>
+      </div>
+      {actions ? <div className="fl-page-header-actions">{actions}</div> : null}
+    </header>
+  );
+
   if (isDesktop) {
     return (
-      <div style={{ color: palette.text, fontFamily: "system-ui, sans-serif", minHeight: "100vh" }}>
+      <div style={{ minHeight: "100vh" }}>
         <aside
           aria-label={t("サイドバー")}
+          className="fl-sidebar"
           style={{
             bottom: 0,
-            borderRight: `1px solid ${palette.mutedBorder}`,
-            boxSizing: "border-box",
             left: 0,
-            height: "100vh",
             overflowY: "auto",
-            padding: "16px 12px",
+            padding: "12px",
             position: "fixed",
             top: 0,
             width: `${SIDEBAR_WIDTH}px`,
@@ -129,11 +163,11 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
           style={{
             height: "100vh",
             marginLeft: `${SIDEBAR_WIDTH}px`,
-            minHeight: "100vh",
             minWidth: 0,
             overflowY: "auto",
           }}
         >
+          {header}
           {children}
         </div>
       </div>
@@ -141,38 +175,8 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
   }
 
   return (
-    <div style={{ color: palette.text, fontFamily: "system-ui, sans-serif", minHeight: "100vh" }}>
-      <header
-        style={{
-          alignItems: "center",
-          background: palette.surface,
-          borderBottom: `1px solid ${palette.mutedBorder}`,
-          display: "flex",
-          gap: "8px",
-          padding: "8px 12px",
-          position: "sticky",
-          top: 0,
-          zIndex: 20,
-        }}
-      >
-        <IconButton
-          icon="menu"
-          label={t("メニュー")}
-          size={20}
-          ariaExpanded={drawerRequested}
-          ariaHaspopup="dialog"
-          ariaControls="filo-mobile-drawer"
-          onClick={openDrawer}
-        />
-        {mobileHeaderContent ?? (
-          <Link
-            to="/articles"
-            style={{ alignItems: "center", color: "inherit", display: "inline-flex", fontWeight: 700, textDecoration: "none" }}
-          >
-            <Brand size={24} />
-          </Link>
-        )}
-      </header>
+    <div style={{ minHeight: "100vh" }}>
+      {header}
       {drawerMounted ? (
         <div
           id="filo-mobile-drawer"
@@ -186,7 +190,7 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
             onClick={closeDrawer}
             data-filo-drawer-scrim="true"
             style={{
-              background: palette.scrim,
+              background: "var(--fl-scrim)",
               inset: 0,
               opacity: drawerShown ? 1 : 0,
               position: "absolute",
@@ -196,24 +200,21 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
           <aside
             aria-label={t("サイドバー")}
             data-filo-drawer-panel="true"
+            className="fl-sidebar"
             style={{
-              background: palette.surface,
               bottom: 0,
-              boxSizing: "border-box",
+              boxShadow: "0 0 32px var(--fl-shadow)",
               left: 0,
               overflowY: "auto",
-              padding: "16px 12px",
+              padding: "8px 12px 24px",
               position: "absolute",
               top: 0,
               transform: drawerShown ? "translateX(0)" : "translateX(-100%)",
               transition: `transform ${DRAWER_ANIMATION_MS}ms var(--fl-ease-drawer)`,
-              width: "100vw",
+              width: "100%",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <IconButton icon="close" label={t("閉じる")} onClick={closeDrawer} />
-            </div>
-            <SidebarNav />
+            <SidebarNav trailing={<IconButton icon="close" label={t("閉じる")} onClick={closeDrawer} />} />
           </aside>
         </div>
       ) : null}
@@ -222,8 +223,35 @@ export function AppShell({ children, mobileHeaderContent }: { children: ReactNod
   );
 }
 
-function SidebarNav() {
+function AddMenu() {
   const navigate = useNavigate();
+  const { t } = useAppData();
+  const { open, setOpen, ref } = usePopover();
+  const go = (to: string) => {
+    setOpen(false);
+    navigate(to);
+  };
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <IconButton
+        icon="plus"
+        label={t("追加")}
+        ariaExpanded={open}
+        ariaHaspopup="menu"
+        ariaControls="filo-add-menu"
+        onClick={() => setOpen((value) => !value)}
+      />
+      {open ? (
+        <div id="filo-add-menu" role="menu" aria-label={t("追加")} className="fl-menu" style={{ minWidth: "200px" }}>
+          <MenuItem role="menuitem" icon="rss" label={t("フィードを追加")} onClick={() => go("/feeds/new")} />
+          <MenuItem role="menuitem" icon="playlist" label={t("記事を追加")} onClick={() => go("/articles/new")} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SidebarNav({ trailing }: { trailing?: ReactNode }) {
   const { tags, subscriptions, unreadCounts, t } = useAppData();
   const [expandedTags, setExpandedTags] = useState<Set<number | "untagged">>(new Set());
 
@@ -237,109 +265,55 @@ function SidebarNav() {
   };
 
   const groups = groupSubscriptionsByTag(tags, subscriptions);
-  const navigateFromSidebar = (to: string) => navigate(to);
 
   return (
-    <nav aria-label={t("メインナビゲーション")} style={{ display: "grid", gap: "2px", fontSize: "14px", minWidth: 0, overflow: "hidden" }}>
-      <Link
-        to="/articles"
-        style={{ color: "inherit", fontSize: "18px", fontWeight: 700, padding: "4px 8px 12px", textDecoration: "none" }}
-      >
-        <Brand size={32} />
-      </Link>
-      <button
-        type="button"
-        onClick={() => navigateFromSidebar("/feeds/new")}
-        style={{
-          alignItems: "center",
-          background: palette.accent,
-          border: "none",
-          borderRadius: "6px",
-          color: palette.onAccent,
-          cursor: "pointer",
-          display: "flex",
-          fontSize: "14px",
-          fontWeight: 600,
-          gap: "8px",
-          justifyContent: "center",
-          marginBottom: "12px",
-          padding: "10px 12px",
-        }}
-      >
-        <Icon name="plus" size={16} />
-        {t("フィードを追加")}
-      </button>
-      <button
-        type="button"
-        onClick={() => navigateFromSidebar("/articles/new")}
-        style={{
-          alignItems: "center",
-          background: "transparent",
-          border: `1px solid ${palette.border}`,
-          borderRadius: "6px",
-          color: palette.text,
-          cursor: "pointer",
-          display: "flex",
-          fontSize: "14px",
-          gap: "8px",
-          justifyContent: "center",
-          marginBottom: "12px",
-          padding: "9px 12px",
-        }}
-      >
-        <Icon name="plus" size={16} />
-        {t("記事を追加")}
-      </button>
-      <SidebarLink to="/articles" icon="list" label={t("全ての記事")} count={unreadCounts.allArticles > 0 ? unreadCounts.allArticles : undefined} />
-      <SidebarLink to="/articles?readingList=1" icon="queueAdd" label={t("リーディングリスト")} count={unreadCounts.readingList > 0 ? unreadCounts.readingList : undefined} />
+    <nav aria-label={t("メインナビゲーション")} className="fl-nav">
+      <div style={{ alignItems: "center", display: "flex", gap: "4px", margin: "0 0 12px", minHeight: "40px" }}>
+        <Link
+          to="/articles"
+          style={{ color: "inherit", flex: 1, fontSize: "17px", fontWeight: 700, padding: "0 6px", textDecoration: "none" }}
+        >
+          <Brand size={26} />
+        </Link>
+        <AddMenu />
+        {trailing}
+      </div>
+      <SidebarLink to="/articles" icon="inbox" label={t("全ての記事")} count={unreadCounts.allArticles} />
+      <SidebarLink to="/articles?readingList=1" icon="playlist" label={t("リーディングリスト")} count={unreadCounts.readingList} />
       <SidebarLink to="/articles?bookmarked=1" icon="bookmark" label={t("ブックマーク")} />
 
-      <p
-        style={{
-          color: palette.muted,
-          fontSize: "11px",
-          fontWeight: 700,
-          letterSpacing: "0.08em",
-          margin: "16px 8px 4px",
-          textTransform: "uppercase",
-        }}
-      >
-        {t("フィード")}
-      </p>
+      <p className="fl-nav-section">{t("フィード")}</p>
       {groups.map((group) => {
-        const unreadCount = group.items.reduce((total, subscription) => total + subscription.unreadCount, 0);
         if (group.items.length === 0 && group.key === "untagged") return null;
+        const unreadCount = group.items.reduce((total, subscription) => total + subscription.unreadCount, 0);
+        const label = group.key === "untagged" ? t("タグなし") : group.label;
+        const expanded = expandedTags.has(group.key);
+        const groupId = `filo-sidebar-group-${String(group.key)}`;
         return (
           <div key={String(group.key)}>
-            <div style={{ alignItems: "center", display: "flex" }}>
-              {(() => {
-                const groupId = `filo-sidebar-group-${String(group.key)}`;
-                return (
-                  <IconButton
-                    icon={expandedTags.has(group.key) ? "chevronDown" : "chevronRight"}
-                    label={`${group.key === "untagged" ? t("タグなし") : group.label}: ${expandedTags.has(group.key) ? t("折りたたむ") : t("展開")}`}
-                    size={14}
-                    ariaExpanded={expandedTags.has(group.key)}
-                    ariaControls={groupId}
-                    onClick={() => toggleExpand(group.key)}
-                  />
-                );
-              })()}
+            <div className="fl-nav-group">
+              <button
+                type="button"
+                className="fl-nav-disclosure"
+                aria-label={`${label}: ${expanded ? t("折りたたむ") : t("展開")}`}
+                title={`${label}: ${expanded ? t("折りたたむ") : t("展開")}`}
+                aria-expanded={expanded}
+                aria-controls={groupId}
+                onClick={() => toggleExpand(group.key)}
+              >
+                <Icon name={expanded ? "chevronDown" : "chevronRight"} size={14} />
+              </button>
               {group.tag !== undefined ? (
-                <SidebarRowLink
-                  to={`/articles?tagId=${group.tag.id}`}
-                  label={group.key === "untagged" ? t("タグなし") : group.label}
-                  count={unreadCount > 0 ? unreadCount : undefined}
-                />
+                <SidebarRowLink to={`/articles?tagId=${group.tag.id}`} label={label} count={unreadCount} />
               ) : (
-                <span style={{ ...sidebarRowStyle, color: palette.muted }}>
-                  <span style={ellipsisStyle}>{group.key === "untagged" ? t("タグなし") : group.label}</span>
-                  {unreadCount > 0 ? <span style={countStyle}>{unreadCount}</span> : null}
+                <span className="fl-nav-row" style={{ color: "var(--fl-muted)" }}>
+                  <span className="fl-nav-label">{label}</span>
+                  {unreadCount > 0 ? <span className="fl-nav-count">{unreadCount}</span> : null}
                 </span>
               )}
             </div>
-            {expandedTags.has(group.key) ? (
-              <div id={`filo-sidebar-group-${String(group.key)}`}>
+            {expanded ? (
+              <div id={groupId} className="fl-nav-children">
                 {group.items.map((subscription) => (
                   <SubscriptionLink key={subscription.id} subscription={subscription} />
                 ))}
@@ -349,40 +323,15 @@ function SidebarNav() {
         );
       })}
 
-      <div style={{ borderTop: `1px solid ${palette.mutedBorder}`, marginTop: "16px", paddingTop: "8px" }}>
-        <SidebarLink to="/subscriptions" icon="list" label={t("購読管理")} />
+      <div style={{ borderTop: "1px solid var(--fl-muted-border)", display: "grid", gap: "1px", marginTop: "16px", paddingTop: "12px" }}>
+        <SidebarLink to="/subscriptions" icon="rss" label={t("購読管理")} />
         <SidebarLink to="/tags" icon="tag" label={t("タグ管理")} />
-        <SidebarLink to="/status" icon="refresh" label={t("処理ステータス")} />
+        <SidebarLink to="/status" icon="activity" label={t("処理ステータス")} />
         <SidebarLink to="/settings" icon="gear" label={t("設定")} />
       </div>
     </nav>
   );
 }
-
-const sidebarRowStyle = {
-  alignItems: "center",
-  borderRadius: "6px",
-  color: "inherit",
-  display: "flex",
-  flex: 1,
-  gap: "8px",
-  minWidth: 0,
-  padding: "6px 8px",
-  textDecoration: "none",
-} as const;
-
-const ellipsisStyle = {
-  flex: 1,
-  minWidth: 0,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-} as const;
-
-const countStyle = {
-  color: palette.muted,
-  fontSize: "12px",
-} as const;
 
 function useIsActive(to: string): boolean {
   const location = useLocation();
@@ -394,21 +343,13 @@ function useIsActive(to: string): boolean {
   return keys.every((key) => (target.get(key) ?? null) === (searchParams.get(key) ?? null));
 }
 
-function SidebarLink({ to, icon, label, count }: { to: string; icon: Parameters<typeof Icon>[0]["name"]; label: string; count?: number }) {
+function SidebarLink({ to, icon, label, count }: { to: string; icon: IconName; label: string; count?: number }) {
   const active = useIsActive(to);
   return (
-    <Link
-      to={to}
-      aria-current={active ? "page" : undefined}
-      style={{
-        ...sidebarRowStyle,
-        background: active ? palette.mutedBorder : "transparent",
-        fontWeight: active ? 600 : 400,
-      }}
-    >
-      <Icon name={icon} size={16} />
-      <span style={ellipsisStyle}>{label}</span>
-      {count !== undefined ? <span style={countStyle}>{count}</span> : null}
+    <Link to={to} aria-current={active ? "page" : undefined} className="fl-nav-row">
+      <span className="fl-nav-icon"><Icon name={icon} size={16} /></span>
+      <span className="fl-nav-label">{label}</span>
+      {count ? <span className="fl-nav-count">{count}</span> : null}
     </Link>
   );
 }
@@ -416,17 +357,9 @@ function SidebarLink({ to, icon, label, count }: { to: string; icon: Parameters<
 function SidebarRowLink({ to, label, count }: { to: string; label: string; count?: number }) {
   const active = useIsActive(to);
   return (
-    <Link
-      to={to}
-      aria-current={active ? "page" : undefined}
-      style={{
-        ...sidebarRowStyle,
-        background: active ? palette.mutedBorder : "transparent",
-        fontWeight: active ? 600 : 400,
-      }}
-    >
-      <span style={ellipsisStyle}>{label}</span>
-      {count !== undefined ? <span style={countStyle}>{count}</span> : null}
+    <Link to={to} aria-current={active ? "page" : undefined} className="fl-nav-row">
+      <span className="fl-nav-label">{label}</span>
+      {count ? <span className="fl-nav-count">{count}</span> : null}
     </Link>
   );
 }
@@ -444,37 +377,12 @@ function SubscriptionLink({ subscription }: { subscription: Subscription }) {
       to={`/subscriptions/${subscription.id}`}
       aria-current={active ? "page" : undefined}
       title={unhealthy ? `${title}（${t("更新異常")}）` : stale ? `${title}（${t("しばらく更新なし")}）` : title}
-      style={{
-        ...sidebarRowStyle,
-        background: active ? palette.mutedBorder : "transparent",
-        fontWeight: active ? 600 : 400,
-        marginLeft: "28px",
-        opacity: stale ? 0.7 : 1,
-      }}
+      className="fl-nav-row"
+      data-stale={stale}
     >
-      {subscription.feed.faviconUrl ? (
-        <img
-          src={subscription.feed.faviconUrl}
-          alt=""
-          width={16}
-          height={16}
-          style={{ borderRadius: "3px", flexShrink: 0 }}
-        />
-      ) : (
-        <span
-          style={{
-            background: palette.mutedBorder,
-            borderRadius: "3px",
-            display: "inline-block",
-            flexShrink: 0,
-            height: "16px",
-            width: "16px",
-          }}
-        />
-      )}
-      <span style={ellipsisStyle}>{title}</span>
-      {unhealthy ? <span style={{ color: palette.danger, fontSize: "12px" }}>!</span> : null}
-      {subscription.unreadCount > 0 ? <span style={countStyle}>{subscription.unreadCount}</span> : null}
+      <span className="fl-nav-label">{title}</span>
+      {unhealthy ? <span className="fl-nav-alert" aria-label={t("更新異常")} /> : null}
+      {subscription.unreadCount > 0 ? <span className="fl-nav-count">{subscription.unreadCount}</span> : null}
     </Link>
   );
 }

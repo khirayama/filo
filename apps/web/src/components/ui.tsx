@@ -1,4 +1,4 @@
-import { useEffect, useRef, type AriaAttributes, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type AriaAttributes, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Icon, type IconName } from "./icons";
 import { useAppData } from "./AppDataContext";
 
@@ -39,6 +39,33 @@ export function useDialogFocus(open: boolean, containerId: string, onClose: () =
   }, [containerId, onClose, open]);
 }
 
+// Popovers close on Escape and on a pointer press outside their anchor.
+export function usePopover(): { open: boolean; setOpen: (open: boolean | ((current: boolean) => boolean)) => void; ref: RefObject<HTMLDivElement | null> } {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [open]);
+
+  return { open, setOpen, ref };
+}
+
 // All colors resolve to CSS variables declared in global.css so that the
 // light/dark theme (settings.theme) applies to every inline style.
 export const palette = {
@@ -51,47 +78,12 @@ export const palette = {
   danger: "var(--fl-danger)",
   dangerBg: "var(--fl-danger-bg)",
   accent: "var(--fl-accent)",
-  onAccent: "var(--fl-on-accent)",
   star: "var(--fl-star)",
   ok: "var(--fl-ok)",
-  okBg: "var(--fl-ok-bg)",
-  okBorder: "var(--fl-ok-border)",
   warn: "var(--fl-warn)",
-  warnBg: "var(--fl-warn-bg)",
-  warnBorder: "var(--fl-warn-border)",
-  hover: "var(--fl-hover)",
-  scrim: "var(--fl-scrim)",
-  shadow: "var(--fl-shadow)",
 };
 
-export const pageStyle: CSSProperties = {
-  color: palette.text,
-  fontFamily: "system-ui, sans-serif",
-  minHeight: "100vh",
-  padding: "24px var(--fl-page-gutter)",
-};
-
-export const shellStyle: CSSProperties = { margin: "0 auto", maxWidth: "720px" };
-
-export const sectionStyle: CSSProperties = {
-  border: `1px solid ${palette.border}`,
-  marginTop: "16px",
-  padding: "16px",
-  borderRadius: "6px",
-};
-
-export const menuStyle: CSSProperties = {
-  background: palette.surface,
-  border: `1px solid ${palette.border}`,
-  borderRadius: "6px",
-  boxShadow: `0 4px 16px ${palette.shadow}`,
-  display: "grid",
-  padding: "4px",
-  position: "absolute",
-  right: 0,
-  top: "calc(100% + 4px)",
-  zIndex: 10,
-};
+type ButtonKind = "primary" | "secondary" | "ghost" | "danger";
 
 export function Button({
   children,
@@ -100,67 +92,33 @@ export function Button({
   kind = "secondary",
   type = "button",
   small,
+  icon,
+  title,
   ariaBusy,
   ariaDescribedBy,
 }: {
   children: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
-  kind?: "primary" | "secondary" | "danger";
+  kind?: ButtonKind;
   type?: "button" | "submit";
   small?: boolean;
+  icon?: IconName;
+  title?: string;
   ariaBusy?: boolean;
   ariaDescribedBy?: string;
 }) {
-  const base: CSSProperties = {
-    border: `1px solid ${kind === "danger" ? palette.danger : palette.text}`,
-    background: kind === "primary" ? palette.text : "transparent",
-    color: kind === "primary" ? palette.bg : kind === "danger" ? palette.danger : palette.text,
-    padding: small ? "4px 10px" : "10px 14px",
-    borderRadius: "6px",
-    cursor: disabled ? "default" : "pointer",
-    opacity: disabled ? 0.5 : 1,
-    fontSize: small ? "13px" : "14px",
-  };
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       aria-busy={ariaBusy}
       aria-describedby={ariaDescribedBy}
-      style={base}
+      className={`fl-btn fl-btn--${kind}${small ? " fl-btn--sm" : ""}`}
     >
-      {children}
-    </button>
-  );
-}
-
-export function InlineButton({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        background: "transparent",
-        border: "none",
-        color: "inherit",
-        cursor: disabled ? "default" : "pointer",
-        opacity: disabled ? 0.5 : 1,
-        padding: 0,
-        textDecoration: "underline",
-        fontSize: "14px",
-      }}
-    >
+      {icon ? <Icon name={icon} size={small ? 14 : 16} /> : null}
       {children}
     </button>
   );
@@ -168,57 +126,44 @@ export function InlineButton({
 
 export function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      style={{
-        background: active ? palette.text : "transparent",
-        border: `1px solid ${palette.border}`,
-        borderRadius: "999px",
-        color: active ? palette.bg : "inherit",
-        cursor: "pointer",
-        fontSize: "13px",
-        padding: "4px 12px",
-      }}
-    >
+    <button type="button" onClick={onClick} aria-pressed={active} className="fl-chip">
       {label}
     </button>
   );
 }
 
-export function MenuItem({ label, onClick, danger, role }: { label: string; onClick: () => void; danger?: boolean; role?: "menuitem" }) {
+export function MenuItem({ label, onClick, danger, icon, role }: { label: string; onClick: () => void; danger?: boolean; icon?: IconName; role?: "menuitem" }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      role={role}
-      style={{
-        background: "transparent",
-        border: "none",
-        borderRadius: "4px",
-        color: danger ? palette.danger : "inherit",
-        cursor: "pointer",
-        fontSize: "14px",
-        padding: "8px 12px",
-        textAlign: "left",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = palette.mutedBorder;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "transparent";
-      }}
-    >
+    <button type="button" onClick={onClick} role={role} className={`fl-menu-item${danger ? " fl-menu-item--danger" : ""}`}>
+      {icon ? <Icon name={icon} size={16} /> : null}
       {label}
     </button>
+  );
+}
+
+export function Switch({ id, checked, onChange, label }: { id?: string; checked: boolean; onChange: (checked: boolean) => void; label?: string }) {
+  return (
+    <button
+      id={id}
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className="fl-switch"
+      onClick={() => onChange(!checked)}
+    />
   );
 }
 
 export function Spinner({ label = "読み込み中…" }: { label?: string }) {
   const { t } = useAppData();
   return (
-    <p role="status" aria-live="polite" style={{ color: palette.muted }}>
+    <p
+      role="status"
+      aria-live="polite"
+      style={{ alignItems: "center", color: palette.muted, display: "flex", fontSize: "13px", gap: "8px", justifyContent: "center", margin: 0, padding: "32px 16px" }}
+    >
+      <span className="fl-spinner" aria-hidden="true" />
       {label === "読み込み中…" ? t(label) : label}
     </p>
   );
@@ -238,48 +183,10 @@ export function BlockingProgress({ message }: { message: string }) {
   }, []);
 
   return (
-    <div
-      ref={containerRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label={message}
-      tabIndex={-1}
-      style={{
-        alignItems: "center",
-        background: palette.scrim,
-        display: "flex",
-        inset: 0,
-        justifyContent: "center",
-        position: "fixed",
-        zIndex: 100,
-      }}
-    >
-      <div
-        role="status"
-        aria-live="polite"
-        style={{
-          alignItems: "center",
-          background: palette.surface,
-          borderRadius: "8px",
-          boxShadow: `0 4px 16px ${palette.shadow}`,
-          color: palette.text,
-          display: "flex",
-          gap: "10px",
-          padding: "14px 16px",
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            border: `3px solid ${palette.mutedBorder}`,
-            borderTopColor: palette.accent,
-            borderRadius: "50%",
-            display: "inline-block",
-            height: "18px",
-            width: "18px",
-          }}
-        />
-        <span>{message}</span>
+    <div ref={containerRef} role="dialog" aria-modal="true" aria-label={message} tabIndex={-1} className="fl-dialog-scrim">
+      <div role="status" aria-live="polite" className="fl-dialog" style={{ alignItems: "center", display: "flex", gap: "12px", maxWidth: "none", padding: "14px 18px", width: "auto" }}>
+        <span className="fl-spinner" aria-hidden="true" />
+        <span style={{ fontSize: "14px" }}>{message}</span>
       </div>
     </div>
   );
@@ -287,29 +194,7 @@ export function BlockingProgress({ message }: { message: string }) {
 
 export function Toast({ message }: { message: string }) {
   return (
-    <p
-      role="status"
-      aria-live="polite"
-      style={{
-        background: palette.surface,
-        border: `1px solid ${palette.okBorder}`,
-        borderRadius: "6px",
-        bottom: "16px",
-        boxShadow: `0 4px 12px ${palette.shadow}`,
-        boxSizing: "border-box",
-        color: palette.text,
-        fontSize: "13px",
-        left: "16px",
-        margin: 0,
-        maxWidth: "480px",
-        padding: "8px 12px",
-        pointerEvents: "none",
-        position: "fixed",
-        right: "16px",
-        width: "calc(100% - 32px)",
-        zIndex: 25,
-      }}
-    >
+    <p role="status" aria-live="polite" className="fl-toast">
       {message}
     </p>
   );
@@ -322,15 +207,16 @@ export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () =
       role="alert"
       aria-live="assertive"
       style={{
-        border: `1px solid ${palette.danger}`,
-        borderRadius: "6px",
-        color: palette.danger,
-        marginTop: "16px",
-        padding: "12px 16px",
-        display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
+        background: palette.dangerBg,
+        borderRadius: "var(--fl-radius)",
+        color: palette.danger,
+        display: "flex",
+        fontSize: "14px",
         gap: "12px",
+        justifyContent: "space-between",
+        lineHeight: 1.5,
+        padding: "10px 12px 10px 16px",
       }}
     >
       <span>{message}</span>
@@ -343,41 +229,42 @@ export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () =
   );
 }
 
-export function EmptyState({ children }: { children: ReactNode }) {
+export function EmptyState({ icon, children }: { icon?: IconName; children: ReactNode }) {
   return (
-    <div
-      style={{
-        border: `1px dashed ${palette.border}`,
-        borderRadius: "6px",
-        color: palette.muted,
-        marginTop: "16px",
-        padding: "32px 16px",
-        textAlign: "center",
-      }}
-    >
+    <div className="fl-empty">
+      {icon ? (
+        <span
+          aria-hidden="true"
+          style={{ alignItems: "center", background: "var(--fl-hover)", borderRadius: "50%", display: "inline-flex", height: "48px", justifyContent: "center", width: "48px" }}
+        >
+          <Icon name={icon} size={22} />
+        </span>
+      ) : null}
       {children}
     </div>
   );
 }
 
-export function Badge({ children, tone = "muted" }: { children: ReactNode; tone?: "muted" | "warn" | "danger" | "ok" }) {
-  const colors: Record<string, string> = {
-    muted: palette.muted,
-    warn: palette.warn,
-    danger: palette.danger,
-    ok: palette.ok,
-  };
+const BADGE_TONES = {
+  muted: { background: "var(--fl-pressed)", color: palette.muted },
+  warn: { background: "var(--fl-warn-bg)", color: palette.warn },
+  danger: { background: palette.dangerBg, color: palette.danger },
+  ok: { background: "var(--fl-ok-bg)", color: palette.ok },
+} as const;
+
+export function Badge({ children, tone = "muted" }: { children: ReactNode; tone?: keyof typeof BADGE_TONES }) {
   return (
-    <span
-      style={{
-        border: `1px solid ${colors[tone]}`,
-        borderRadius: "999px",
-        color: colors[tone],
-        fontSize: "12px",
-        padding: "1px 8px",
-        whiteSpace: "nowrap",
-      }}
-    >
+    <span className="fl-badge" style={BADGE_TONES[tone]}>
+      {children}
+    </span>
+  );
+}
+
+// Inline status text with a leading dot: quieter than a badge, for states that
+// sit inside a row's metadata line.
+export function StatusText({ children, tone = "muted" }: { children: ReactNode; tone?: keyof typeof BADGE_TONES }) {
+  return (
+    <span className="fl-status" style={{ color: BADGE_TONES[tone].color }}>
       {children}
     </span>
   );
@@ -392,6 +279,7 @@ export function IconButton({
   size = 18,
   filled,
   color,
+  danger,
   ariaExpanded,
   ariaHaspopup,
   ariaControls,
@@ -404,10 +292,12 @@ export function IconButton({
   size?: number;
   filled?: boolean;
   color?: string;
+  danger?: boolean;
   ariaExpanded?: boolean;
   ariaHaspopup?: AriaAttributes["aria-haspopup"];
   ariaControls?: string;
 }) {
+  const box = `${size + 14}px`;
   return (
     <button
       type="button"
@@ -423,26 +313,8 @@ export function IconButton({
         onClick?.(e);
       }}
       disabled={disabled}
-      style={{
-        alignItems: "center",
-        background: "transparent",
-        border: "none",
-        borderRadius: "50%",
-        color: color ?? (active ? palette.text : palette.muted),
-        cursor: disabled ? "default" : "pointer",
-        display: "inline-flex",
-        height: `${size + 14}px`,
-        justifyContent: "center",
-        opacity: disabled ? 0.4 : 1,
-        padding: 0,
-        width: `${size + 14}px`,
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = palette.mutedBorder;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "transparent";
-      }}
+      className={`fl-icon-btn${danger ? " fl-icon-btn--danger" : ""}`}
+      style={{ color: color ?? (active ? palette.text : undefined), height: box, width: box }}
     >
       <Icon name={icon} size={size} filled={filled ?? active} />
     </button>

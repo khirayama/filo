@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
-import { AppShell, SIDEBAR_WIDTH, useIsDesktop } from "../components/AppShell";
+import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
-import { BlockingProgress, Button, EmptyState, ErrorBox, FilterChip, IconButton, InlineButton, Spinner, Toast, palette, useDialogFocus } from "../components/ui";
+import { BlockingProgress, Button, EmptyState, ErrorBox, IconButton, Spinner, Toast, useDialogFocus } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { detectReadingExtension, launchReadingExtension } from "../lib/extensionBridge";
 import { errorMessage } from "../lib/messages";
@@ -16,7 +16,7 @@ import { useBackOr } from "../lib/navigation";
 function isArticleVisibleInViewport(articleId: number): boolean {
   const row = document.getElementById(`filo-article-${articleId}`);
   if (!row) return false;
-  const headerBottom = document.querySelector<HTMLElement>(".articles-page > header")?.getBoundingClientRect().bottom ?? 0;
+  const headerBottom = document.querySelector<HTMLElement>("[data-filo-page-header]")?.getBoundingClientRect().bottom ?? 0;
   const rect = row.getBoundingClientRect();
   return rect.bottom > headerBottom && rect.top < window.innerHeight;
 }
@@ -49,7 +49,7 @@ function ArticlesListPage() {
   const api = useApi();
   const { tags, subscriptions, settings, error: sideError, refresh: refreshAppData, refreshUnreadCounts, language, t } = useAppData();
   const goBack = useBackOr("/articles");
-  const { tagId, bookmarkedOnly, readingListOnly, read, sort, readOrder, setRead, setSort, setReadOrder, clearTag } = useArticleFilterParams();
+  const { tagId, bookmarkedOnly, readingListOnly, read, sort, readOrder, setRead, setSort, setReadOrder } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
   const [markAllNotice, setMarkAllNotice] = useState<string | null>(null);
@@ -60,8 +60,6 @@ function ArticlesListPage() {
   const [extensionReady, setExtensionReady] = useState(false);
   const [startingReading, setStartingReading] = useState(false);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
-  const articleHeaderRef = useRef<HTMLElement | null>(null);
-  const [articleHeaderHeight, setArticleHeaderHeight] = useState(0);
   const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
   useDialogFocus(showShortcutHelp, "filo-shortcut-help", closeShortcutHelp);
 
@@ -71,18 +69,11 @@ function ArticlesListPage() {
     return () => window.clearTimeout(timer);
   }, [markAllNotice]);
 
-  useLayoutEffect(() => {
-    const header = articleHeaderRef.current;
-    if (!isDesktop || !header) {
-      setArticleHeaderHeight(0);
-      return;
-    }
-    const updateHeight = () => setArticleHeaderHeight(header.offsetHeight);
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(header);
-    return () => observer.disconnect();
-  }, [isDesktop]);
+  useEffect(() => {
+    if (!refreshNotice) return;
+    const timer = window.setTimeout(() => setRefreshNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [refreshNotice]);
 
   const apiFilters = useMemo(
     () => ({
@@ -112,24 +103,26 @@ function ArticlesListPage() {
   );
 
   const emptyContent = !hasSubscriptions && !hasArticleFilter ? (
-    <EmptyState>
+    <EmptyState icon="rss">
       <p>{t("まだ購読がありません。")}</p>
-      <Link to="/feeds/new" style={{ color: "inherit" }}>
-        {t("フィードを追加")} 
+      <Link to="/feeds/new" className="fl-btn fl-btn--primary">
+        {t("フィードを追加")}
       </Link>
     </EmptyState>
   ) : hasFetchingSubscription ? (
-    <EmptyState>
+    <EmptyState icon="refresh">
       <p>{t("記事を取得しています…")}</p>
-      <InlineButton onClick={() => void list.reload()}>{t("更新")}</InlineButton>
+      <Button onClick={() => void list.reload()}>{t("更新")}</Button>
     </EmptyState>
   ) : readingListOnly ? (
-    <EmptyState>
+    <EmptyState icon="playlist">
       <p>{t("リーディングリストに保存した記事はありません。")}</p>
-      <Link to="/articles" style={{ color: "inherit" }}>{t("全ての記事")}</Link>
+      <Link to="/articles" className="fl-btn fl-btn--secondary">{t("全ての記事")}</Link>
     </EmptyState>
+  ) : bookmarkedOnly ? (
+    <EmptyState icon="bookmark">{t("表示できる記事がありません。")}</EmptyState>
   ) : (
-    <EmptyState>{t("表示できる記事がありません。")}</EmptyState>
+    <EmptyState icon="inbox">{t("表示できる記事がありません。")}</EmptyState>
   );
 
   const selectedTag = tagId !== undefined ? tags.find((t) => t.id === tagId) : undefined;
@@ -318,32 +311,34 @@ function ArticlesListPage() {
     if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "center" });
   }, [activeArticleIndex, list.articles]);
 
-  const renderArticleHeaderContent = () => (
+  const readingDisabled = !extensionReady || startingReading || !readingArticle;
+  const headerActions = (
     <>
-      <h1 style={{ flex: 1, fontSize: "18px", margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {title}
-      </h1>
       {readingListOnly ? (
-        <>
-          <InlineButton
-            disabled={!extensionReady || startingReading || !readingArticle}
-            onClick={() => void startReading(false)}
-          >
-            {t("閲覧開始")}
-          </InlineButton>
-          <InlineButton
-            disabled={!extensionReady || startingReading || !readingArticle}
-            onClick={() => void startReading(true)}
-          >
-            {t("読み上げ開始")}
-          </InlineButton>
-          <IconButton
-            icon="trash"
-            label={t("既読記事を削除")}
-            disabled={removingReadArticles}
-            onClick={() => void removeReadArticles()}
-          />
-        </>
+        isDesktop ? (
+          <>
+            <Button small icon="bookOpen" disabled={readingDisabled} onClick={() => void startReading(false)}>
+              {t("閲覧開始")}
+            </Button>
+            <Button small kind="primary" icon="play" disabled={readingDisabled} onClick={() => void startReading(true)}>
+              {t("読み上げ開始")}
+            </Button>
+            <span aria-hidden="true" style={{ width: "4px" }} />
+          </>
+        ) : (
+          <>
+            <IconButton icon="bookOpen" label={t("閲覧開始")} disabled={readingDisabled} onClick={() => void startReading(false)} />
+            <IconButton icon="play" label={t("読み上げ開始")} disabled={readingDisabled} onClick={() => void startReading(true)} />
+          </>
+        )
+      ) : null}
+      {readingListOnly ? (
+        <IconButton
+          icon="trash"
+          label={t("既読記事を削除")}
+          disabled={removingReadArticles}
+          onClick={() => void removeReadArticles()}
+        />
       ) : null}
       {!bookmarkedOnly && !readingListOnly ? (
         <IconButton icon="checkCircle" label={t("すべて既読にする")} disabled={markingAllRead} onClick={() => void markAllRead()} />
@@ -362,64 +357,15 @@ function ArticlesListPage() {
   );
 
   return (
-    <AppShell mobileHeaderContent={isDesktop ? undefined : renderArticleHeaderContent()}>
-      <main className="articles-page" aria-busy={markingAllRead} style={{ padding: "0 0 16px", ...(isDesktop ? { paddingTop: `${articleHeaderHeight}px` } : {}) }}>
-        {isDesktop ? (
-          <header
-            ref={articleHeaderRef}
-            style={{
-              alignItems: "center",
-              borderBottom: `1px solid ${palette.mutedBorder}`,
-              display: "flex",
-              gap: "8px",
-              padding: "8px 16px",
-              position: "fixed",
-              left: `${SIDEBAR_WIDTH}px`,
-              right: 0,
-              top: 0,
-              zIndex: 10,
-              background: palette.bg,
-            }}
-          >
-            {renderArticleHeaderContent()}
-          </header>
-        ) : null}
-
-        {selectedTag ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "12px 16px 4px" }}>
-            <FilterChip label={t("タグ: {name} ✕", { name: selectedTag.name })} active onClick={clearTag} />
+    <AppShell title={title} actions={headerActions}>
+      <main className="articles-page" aria-busy={markingAllRead} style={{ paddingBottom: "32px" }}>
+        {sideError || markAllError ? (
+          <div style={{ display: "grid", gap: "8px", padding: "16px var(--fl-page-gutter) 0" }}>
+            {sideError ? <ErrorBox message={sideError} /> : null}
+            {markAllError ? <ErrorBox message={markAllError} /> : null}
           </div>
         ) : null}
-
-        {sideError ? <ErrorBox message={sideError} /> : null}
-        {markAllError ? <ErrorBox message={markAllError} /> : null}
-        {refreshNotice ? (
-          <p
-            role="status"
-            aria-live="polite"
-            style={{
-              background: palette.surface,
-              border: `1px solid ${palette.mutedBorder}`,
-              borderRadius: "6px",
-              bottom: "16px",
-              boxShadow: `0 4px 12px ${palette.shadow}`,
-              boxSizing: "border-box",
-              color: palette.muted,
-              fontSize: "13px",
-              left: isDesktop ? `${SIDEBAR_WIDTH + 16}px` : "16px",
-              margin: 0,
-              maxWidth: "480px",
-              padding: "8px 12px",
-              pointerEvents: "none",
-              position: "fixed",
-              right: "16px",
-              width: "calc(100% - 32px)",
-              zIndex: 15,
-            }}
-          >
-            {refreshNotice}
-          </p>
-        ) : null}
+        {refreshNotice ? <Toast message={refreshNotice} /> : null}
         {list.loading && list.articles.length === 0 ? (
           <Spinner />
         ) : (
@@ -446,12 +392,14 @@ function ArticlesListPage() {
           aria-modal="true"
           aria-labelledby="filo-shortcut-help-title"
           onClick={() => setShowShortcutHelp(false)}
-          style={{ alignItems: "center", background: "rgba(0,0,0,0.35)", display: "flex", inset: 0, justifyContent: "center", position: "fixed", zIndex: 100 }}
+          className="fl-dialog-scrim"
         >
-          <section onClick={(event) => event.stopPropagation()} style={{ background: palette.surface, borderRadius: "8px", maxWidth: "360px", padding: "20px", width: "calc(100% - 32px)" }}>
-            <h2 id="filo-shortcut-help-title" style={{ fontSize: "18px", margin: "0 0 12px" }}>{t("ショートカット")}</h2>
-            <pre style={{ fontFamily: "inherit", lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{t("ショートカットヘルプ")}</pre>
-            <Button onClick={() => setShowShortcutHelp(false)}>{t("閉じる")}</Button>
+          <section onClick={(event) => event.stopPropagation()} className="fl-dialog" style={{ maxWidth: "360px" }}>
+            <div className="fl-dialog-header">
+              <h2 id="filo-shortcut-help-title">{t("ショートカット")}</h2>
+              <IconButton icon="close" label={t("閉じる")} onClick={() => setShowShortcutHelp(false)} />
+            </div>
+            <pre style={{ fontFamily: "inherit", fontSize: "14px", lineHeight: 1.8, margin: 0, whiteSpace: "pre-wrap" }}>{t("ショートカットヘルプ")}</pre>
           </section>
         </div>
       ) : null}

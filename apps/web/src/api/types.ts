@@ -31,7 +31,6 @@ export interface FeedSummary {
   title: string;
   siteUrl?: string | null;
   feedUrl?: string;
-  faviconUrl: string | null;
   // サーバーが決めた feed の言語。翻訳の準備画面の候補に使う
   language?: string | null;
   latestPublishedAt?: string | null;
@@ -79,7 +78,6 @@ export interface ArticleListItem {
   title: string;
   sourceLanguage: string | null;
   canonicalUrl: string | null;
-  rssSummary: string | null;
   previewText: string | null;
   publishedAt: string | null;
   fetchedAt: string;
