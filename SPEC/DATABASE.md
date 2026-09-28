@@ -77,11 +77,13 @@ account deletion 専用:
 - ブラウザ／共有から保存した任意URLは、購読を持たない `paused` な `feeds` / `articles` として登録し、`article_user_collections` の membership だけでユーザーから参照できる。既存の本文抽出パイプラインを共用する
 - unsubscribe 済み記事は最後の collection membership が削除された時点で参照不可に戻る
 - `feed_read_cursors` は subscription ではなく user × feed に紐づき、購読解除・再購読後も維持される
-- `subscription_unread_counts` と `user_unread_counts` は導出値であり、実効既読状態の source of truth ではない。新着、単体の既読変更、collection 変更、購読追加で差分更新し、一括既読では source of truth から再計算する
+- `subscription_unread_counts` と `user_unread_counts` は導出値であり、実効既読状態の source of truth ではない。新着は `articles` の INSERT trigger が同じ文の中で購読者全員へ加算する。単体の既読変更と collection 変更は、同じ batch 内で変更前の実効状態を SQL で判定して差分を決める（並行リクエストが同じ変更を二重に数えない）。購読追加と一括既読は、同じ batch 内で source of truth から数え直す
+- 導出カウンターは表示と一覧クエリの形の選択にだけ使い、一覧に何を返すかは決めない（カウンターがずれても未読記事が一覧から消えない）
 - `subscription_unread_counts` の `user_id` / `feed_id` は高速な feed・user 集計のためのキャッシュ列であり、`subscription_id` と一致しない行を DB trigger で拒否する
 - `feed_read_cursors.last_read_article_id` は同じ `feed_id` の記事だけを指せるよう DB trigger で検証する
-- `feeds.article_count` は `articles` の件数を保持する共有導出値であり、feed fetch または保存記事の作成時に新規行数だけ加算する。初期値は migration で再構築し、status の表示用集計に使う
-- 導出カウンターが欠落した場合も API は `0` として動作し、購読追加・一括既読の再計算で復旧できる
+- `feeds.article_count` は `articles` の件数を保持する共有導出値であり、`articles` の INSERT trigger が加算する。status の表示用集計と一覧クエリの形の選択に使う
+- `articles` は削除しない前提で、導出カウンターの trigger は INSERT のみを扱う。記事を削除する retention を入れる場合は、削除分の減算を同時に入れる
+- 導出カウンターは `migrations/0019_derived_counter_triggers.sql` で全件再構築できる。このファイルは再実行しても安全で、不一致の修復手順を兼ねる（`OPERATIONS.md` Incident Runbooks）
 
 ### 記事
 
@@ -173,7 +175,7 @@ account deletion 専用:
 
 アカウント削除は user-owned data のみを削除する。shared data は削除しない。
 
-shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 使用量が `80GB`、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、feed 単位 retention の追加を次リリース優先事項として扱う。
+shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 は 1 database あたりの容量に上限があり（Workers Free `500MB` / Workers Paid `10GB`）、超えると書き込みが失敗する。database size が上限の `60%`（Free `300MB` / Paid `6GB`）、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、記事の retention（collection に入っていない古い記事の削除と導出カウンターの減算）を次リリース優先事項として扱う。
 
 `article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。Hourly cron が `updated_at` を最終利用時刻として扱い、1 回あたり最大 500 行を削除する。
 
