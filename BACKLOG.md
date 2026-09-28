@@ -1,3 +1,2 @@
 extensionの公開
-androidのbuild高速化
-androidの証明書周りの整理
+androidで翻訳される時、されない時のばらつきが大きい気がする。翻訳ラベルが付いてても翻訳されない
