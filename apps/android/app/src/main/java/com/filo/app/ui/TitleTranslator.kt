@@ -6,24 +6,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.filo.app.api.ArticleListItem
 import com.filo.app.api.Subscription
 import com.google.mlkit.common.model.RemoteModelManager
@@ -32,7 +25,6 @@ import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
-import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -286,19 +278,6 @@ private suspend fun <T> Task<T>.await(): T? = suspendCancellableCoroutine { cont
     addOnFailureListener { cont.resumeWithException(it) }
 }
 
-// 一覧のツールバーに置く翻訳トグル
-@Composable
-fun TitleTranslationToggle(store: TitleTranslationStore) {
-    if (!store.isSupported) return
-    IconButton(onClick = { store.toggle() }) {
-        FiloIcon(
-            FiloIconName.Translate,
-            contentDescription = tr(if (store.isEnabled) "原文タイトルに戻す" else "タイトルを翻訳"),
-            tint = if (store.isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
 // 準備画面（オンボーディング）
 //
 // 端末内翻訳は言語モデルの取得が要る。取得を一覧のスクロール中に暗黙で走らせると、
@@ -307,76 +286,51 @@ fun TitleTranslationToggle(store: TitleTranslationStore) {
 //
 // iOS の TitleTranslationSetupView / Web の TitleTranslationSetup と同じ役割。
 // 片方だけ直すとプラットフォーム間で挙動がずれるので、必ず全部を更新する。
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TitleTranslationSetupSheet(store: TitleTranslationStore, onDismiss: () -> Unit) {
     LaunchedEffect(Unit) { store.refreshLanguages() }
+    val colors = Filo.colors
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(tr("翻訳の準備"), style = MaterialTheme.typography.titleMedium)
-            Text(
-                tr("タイトルの翻訳はこの端末の中で行います。はじめに、翻訳したい言語をダウンロードしてください。ダウンロードは Wi-Fi 接続時をおすすめします。"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            if (!store.hasCheckedLanguages) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    Text(tr("確認しています…"), style = MaterialTheme.typography.bodySmall)
-                }
-            } else if (store.languages.isEmpty()) {
-                Text(
-                    tr("購読しているフィードに、翻訳が必要な言語はありません。"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
+    FiloDialog(title = tr("翻訳の準備"), onDismiss = onDismiss) {
+        Text(
+            tr("タイトルの翻訳はこの端末の中で行います。はじめに、翻訳したい言語をダウンロードしてください。ダウンロードは Wi-Fi 接続時をおすすめします。"),
+            fontSize = 13.sp,
+            lineHeight = 20.sp,
+            color = colors.muted,
+        )
+        if (!store.hasCheckedLanguages) {
+            FiloSpinner(tr("確認しています…"))
+        } else if (store.languages.isEmpty()) {
+            Text(tr("購読しているフィードに、翻訳が必要な言語はありません。"), fontSize = 13.sp, color = colors.muted)
+        } else {
+            Column {
                 store.languages.forEach { language ->
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bottomBorder(colors.mutedBorder)
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text(AppStrings.languageName(language.code))
+                        Text(AppStrings.languageName(language.code), fontSize = 14.sp, color = colors.text, modifier = Modifier.weight(1f))
                         when (language.status) {
                             TitleTranslationLanguage.Status.INSTALLED ->
-                                Text(
-                                    tr("準備済み"),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
+                                Text(tr("準備済み"), fontSize = 13.sp, color = colors.muted)
                             TitleTranslationLanguage.Status.DOWNLOADABLE ->
-                                TextButton(
+                                FiloButton(
+                                    if (store.preparing == language.code) tr("ダウンロード中…") else tr("ダウンロード"),
+                                    { store.prepare(language.code) },
+                                    small = true,
                                     enabled = store.preparing == null,
-                                    onClick = { store.prepare(language.code) },
-                                ) {
-                                    Text(if (store.preparing == language.code) tr("ダウンロード中…") else tr("ダウンロード"))
-                                }
-                            TitleTranslationLanguage.Status.UNSUPPORTED ->
-                                Text(
-                                    tr("この端末では非対応"),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            TitleTranslationLanguage.Status.UNSUPPORTED ->
+                                Text(tr("この端末では非対応"), fontSize = 13.sp, color = colors.muted)
                         }
                     }
-                    HorizontalDivider()
                 }
             }
-
-            Text(
-                tr("ここに無い言語の記事は、翻訳せず原文のまま表示します。"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
+        Text(tr("ここに無い言語の記事は、翻訳せず原文のまま表示します。"), fontSize = 12.sp, color = colors.muted)
     }
 }

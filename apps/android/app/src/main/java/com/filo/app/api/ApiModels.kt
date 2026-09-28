@@ -8,7 +8,6 @@ data class FeedSummary(
     val title: String,
     val siteUrl: String?,
     val feedUrl: String?,
-    val faviconUrl: String?,
     // サーバーが決めた feed の言語。翻訳の準備画面の候補に使う
     val language: String?,
     val latestPublishedAt: String?,
@@ -69,7 +68,6 @@ data class ArticleListItem(
     val publishedAt: String?,
     val fetchedAt: String,
     val feedTitle: String,
-    val feedFaviconUrl: String?,
     val subscriptionIds: List<Int>,
     val userState: ArticleUserState,
 )
@@ -191,7 +189,6 @@ internal fun parseFeedSummary(json: JSONObject): FeedSummary =
         title = json.optString("title", ""),
         siteUrl = json.optStringOrNull("siteUrl"),
         feedUrl = json.optStringOrNull("feedUrl"),
-        faviconUrl = json.optStringOrNull("faviconUrl"),
         language = json.optStringOrNull("language"),
         latestPublishedAt = json.optStringOrNull("latestPublishedAt"),
     )
@@ -259,7 +256,6 @@ internal fun parseArticleListItem(json: JSONObject): ArticleListItem =
         publishedAt = json.optStringOrNull("publishedAt"),
         fetchedAt = json.optString("fetchedAt", ""),
         feedTitle = json.optJSONObject("feed")?.optString("title", "") ?: "",
-        feedFaviconUrl = json.optJSONObject("feed")?.optStringOrNull("faviconUrl"),
         subscriptionIds = json.optJSONObject("subscriptionContext")?.optJSONArray("subscriptionIds")?.toIntList()
             ?: emptyList(),
         userState = parseUserState(json.optJSONObject("userState")),

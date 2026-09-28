@@ -1,7 +1,7 @@
 package com.filo.app.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,71 +9,53 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.filo.app.WirePalette
+import androidx.compose.ui.unit.sp
 import com.filo.app.api.ApiClient
 import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
 import kotlinx.coroutines.launch
 
-@Composable
-fun SubscriptionHealthBadge(subscription: Subscription) {
-    when {
-        subscription.initialFetchStatus == "failed" ->
-            StatusBadge(ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode), BadgeTone.Danger)
-        subscription.initialFetchStatus == "fetching" -> StatusBadge(tr("記事取得中"))
-        subscription.feedHealthStatus == "paused" -> StatusBadge(tr("更新停止中"), BadgeTone.Danger)
-        subscription.feedHealthStatus == "stale" -> StatusBadge(tr("しばらく更新なし"), BadgeTone.Warn)
-    }
-}
+// Rows nested under a group's disclosure button start where the group label
+// does (web `--fl-disclosure-indent` on touch screens).
+private val DisclosureIndent = 48.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubscriptionsScreen(
-    onBack: () -> Unit,
+    onOpenMenu: (() -> Unit)?,
     onOpenSubscription: (Int) -> Unit,
     onOpenAddFeed: () -> Unit,
     onOpenTags: () -> Unit,
-    onSelectTag: (Int) -> Unit = {},
+    onSelectTag: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var subscriptions by remember { mutableStateOf<List<Subscription>>(emptyList()) }
@@ -155,138 +137,94 @@ fun SubscriptionsScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(tr("購読管理")) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenAddFeed) { FiloIcon(FiloIconName.Plus, contentDescription = tr("フィード追加")) }
-                    TextButton(onClick = onOpenTags) { Text(tr("タグ")) }
-                },
-            )
-        },
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
+    Column(Modifier.fillMaxSize()) {
+        FiloHeader(
+            title = tr("購読管理"),
+            lead = if (onOpenMenu != null) HeaderLead.Menu else HeaderLead.None,
+            onLead = { onOpenMenu?.invoke() },
         ) {
-            if (isLoading) {
-                item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(40.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) { CircularProgressIndicator() }
-                }
-            } else if (errorMessage != null) {
-                item { ErrorBanner(tr(errorMessage!!)) { scope.launch { reload() } } }
-            } else if (subscriptions.isEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(tr("まだ購読がありません。"), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Button(onClick = onOpenAddFeed) { Text(tr("フィードを追加")) }
+            FiloIconButton(FiloIconName.Tag, tr("タグ管理"), onOpenTags)
+            FiloIconButton(FiloIconName.Plus, tr("フィードを追加"), onOpenAddFeed)
+        }
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PagePadding) {
+            when {
+                isLoading -> item { FiloSpinner() }
+                errorMessage != null -> item { FiloErrorBox(tr(errorMessage!!)) { scope.launch { reload() } } }
+                subscriptions.isEmpty() -> item {
+                    FiloEmptyState(tr("まだ購読がありません。"), FiloIconName.Rss) {
+                        FiloButton(tr("フィードを追加"), onOpenAddFeed, kind = ButtonKind.Primary)
                     }
                 }
-            } else {
-                val groups = tags.map { tag ->
-                    Triple(tag, subscriptions.filter { it.tagIds.contains(tag.id) }, tag.id)
-                }.filter { it.second.isNotEmpty() }
-                groups.forEach { (tag, items, key) ->
-                    item(key = "tag-$key") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            IconButton(onClick = {
-                                collapsed = if (collapsed.contains(key)) collapsed - key else collapsed + key
-                            }) {
-                                FiloIcon(
-                                    if (collapsed.contains(key)) FiloIconName.ChevronRight else FiloIconName.ChevronDown,
+                else -> {
+                    val groups = tags.map { tag -> tag to subscriptions.filter { it.tagIds.contains(tag.id) } } +
+                        listOf<Pair<Tag?, List<Subscription>>>(null to subscriptions.filter { it.tagIds.isEmpty() })
+                    var first = true
+                    groups.forEach { (tag, items) ->
+                        if (items.isEmpty()) return@forEach
+                        val key = tag?.id ?: -1
+                        val isCollapsed = collapsed.contains(key)
+                        val label = tag?.name ?: AppStrings.get("タグなし")
+                        val topGap = if (first) 0.dp else 28.dp
+                        first = false
+                        item(key = "group-$key") {
+                            Row(
+                                modifier = Modifier
+                                    .padding(top = topGap)
+                                    .fillMaxWidth()
+                                    .heightIn(min = 40.dp)
+                                    .bottomBorder(Filo.colors.border)
+                                    .padding(bottom = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                FiloIconButton(
+                                    if (isCollapsed) FiloIconName.ChevronRight else FiloIconName.ChevronDown,
+                                    "$label: ${if (isCollapsed) tr("展開") else tr("折りたたむ")}",
+                                    { collapsed = if (isCollapsed) collapsed - key else collapsed + key },
+                                    size = 14.dp,
+                                )
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    // タグ名タップでタグ絞り込み済み記事一覧へ遷移する (SCREENS.md)
+                                    Text(
+                                        label,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Filo.colors.text,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .weight(1f, fill = false)
+                                            .then(if (tag != null) Modifier.clickable { onSelectTag(tag.id) } else Modifier),
+                                    )
+                                    Text(trf("%d件の購読", items.size), fontSize = 12.sp, color = Filo.colors.muted, maxLines = 1)
+                                }
+                                if (tag != null) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        FiloIconButton(FiloIconName.ChevronUp, tr("タグを上へ"), { moveTag(tag.id, -1) }, size = 16.dp)
+                                        FiloIconButton(FiloIconName.ChevronDown, tr("タグを下へ"), { moveTag(tag.id, 1) }, size = 16.dp)
+                                        FiloIconButton(FiloIconName.Pencil, tr("名前変更"), {
+                                            renameText = tag.name
+                                            renamingTag = tag
+                                        }, size = 16.dp)
+                                    }
+                                }
+                            }
+                        }
+                        if (!isCollapsed) {
+                            items(items, key = { "sub-$key-${it.id}" }) { subscription ->
+                                SubscriptionListRow(
+                                    subscription,
+                                    allTags = tags,
+                                    onOpen = { onOpenSubscription(subscription.id) },
+                                    moveEnabled = !isReordering,
+                                    onMove = { direction -> move(subscription.id, direction, items.map { it.id }) },
+                                    onTagsChange = { updateSubscriptionTags(subscription.id, it) },
                                 )
                             }
-                            // タグ名タップでタグ絞り込み済み記事一覧へ遷移する (SCREENS.md)
-                            Text(
-                                tag.name,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.weight(1f).clickable { onSelectTag(tag.id) },
-                            )
-                            Text(
-                                trf("%d件", items.size),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            IconButton(onClick = { moveTag(tag.id, -1) }) {
-                                FiloIcon(FiloIconName.ChevronUp, contentDescription = tr("タグを上へ"))
-                            }
-                            IconButton(onClick = { moveTag(tag.id, 1) }) {
-                                FiloIcon(FiloIconName.ChevronDown, contentDescription = tr("タグを下へ"))
-                            }
-                            TextButton(onClick = {
-                                renameText = tag.name
-                                renamingTag = tag
-                            }) { Text(tr("名前変更")) }
-                        }
-                    }
-                    if (!collapsed.contains(key)) {
-                        items(items, key = { "sub-$key-${it.id}" }) { subscription ->
-                            SubscriptionListRow(
-                                subscription,
-                                allTags = tags,
-                                onOpen = { onOpenSubscription(subscription.id) },
-                                moveEnabled = !isReordering,
-                                onMove = { id, direction -> move(id, direction, items.map { it.id }) },
-                                onTagsChange = ::updateSubscriptionTags,
-                            )
-                            HorizontalDivider()
-                        }
-                    }
-                }
-                val untagged = subscriptions.filter { it.tagIds.isEmpty() }
-                if (untagged.isNotEmpty()) {
-                    item(key = "untagged-header") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            IconButton(onClick = {
-                                collapsed = if (collapsed.contains(-1)) collapsed - (-1) else collapsed + (-1)
-                            }) {
-                                FiloIcon(
-                                    if (collapsed.contains(-1)) FiloIconName.ChevronRight else FiloIconName.ChevronDown,
-                                    contentDescription = if (collapsed.contains(-1)) tr("展開") else tr("折りたたむ"),
-                                )
-                            }
-                            Text(tr("タグなし"), fontWeight = FontWeight.SemiBold)
-                            Text(
-                                trf("%d件", untagged.size),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
-                        }
-                    }
-                    if (!collapsed.contains(-1)) {
-                        items(untagged, key = { "sub-untagged-${it.id}" }) { subscription ->
-                            SubscriptionListRow(
-                                subscription,
-                                allTags = tags,
-                                onOpen = { onOpenSubscription(subscription.id) },
-                                moveEnabled = !isReordering,
-                                onMove = { id, direction -> move(id, direction, untagged.map { it.id }) },
-                                onTagsChange = ::updateSubscriptionTags,
-                            )
-                            HorizontalDivider()
                         }
                     }
                 }
@@ -295,104 +233,132 @@ fun SubscriptionsScreen(
     }
 
     renamingTag?.let { tag ->
-        AlertDialog(
-            onDismissRequest = { renamingTag = null },
-            title = { Text(tr("タグ名を変更")) },
-            text = {
-                OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true)
-            },
-            confirmButton = {
-                TextButton(onClick = {
+        FiloDialog(
+            title = tr("タグ名を変更"),
+            onDismiss = { renamingTag = null },
+            buttons = {
+                FiloButton(tr("キャンセル"), { renamingTag = null })
+                FiloButton(tr("変更"), {
                     scope.launch {
                         try {
-                            ApiClient.updateTag(tag.id, renameText)
+                            ApiClient.updateTag(tag.id, renameText.trim())
                             reload()
                         } catch (e: Exception) {
                             errorMessage = ErrorMessages.forErrorText(e)
                         }
                     }
                     renamingTag = null
-                }) { Text(tr("変更")) }
+                }, kind = ButtonKind.Primary, enabled = renameText.isNotBlank())
             },
-            dismissButton = { TextButton(onClick = { renamingTag = null }) { Text(tr("キャンセル")) } },
-        )
+        ) {
+            FiloTextField(renameText, { renameText = it }, modifier = Modifier.fillMaxWidth())
+        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SubscriptionListRow(
     subscription: Subscription,
     allTags: List<Tag>,
     onOpen: () -> Unit,
-    moveEnabled: Boolean = true,
-    onMove: (Int, Int) -> Unit,
-    onTagsChange: (Int, List<Int>) -> Unit,
+    moveEnabled: Boolean,
+    onMove: (Int) -> Unit,
+    onTagsChange: (List<Int>) -> Unit,
 ) {
-    var tagMenuOpen by remember { mutableStateOf(false) }
-
-    Surface(color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FaviconImage(url = subscription.feed.faviconUrl)
-            Column(modifier = Modifier.weight(1f).padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(subscription.displayTitle, fontWeight = FontWeight.Medium, modifier = Modifier.clickable(onClick = onOpen))
+    val colors = Filo.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .bottomBorder(colors.mutedBorder)
+            .padding(start = DisclosureIndent, top = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                subscription.displayTitle,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(onClick = onOpen),
+            )
+            FlowRow(
+                modifier = Modifier.padding(top = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    trf("最終公開 %s", subscription.feed.latestPublishedAt?.let(::relativeTime).takeUnless { it.isNullOrEmpty() } ?: "—"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    trf("最終公開 %s", relativeTime(subscription.feed.latestPublishedAt).ifEmpty { "—" }),
+                    fontSize = 12.sp,
+                    color = colors.muted,
                 )
-                SubscriptionHealthBadge(subscription)
+                SubscriptionHealth(subscription)
             }
-            if (allTags.isNotEmpty()) {
-                Box {
-                    IconButton(onClick = { tagMenuOpen = true }) {
-                        FiloIcon(FiloIconName.Tag, size = 18.dp, contentDescription = tr("タグを編集"))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            TagPicker(allTags, subscription.tagIds, onTagsChange)
+            FiloIconButton(FiloIconName.ChevronUp, tr("上へ"), { onMove(-1) }, size = 16.dp, enabled = moveEnabled)
+            FiloIconButton(FiloIconName.ChevronDown, tr("下へ"), { onMove(1) }, size = 16.dp, enabled = moveEnabled)
+        }
+    }
+}
+
+/**
+ * Checklist popover for assigning tags to one subscription: an icon button in
+ * dense lists, a labelled button on the detail screen (web `TagPicker`).
+ */
+@Composable
+fun TagPicker(
+    tags: List<Tag>,
+    selectedIds: List<Int>,
+    onChange: (List<Int>) -> Unit,
+    asButton: Boolean = false,
+) {
+    if (tags.isEmpty()) return
+    var open by remember { mutableStateOf(false) }
+    val colors = Filo.colors
+    Box {
+        if (asButton) {
+            FiloButton(tr("タグを編集"), { open = true }, small = true, icon = FiloIconName.Tag)
+        } else {
+            FiloIconButton(FiloIconName.Tag, tr("タグを編集"), { open = true }, size = 16.dp, expanded = open)
+        }
+        FiloMenu(expanded = open, onDismiss = { open = false }, modifier = Modifier.width(220.dp)) {
+            tags.forEach { tag ->
+                val checked = selectedIds.contains(tag.id)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = Filo.TouchTarget)
+                        .clip(RoundedCornerShape(Filo.RadiusSm))
+                        .clickable { onChange(if (checked) selectedIds - tag.id else selectedIds + tag.id) }
+                        .padding(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .background(if (checked) colors.primary else colors.surface, RoundedCornerShape(4.dp))
+                            .border(1.dp, if (checked) colors.primary else colors.border, RoundedCornerShape(4.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (checked) FiloIcon(FiloIconName.CheckMark, size = 12.dp, tint = colors.onPrimary)
                     }
-                    DropdownMenu(expanded = tagMenuOpen, onDismissRequest = { tagMenuOpen = false }) {
-                        allTags.forEach { tag ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Checkbox(
-                                            checked = subscription.tagIds.contains(tag.id),
-                                            onCheckedChange = null,
-                                        )
-                                        if (tag.color != null) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(10.dp)
-                                                    .background(Color(android.graphics.Color.parseColor(tag.color)), CircleShape),
-                                            )
-                                        }
-                                        Text(tag.name)
-                                    }
-                                },
-                                onClick = {
-                                    val next = if (subscription.tagIds.contains(tag.id)) {
-                                        subscription.tagIds - tag.id
-                                    } else {
-                                        subscription.tagIds + tag.id
-                                    }
-                                    onTagsChange(subscription.id, next)
-                                },
-                            )
-                        }
-                    }
+                    if (tag.color != null) TagDot(tag.color, size = 8.dp)
+                    Text(tag.name, fontSize = 14.sp, color = colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-            }
-            IconButton(enabled = moveEnabled, onClick = { onMove(subscription.id, -1) }) {
-                FiloIcon(FiloIconName.ChevronUp, contentDescription = tr("上へ"))
-            }
-            IconButton(enabled = moveEnabled, onClick = { onMove(subscription.id, 1) }) {
-                FiloIcon(FiloIconName.ChevronDown, contentDescription = tr("下へ"))
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddFeedScreen(
     onBack: () -> Unit,
@@ -413,143 +379,138 @@ fun AddFeedScreen(
         runCatching { tags = ApiClient.listTags() }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(tr("フィードを追加")) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
+    fun submit() {
+        if (isSubmitting || url.isBlank()) return
+        scope.launch {
+            isSubmitting = true
+            errorMessage = null
+            created = null
+            try {
+                created = ApiClient.createSubscription(
+                    feedUrl = url.trim(),
+                    tagIds = selectedTagIds.toList(),
+                    tagNames = newTagNames.split(",", "、").map { it.trim() }.filter { it.isNotEmpty() },
+                )
+                onCreated()
+                val newTagCount = newTagNames.split(",", "、").count { it.trim().isNotEmpty() }
+                com.filo.app.Analytics.track(
+                    "add_feed",
+                    mapOf(
+                        "has_custom_tags" to (newTagCount > 0),
+                        "tag_count" to (selectedTagIds.size + newTagCount),
+                    ),
+                )
+            } catch (e: Exception) {
+                errorMessage = ErrorMessages.forErrorText(e)
+            }
+            isSubmitting = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        FiloHeader(tr("フィードを追加"), lead = HeaderLead.Back, onLead = onBack)
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PagePadding,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text(tr("RSS/Atom URL または サイトURL")) },
-                    placeholder = { Text("https://example.com/feed.xml") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                FiloField(tr("RSS/Atom URL または サイトURL")) {
+                    FiloTextField(
+                        url,
+                        { url = it },
+                        placeholder = "https://example.com/feed.xml",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next, autoCorrectEnabled = false),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
             if (tags.isNotEmpty()) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(tr("タグ"), style = MaterialTheme.typography.labelLarge)
+                    FiloField(tr("タグ")) {
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             tags.forEach { tag ->
-                                FilterChipButton(tag.name, selectedTagIds.contains(tag.id)) {
-                                    selectedTagIds = if (selectedTagIds.contains(tag.id)) {
-                                        selectedTagIds - tag.id
-                                    } else {
-                                        selectedTagIds + tag.id
-                                    }
-                                }
+                                FiloChip(tag.name, selectedTagIds.contains(tag.id), {
+                                    selectedTagIds = if (selectedTagIds.contains(tag.id)) selectedTagIds - tag.id else selectedTagIds + tag.id
+                                })
                             }
                         }
                     }
                 }
             }
             item {
-                OutlinedTextField(
-                    value = newTagNames,
-                    onValueChange = { newTagNames = it },
-                    label = { Text(tr("新規タグ（カンマ区切り）")) },
-                    placeholder = { Text("AI, Engineering") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                FiloField(tr("新規タグ（カンマ区切り）")) {
+                    FiloTextField(
+                        newTagNames,
+                        { newTagNames = it },
+                        placeholder = "AI, Engineering",
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { submit() }),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
             item {
-                Button(
-                    enabled = !isSubmitting && url.isNotBlank(),
-                    onClick = {
-                        scope.launch {
-                            isSubmitting = true
-                            errorMessage = null
-                            created = null
-                            try {
-                                created = ApiClient.createSubscription(
-                                    feedUrl = url.trim(),
-                                    tagIds = selectedTagIds.toList(),
-                                    tagNames = newTagNames.split(",", "、").map { it.trim() }.filter { it.isNotEmpty() },
-                                )
-                                onCreated()
-                                val newTagCount = newTagNames.split(",", "、").count { it.trim().isNotEmpty() }
-                                com.filo.app.Analytics.track(
-                                    "add_feed",
-                                    mapOf(
-                                        "has_custom_tags" to (newTagCount > 0),
-                                        "tag_count" to (selectedTagIds.size + newTagCount),
-                                    ),
-                                )
-                            } catch (e: Exception) {
-                                errorMessage = ErrorMessages.forErrorText(e)
-                            }
-                            isSubmitting = false
-                        }
-                    },
-                ) { Text(if (isSubmitting) tr("フィードを確認中…") else tr("追加")) }
+                Row {
+                    FiloButton(
+                        if (isSubmitting) tr("フィードを確認中…") else tr("追加"),
+                        ::submit,
+                        kind = ButtonKind.Primary,
+                        icon = FiloIconName.Plus,
+                        enabled = !isSubmitting && url.isNotBlank(),
+                    )
+                }
             }
-            errorMessage?.let { message ->
-                item { ErrorBanner(tr(message)) }
-            }
+            errorMessage?.let { message -> item { FiloErrorBox(tr(message)) } }
             created?.let { subscription ->
                 item {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(subscription.displayTitle, fontWeight = FontWeight.SemiBold)
-                            when (subscription.initialFetchStatus) {
-                                "ready" -> {
-                                    StatusBadge(tr("追加完了"), BadgeTone.Ok)
-                                    Text(tr("記事の取得が完了しています。"))
-                                }
-                                "fetching" -> {
-                                    StatusBadge(tr("記事取得中"))
-                                    Text(tr("購読の追加は完了しました。記事を取得しています。"))
-                                }
-                                else -> {
-                                    StatusBadge(tr("初回取得失敗"), BadgeTone.Danger)
-                                    Text(trf("購読は作成されましたが、%s", ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode)))
-                                    Button(
-                                        enabled = !isRetrying,
-                                        onClick = {
-                                            scope.launch {
-                                                isRetrying = true
-                                                try {
-                                                    created = ApiClient.retryInitialFetch(subscription.id)
-                                                    com.filo.app.Analytics.track("retry_feed_fetch")
-                                                } catch (e: Exception) {
-                                                    errorMessage = ErrorMessages.forErrorText(e)
-                                                }
-                                                isRetrying = false
-                                            }
-                                        },
-                                    ) { Text(if (isRetrying) tr("再試行中…") else tr("再試行")) }
+                    FiloCard {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    subscription.displayTitle,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Filo.colors.text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                when (subscription.initialFetchStatus) {
+                                    "ready" -> FiloBadge(tr("追加完了"), BadgeTone.Ok)
+                                    "fetching" -> FiloBadge(tr("記事取得中"))
+                                    else -> FiloBadge(tr("初回取得失敗"), BadgeTone.Danger)
                                 }
                             }
-                            TextButton(onClick = onOpenArticles) { Text(tr("記事一覧へ")) }
+                            Text(
+                                when (subscription.initialFetchStatus) {
+                                    "ready" -> tr("記事の取得が完了しています。")
+                                    "fetching" -> tr("購読の追加は完了しました。記事を取得しています。")
+                                    else -> trf("購読は作成されましたが、%s", ErrorMessages.initialFetchMessage(subscription.initialFetchErrorCode))
+                                },
+                                fontSize = 13.sp,
+                                lineHeight = 21.sp,
+                                color = Filo.colors.muted,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (subscription.initialFetchStatus == "failed") {
+                                    FiloButton(if (isRetrying) tr("再試行中…") else tr("再試行"), {
+                                        scope.launch {
+                                            isRetrying = true
+                                            try {
+                                                created = ApiClient.retryInitialFetch(subscription.id)
+                                                com.filo.app.Analytics.track("retry_feed_fetch")
+                                            } catch (e: Exception) {
+                                                errorMessage = ErrorMessages.forErrorText(e)
+                                            }
+                                            isRetrying = false
+                                        }
+                                    }, enabled = !isRetrying)
+                                }
+                                FiloButton(tr("記事一覧へ"), onOpenArticles)
+                            }
                         }
                     }
                 }
@@ -558,16 +519,14 @@ fun AddFeedScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TagsScreen(onBack: () -> Unit) {
+fun TagsScreen(onOpenMenu: (() -> Unit)?) {
     val scope = rememberCoroutineScope()
     var tags by remember { mutableStateOf<List<Tag>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var newName by remember { mutableStateOf("") }
-    var renamingTag by remember { mutableStateOf<Tag?>(null) }
-    var renameText by remember { mutableStateOf("") }
+    var isCreating by remember { mutableStateOf(false) }
     var deletingTag by remember { mutableStateOf<Tag?>(null) }
     var editingTagId by remember { mutableStateOf<Int?>(null) }
     var editName by remember { mutableStateOf("") }
@@ -585,6 +544,21 @@ fun TagsScreen(onBack: () -> Unit) {
     }
 
     LaunchedEffect(Unit) { reload() }
+
+    fun create() {
+        if (isCreating || newName.isBlank()) return
+        scope.launch {
+            isCreating = true
+            try {
+                ApiClient.createTag(newName.trim())
+                newName = ""
+                reload()
+            } catch (e: Exception) {
+                errorMessage = ErrorMessages.forErrorText(e)
+            }
+            isCreating = false
+        }
+    }
 
     fun move(tagId: Int, direction: Int) {
         val index = tags.indexOfFirst { it.id == tagId }
@@ -604,209 +578,157 @@ fun TagsScreen(onBack: () -> Unit) {
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(tr("タグ管理")) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        FiloIcon(FiloIconName.Back, contentDescription = tr("戻る"))
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+    fun saveEdit(tag: Tag) {
+        scope.launch {
+            try {
+                val newColor = editColor.trim().ifEmpty { null }
+                ApiClient.updateTag(
+                    tag.id,
+                    editName.trim(),
+                    color = newColor,
+                    clearColor = newColor == null && tag.color != null,
+                )
+                editingTagId = null
+                reload()
+            } catch (e: Exception) {
+                errorMessage = ErrorMessages.forErrorText(e)
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        FiloHeader(
+            title = tr("タグ管理"),
+            lead = if (onOpenMenu != null) HeaderLead.Menu else HeaderLead.None,
+            onLead = { onOpenMenu?.invoke() },
+        )
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PagePadding) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = newName,
-                        onValueChange = { newName = it },
-                        label = { Text(tr("新しいタグ名")) },
-                        singleLine = true,
+                    FiloTextField(
+                        newName,
+                        { newName = it },
+                        placeholder = tr("新しいタグ名"),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { create() }),
                         modifier = Modifier.weight(1f),
                     )
-                    Button(
-                        enabled = newName.isNotBlank(),
-                        onClick = {
-                            scope.launch {
-                                try {
-                                    ApiClient.createTag(newName.trim())
-                                    newName = ""
-                                    reload()
-                                } catch (e: Exception) {
-                                    errorMessage = ErrorMessages.forErrorText(e)
-                                }
-                            }
-                        },
-                    ) { Text(tr("追加")) }
+                    FiloButton(tr("追加"), ::create, kind = ButtonKind.Primary, icon = FiloIconName.Plus, enabled = !isCreating && newName.isNotBlank())
                 }
+                Spacer(Modifier.height(16.dp))
             }
             errorMessage?.let { message ->
-                item { ErrorBanner(tr(message)) { scope.launch { reload() } } }
+                item {
+                    FiloErrorBox(tr(message)) { scope.launch { reload() } }
+                    Spacer(Modifier.height(16.dp))
+                }
             }
             if (isLoading) {
-                item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(40.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) { CircularProgressIndicator() }
-                }
+                item { FiloSpinner() }
             } else if (tags.isEmpty()) {
-                item {
-                    Text(
-                        tr("タグがありません。上の入力欄から作成できます。"),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 40.dp),
-                    )
-                }
+                item { FiloEmptyState(tr("タグがありません。上の入力欄から作成できます。"), FiloIconName.Tag) }
             } else {
+                item { FiloDivider() }
                 items(tags, key = { it.id }) { tag ->
-                    if (editingTagId == tag.id) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            OutlinedTextField(
-                                value = editName,
-                                onValueChange = { editName = it },
-                                label = { Text(tr("タグ名")) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .bottomBorder(Filo.colors.mutedBorder)
+                            .padding(start = 4.dp, top = 8.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (editingTagId == tag.id) {
+                            TagEditor(
+                                name = editName,
+                                color = editColor,
+                                onNameChange = { editName = it },
+                                onColorChange = { editColor = it },
+                                onCancel = { editingTagId = null },
+                                onSave = { saveEdit(tag) },
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    value = editColor,
-                                    onValueChange = { editColor = it },
-                                    label = { Text(tr("色 (#hex)")) },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (editColor.isNotBlank()) {
-                                    val parsed = runCatching { android.graphics.Color.parseColor(editColor) }.getOrNull()
-                                    if (parsed != null) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(24.dp)
-                                                .background(Color(parsed), CircleShape),
-                                        )
-                                    }
-                                    TextButton(onClick = { editColor = "" }) { Text(tr("解除")) }
-                                }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = {
-                                    scope.launch {
-                                        try {
-                                            val newColor = editColor.trim().ifEmpty { null }
-                                            ApiClient.updateTag(
-                                                tag.id,
-                                                editName.trim(),
-                                                color = newColor,
-                                                clearColor = newColor == null && tag.color != null,
-                                            )
-                                            editingTagId = null
-                                            reload()
-                                        } catch (e: Exception) {
-                                            errorMessage = ErrorMessages.forErrorText(e)
-                                        }
-                                    }
-                                }) { Text(tr("保存")) }
-                                OutlinedButton(onClick = { editingTagId = null }) { Text(tr("キャンセル")) }
-                            }
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (tag.color != null) {
-                                val parsed = runCatching { android.graphics.Color.parseColor(tag.color) }.getOrNull()
-                                if (parsed != null) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(12.dp)
-                                            .background(Color(parsed), CircleShape),
-                                    )
-                                }
-                            }
-                            Column(modifier = Modifier.weight(1f).padding(start = if (tag.color != null) 8.dp else 0.dp)) {
-                                Text(tag.name)
+                        } else {
+                            TagDot(tag.color)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
-                                    trf("%d件の購読", tag.subscriptionCount),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tag.name,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Filo.colors.text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
+                                Text(trf("%d件の購読", tag.subscriptionCount), fontSize = 12.sp, color = Filo.colors.muted)
                             }
-                            IconButton(onClick = { move(tag.id, -1) }) {
-                                FiloIcon(FiloIconName.ChevronUp, contentDescription = tr("上へ"))
-                            }
-                            IconButton(onClick = { move(tag.id, 1) }) {
-                                FiloIcon(FiloIconName.ChevronDown, contentDescription = tr("下へ"))
-                            }
-                            TextButton(onClick = {
-                                editingTagId = tag.id
-                                editName = tag.name
-                                editColor = tag.color ?: ""
-                            }) { Text(tr("編集")) }
-                            TextButton(onClick = { deletingTag = tag }) {
-                                Text(tr("削除"), color = MaterialTheme.colorScheme.error)
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                FiloIconButton(FiloIconName.ChevronUp, tr("上へ"), { move(tag.id, -1) }, size = 16.dp)
+                                FiloIconButton(FiloIconName.ChevronDown, tr("下へ"), { move(tag.id, 1) }, size = 16.dp)
+                                FiloIconButton(FiloIconName.Pencil, tr("編集"), {
+                                    editingTagId = tag.id
+                                    editName = tag.name
+                                    editColor = tag.color.orEmpty()
+                                }, size = 16.dp)
+                                FiloIconButton(FiloIconName.Trash, tr("削除"), { deletingTag = tag }, size = 16.dp)
                             }
                         }
                     }
-                    HorizontalDivider()
                 }
             }
         }
     }
 
-    renamingTag?.let { tag ->
-        AlertDialog(
-            onDismissRequest = { renamingTag = null },
-            title = { Text(tr("タグ名を変更")) },
-            text = { OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true) },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        try {
-                            ApiClient.updateTag(tag.id, renameText)
-                            reload()
-                        } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forErrorText(e)
-                        }
+    deletingTag?.let { tag ->
+        FiloConfirmDialog(
+            title = trf("タグ「%s」を削除しますか？", tag.name),
+            message = tr("購読は削除されません。"),
+            confirmLabel = tr("削除"),
+            danger = true,
+            onConfirm = {
+                scope.launch {
+                    try {
+                        ApiClient.deleteTag(tag.id)
+                        reload()
+                    } catch (e: Exception) {
+                        errorMessage = ErrorMessages.forErrorText(e)
                     }
-                    renamingTag = null
-                }) { Text(tr("変更")) }
+                }
+                deletingTag = null
             },
-            dismissButton = { TextButton(onClick = { renamingTag = null }) { Text(tr("キャンセル")) } },
+            onDismiss = { deletingTag = null },
         )
     }
+}
 
-    deletingTag?.let { tag ->
-        AlertDialog(
-            onDismissRequest = { deletingTag = null },
-            title = { Text(trf("タグ「%s」を削除しますか？", tag.name)) },
-            text = { Text(tr("購読は削除されません。")) },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        try {
-                            ApiClient.deleteTag(tag.id)
-                            reload()
-                        } catch (e: Exception) {
-                            errorMessage = ErrorMessages.forErrorText(e)
-                        }
-                    }
-                    deletingTag = null
-                }) { Text(tr("削除"), color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { deletingTag = null }) { Text(tr("キャンセル")) } },
-        )
+// Inline tag editor: a colour swatch beside the hex value and the name, then
+// the actions (web edits the colour with the native colour input).
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TagEditor(
+    name: String,
+    color: String,
+    onNameChange: (String) -> Unit,
+    onColorChange: (String) -> Unit,
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+) {
+    val colors = Filo.colors
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FiloTextField(name, onNameChange, placeholder = tr("タグ名"), modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(Filo.ControlHeight)
+                    .border(1.dp, colors.border, RoundedCornerShape(Filo.Radius))
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center,
+            ) { TagDot(color.ifBlank { null }, size = 18.dp) }
+            FiloTextField(color, onColorChange, placeholder = tr("色 (#hex)"), modifier = Modifier.weight(1f))
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (color.isNotBlank()) FiloButton(tr("色を解除"), { onColorChange("") }, kind = ButtonKind.Ghost)
+            FiloButton(tr("キャンセル"), onCancel)
+            FiloButton(tr("保存"), onSave, kind = ButtonKind.Primary, enabled = name.isNotBlank())
+        }
     }
 }
