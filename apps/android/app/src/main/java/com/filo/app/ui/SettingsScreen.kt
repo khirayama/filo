@@ -65,6 +65,7 @@ fun SettingsScreen(
             // the first rendered settings frame cannot mix languages.
             ThemePreference.set(context, loadedSettings.theme)
             LanguagePreference.set(context, loadedSettings.language)
+            translations.configure(loadedSettings.language, loadedSettings.readableLanguages)
             settings = loadedSettings
         } catch (e: Exception) {
             errorMessage = ErrorMessages.forErrorText(e)
@@ -107,6 +108,7 @@ fun SettingsScreen(
                 }
                 ThemePreference.set(context, updatedSettings.theme)
                 LanguagePreference.set(context, updatedSettings.language)
+                translations.configure(updatedSettings.language, updatedSettings.readableLanguages)
                 settings = updatedSettings
             } catch (e: Exception) {
                 previous?.let {
@@ -145,10 +147,16 @@ fun SettingsScreen(
         val bytes = exportedBytes
         if (uri == null || bytes == null) return@rememberLauncherForActivityResult
         scope.launch {
-            runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+            errorMessage = null
+            try {
+                val output = context.contentResolver.openOutputStream(uri)
+                    ?: throw IllegalStateException("could not write file")
+                output.use { it.write(bytes) }
+            } catch (e: Exception) {
+                errorMessage = ErrorMessages.forErrorText(e)
+            } finally {
+                exportedBytes = null
             }
-            exportedBytes = null
         }
     }
 
