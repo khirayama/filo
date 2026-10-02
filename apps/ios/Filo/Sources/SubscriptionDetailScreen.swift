@@ -8,6 +8,8 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var allTags: [Tag] = []
     @Published var articles: [ArticleListItem] = []
     @Published var nextCursor: String?
+    @Published var hasNewArticles = false
+    private var newArticleBaseline: (filters: ArticleListFilters, id: Int)?
     @Published var isLoading = true
     @Published var isLoadingMore = false
     @Published var isGone = false
@@ -17,7 +19,10 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var markAllReadNotice: String?
 
     @Published var sort = "published_at_desc" {
-        didSet { if sort != oldValue { invalidateArticleRequests() } }
+        didSet {
+            if !applyingDefaultSort { selectedSort = sort }
+            if sort != oldValue { invalidateArticleRequests() }
+        }
     }
     @Published var readFilter: Bool? {
         didSet { if readFilter != oldValue { invalidateArticleRequests() } }
@@ -27,6 +32,8 @@ final class SubscriptionDetailViewModel: ObservableObject {
     }
 
     private var articleGeneration = 0
+    private var selectedSort: String?
+    private var applyingDefaultSort = false
 
     let subscriptionId: Int
 
@@ -52,7 +59,9 @@ final class SubscriptionDetailViewModel: ObservableObject {
             allTags = (try? await APIClient.shared.listTags()) ?? []
             // 初期並び順は current user の articleSortOrder に従う
             if let settings = try? await APIClient.shared.getSettings() {
-                if sort != settings.articleSortOrder { sort = settings.articleSortOrder }
+                applyingDefaultSort = true
+                sort = selectedSort ?? settings.articleSortOrder
+                applyingDefaultSort = false
                 openInBrowserByDefault = settings.openInBrowserByDefault
             }
             await reloadArticles()
@@ -70,6 +79,8 @@ final class SubscriptionDetailViewModel: ObservableObject {
         do {
             let result = try await APIClient.shared.listArticles(filters: filters)
             guard articleGeneration == currentGeneration else { return }
+            newArticleBaseline = result.latestArticleId.map { (filters, $0) }
+            hasNewArticles = false
             articles = result.articles
             nextCursor = result.nextCursor
             errorMessage = nil
@@ -97,8 +108,18 @@ final class SubscriptionDetailViewModel: ObservableObject {
         if articleGeneration == currentGeneration { isLoadingMore = false }
     }
 
+    func checkForNewArticles() async {
+        guard !isLoading, !isRefreshingFeed, !isMarkingAllRead,
+              let baseline = newArticleBaseline, baseline.filters == filters else { return }
+        let currentGeneration = articleGeneration
+        guard let result = try? await APIClient.shared.listArticles(filters: baseline.filters, checkNew: true, afterId: baseline.id),
+              !Task.isCancelled, articleGeneration == currentGeneration, baseline.filters == filters else { return }
+        hasNewArticles = (result.latestArticleId ?? 0) > baseline.id
+    }
+
     private func invalidateArticleRequests() {
         articleGeneration += 1
+        if newArticleBaseline?.filters != filters { hasNewArticles = false }
         isLoadingMore = false
     }
 
@@ -183,30 +204,34 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var isRefreshingFeed = false
     @Published var refreshNotice: String?
 
-    // Manual per-feed refresh: enqueue the fetch, then reload the list once.
+    // Wait for this feed's job before reloading its metadata and articles.
     func refreshFeedAndReload() async {
         guard let feedId = subscription?.feed.id, !isRefreshingFeed else { return }
         isRefreshingFeed = true
         refreshNotice = nil
         do {
-            let result = try await APIClient.shared.refreshFeed(feedId)
+            let result = try await APIClient.shared.refreshFeed(feedId, waitForCompletion: true)
             FiloAnalytics.track("refresh_feed", parameters: ["feed_id": feedId])
             if result.enqueued > 0 { refreshNotice = L10n.string("フィードの取得を開始しました。") }
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
         }
+        subscription = (try? await APIClient.shared.getSubscription(subscriptionId)) ?? subscription
         await reloadArticles()
         isRefreshingFeed = false
     }
 }
 
 struct SubscriptionDetailScreen: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isLoadingNewArticles = false
     @StateObject private var model: SubscriptionDetailViewModel
     @ObservedObject private var translations = TitleTranslationStore.shared
     let onOpenArticle: (ArticleListItem) -> Void
     let onSelectTag: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @State private var scrollToTopToken = 0
     @State private var showRename = false
     @State private var renameText = ""
     @State private var showUnsubscribeConfirm = false
@@ -234,11 +259,33 @@ struct SubscriptionDetailScreen: View {
                 FiloPage(model.subscription?.displayTitle ?? "", showsBack: true) {
                     if model.subscription != nil { headerActions }
                 } content: {
-                    contentList
+                    contentList.overlay(alignment: .top) {
+                        if model.hasNewArticles {
+                            FiloButton("新着記事があります", icon: .refresh, kind: .primary) {
+                                guard !isLoadingNewArticles else { return }
+                                isLoadingNewArticles = true
+                                Task {
+                                    defer { isLoadingNewArticles = false }
+                                    await model.reloadArticles()
+                                    guard !model.hasNewArticles, model.errorMessage == nil else { return }
+                                    scrollToTopToken += 1
+                                }
+                            }
+                            .disabled(isLoadingNewArticles || model.isLoading || model.isRefreshingFeed || model.isMarkingAllRead)
+                            .padding(.top, 12)
+                        }
+                    }
                 }
             }
         }
         .task { await model.load() }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await model.checkForNewArticles()
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
         .onChange(of: model.sort) { Task { await model.reloadArticles() } }
         .onChange(of: model.readFilter) { Task { await model.reloadArticles() } }
         .onChange(of: model.readOrder) { Task { await model.reloadArticles() } }
@@ -304,70 +351,74 @@ struct SubscriptionDetailScreen: View {
     }
 
     private var contentList: some View {
-        List {
-            if let subscription = model.subscription {
-                statusBar(subscription).filoListRow()
-            }
-            if model.isRefreshingFeed {
-                FiloSpinner(label: "フィードを更新しています…").filoListRow()
-            }
-            if let error = model.errorMessage {
-                FiloErrorBox(message: error) { Task { await model.load() } }
-                    .padding(.horizontal, FiloMetrics.gutter)
-                    .padding(.top, 16)
-                    .filoListRow()
-            }
-            if model.isLoading {
-                FiloSpinner().filoListRow()
-            } else if model.articles.isEmpty {
-                Group {
-                    if model.subscription?.initialFetchStatus == "fetching" {
-                        FiloEmptyState(icon: .refresh, message: "記事を取得しています…")
-                    } else {
-                        FiloEmptyState(icon: .inbox, message: "表示できる記事がありません。")
-                    }
+        ScrollViewReader { proxy in
+            List {
+                Color.clear.frame(height: 0).id("articles-top").filoListRow()
+                if let subscription = model.subscription {
+                    statusBar(subscription).filoListRow()
                 }
-                .filoListRow()
-            } else {
-                ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
-                    ArticleRowView(
-                        article: article,
-                        showFeed: false,
-                        onOpen: {
-                            guard let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
-                            if model.openInBrowserByDefault {
-                                openURL(url)
-                            } else {
-                                onOpenArticle(article)
-                            }
-                        },
-                        onToggleRead: {
-                            Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
-                        },
-                        onToggleReadingList: {
-                            Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
-                        },
-                        onToggleBookmark: {
-                            Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
-                        },
-                    )
-                    .filoListRow()
-                    .onAppear {
-                        if index >= max(model.articles.count - 4, 0) {
-                            Task { await model.loadMore() }
+                if model.isRefreshingFeed {
+                    FiloSpinner(label: "フィードを更新しています…").filoListRow()
+                }
+                if let error = model.errorMessage {
+                    FiloErrorBox(message: error) { Task { await model.load() } }
+                        .padding(.horizontal, FiloMetrics.gutter)
+                        .padding(.top, 16)
+                        .filoListRow()
+                }
+                if model.isLoading {
+                    FiloSpinner().filoListRow()
+                } else if model.articles.isEmpty {
+                    Group {
+                        if model.subscription?.initialFetchStatus == "fetching" {
+                            FiloEmptyState(icon: .refresh, message: "記事を取得しています…")
+                        } else {
+                            FiloEmptyState(icon: .inbox, message: "表示できる記事がありません。")
                         }
                     }
-                }
-                if model.isLoadingMore {
-                    FiloSpinner().filoListRow()
+                    .filoListRow()
+                } else {
+                    ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
+                        ArticleRowView(
+                            article: article,
+                            showFeed: false,
+                            onOpen: {
+                                guard let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
+                                if model.openInBrowserByDefault {
+                                    openURL(url)
+                                } else {
+                                    onOpenArticle(article)
+                                }
+                            },
+                            onToggleRead: {
+                                Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
+                            },
+                            onToggleReadingList: {
+                                Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
+                            },
+                            onToggleBookmark: {
+                                Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
+                            },
+                        )
+                        .filoListRow()
+                        .onAppear {
+                            if index >= max(model.articles.count - 4, 0) {
+                                Task { await model.loadMore() }
+                            }
+                        }
+                    }
+                    if model.isLoadingMore {
+                        FiloSpinner().filoListRow()
+                    }
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(FiloPalette.background)
+            .environment(\.defaultMinListRowHeight, 0)
+            .refreshable { await model.refreshFeedAndReload() }
+            .onChange(of: scrollToTopToken) { proxy.scrollTo("articles-top", anchor: .top) }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(FiloPalette.background)
-        .environment(\.defaultMinListRowHeight, 0)
-        .refreshable { await model.refreshFeedAndReload() }
     }
 
     private var subscriptionActionsMenu: some View {

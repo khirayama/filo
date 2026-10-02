@@ -269,3 +269,6 @@
 "リスト" = "List";
 "選択範囲を読み上げ" = "Read selection aloud";
 "読み上げる文章がありません。" = "There is no text to read aloud.";
+"翻訳を利用できないため原文で読み上げています。" = "Translation is unavailable, so the original text is being read aloud.";
+
+"新着記事があります" = "New articles available";

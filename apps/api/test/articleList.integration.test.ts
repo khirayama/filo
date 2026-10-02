@@ -145,6 +145,82 @@ describe("article list", () => {
 
   const SUBSCRIBED = "EXISTS (SELECT 1 FROM subscriptions s WHERE s.feed_id = a.feed_id AND s.user_id = ?)";
 
+  type UpdateResponse = { data: Array<{ id: number }>; meta: { nextCursor: string | null; latestArticleId?: number } };
+
+  it("detects insertions beyond the loaded page even with old or missing publish dates", async () => {
+    const client = createClient(t, user);
+    const initial = await client<UpdateResponse>("GET", "/articles?readOrder=read_first&limit=1");
+    const baseline = initial.body.meta.latestArticleId!;
+    expect(baseline).toBe(Math.max(...t.rows<{ id: number }>("SELECT id FROM articles").map(row => row.id)));
+    expect(initial.body.data[0]!.id).not.toBe(baseline);
+    const [inserted] = addArticles(t, feeds[0]!, [{ publishedAt: "2000-01-01T00:00:00.000Z" }]);
+    const check = await client<UpdateResponse>("GET", `/articles?checkNew=true&afterId=${baseline}`);
+    expect(check.status).toBe(200);
+    expect(check.body.data).toEqual([]);
+    expect(check.body.meta.latestArticleId).toBe(inserted);
+    const [undated] = addArticles(t, feeds[0]!, [{ publishedAt: null }]);
+    const next = await client<UpdateResponse>("GET", `/articles?checkNew=true&afterId=${baseline}&sort=fetched_at_desc&readOrder=read_first`);
+    expect(next.body.meta.latestArticleId).toBe(undated);
+    const page = await client<UpdateResponse>("GET", `/articles?readOrder=read_first&limit=1&cursor=${encodeURIComponent(initial.body.meta.nextCursor!)}`);
+    expect(page.body.meta.latestArticleId).toBeUndefined();
+  });
+
+  it("ignores changes to existing read states and articles outside the visible scope", async () => {
+    const client = createClient(t, user);
+    const highest = t.rows<{ id: number }>("SELECT MAX(id) AS id FROM articles WHERE feed_id = ?", feeds[0])[0]!.id;
+    await client("PATCH", `/articles/${highest}/state`, { isRead: true });
+    const initial = await client<UpdateResponse>("GET", `/articles?subscriptionId=${subscriptionIds[0]}&read=false&limit=1`);
+    const baseline = initial.body.meta.latestArticleId!;
+    // This higher id was read at load time, so the baseline must still include it.
+    await client("PATCH", `/articles/${baseline}/state`, { isRead: false });
+    addArticles(t, feeds[1]!, [{}]);
+    const outsideFeed = createFeed(t, "https://outside.example/feed");
+    addArticles(t, outsideFeed, [{}]);
+    const check = await client<UpdateResponse>("GET", `/articles?subscriptionId=${subscriptionIds[0]}&read=false&checkNew=true&afterId=${baseline}`);
+    expect(check.body.meta.latestArticleId).toBe(0);
+    const [inserted] = addArticles(t, feeds[0]!, [{}]);
+    const readCheck = await client<UpdateResponse>("GET", `/articles?subscriptionId=${subscriptionIds[0]}&read=true&checkNew=true&afterId=${baseline}`);
+    expect(readCheck.body.meta.latestArticleId).toBe(0);
+    const unreadCheck = await client<UpdateResponse>("GET", `/articles?subscriptionId=${subscriptionIds[0]}&read=false&checkNew=true&afterId=${baseline}`);
+    expect(unreadCheck.body.meta.latestArticleId).toBe(inserted);
+  });
+
+  it("checks tag and collection scopes, including retained articles", async () => {
+    const client = createClient(t, user);
+    const baseline = (await client<UpdateResponse>("GET", "/articles")).body.meta.latestArticleId!;
+    const [tag] = t.rows<{ id: number }>("INSERT INTO tags (user_id, name, normalized_name) VALUES (?, 'one', 'one') RETURNING id", user.id);
+    t.exec("INSERT INTO subscription_tags (subscription_id, tag_id) VALUES (?, ?)", subscriptionIds[0], tag!.id);
+    const [inserted] = addArticles(t, feeds[0]!, [{}]);
+    addArticles(t, feeds[1]!, [{}]);
+    const tagCheck = await client<UpdateResponse>("GET", `/articles?tagId=${tag!.id}&checkNew=true&afterId=${baseline}`);
+    expect(tagCheck.body.meta.latestArticleId).toBe(inserted);
+    for (const [filter, route] of [["readingList", "reading-list"], ["bookmarked", "bookmark"]]) {
+      const before = await client<UpdateResponse>("GET", `/articles?${filter}=true&checkNew=true&afterId=${baseline}`);
+      expect(before.body.meta.latestArticleId).toBe(0);
+      await client("PUT", `/articles/${inserted}/${route}`);
+      const after = await client<UpdateResponse>("GET", `/articles?${filter}=true&checkNew=true&afterId=${baseline}`);
+      expect(after.body.meta.latestArticleId).toBe(inserted);
+    }
+    await client("DELETE", `/subscriptions/${subscriptionIds[0]}`);
+    const retained = await client<UpdateResponse>("GET", `/articles?readingList=true&checkNew=true&afterId=${baseline}`);
+    expect(retained.body.meta.latestArticleId).toBe(inserted);
+    const retainedUnread = await client<UpdateResponse>("GET", `/articles?readingList=true&read=false&checkNew=true&afterId=${baseline}`);
+    expect(retainedUnread.body.meta.latestArticleId).toBe(0);
+  });
+
+  it("handles empty lists and validates update query parameters", async () => {
+    const emptyUser = createUser(t, "empty");
+    const client = createClient(t, emptyUser);
+    const initial = await client<UpdateResponse>("GET", "/articles");
+    expect(initial.body.meta.latestArticleId).toBe(0);
+    const check = await client<UpdateResponse>("GET", "/articles?checkNew=true&afterId=0");
+    expect(check.body.meta.latestArticleId).toBe(0);
+    for (const query of ["checkNew=maybe", "checkNew=true&afterId=-1", "checkNew=true&afterId=no", "checkNew=true&afterId=9007199254740992"]) {
+      expect((await client("GET", `/articles?${query}`)).status).toBe(400);
+    }
+    expect((await client("GET", `/articles?subscriptionId=${subscriptionIds[0]}&checkNew=true`)).status).toBe(404);
+  });
+
   it("pages the subscribed list correctly with the global unread query", async () => {
     expect(strategyFor(t, user.id)).toBe("global");
     await expectEveryOrderingMatches(SUBSCRIBED, [user.id]);

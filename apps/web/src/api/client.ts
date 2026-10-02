@@ -142,9 +142,12 @@ export function createApiClient(getToken: TokenGetter, cacheScope = "default") {
       invalidateShell();
       return value;
     },
-    getStatus: async () => cached("/api/v1/status", 3_000, async () =>
-      (await get<StatusOverview>("/api/v1/status")).data,
-    ),
+    getStatus: async (fresh = false) => fresh
+      ? (await get<StatusOverview>("/api/v1/status")).data
+      : cached("/api/v1/status", 3_000, async () =>
+        (await get<StatusOverview>("/api/v1/status")).data,
+      ),
+    invalidateFeedData: invalidateArticles,
     refreshFeeds: async (force = false) => {
       const value = (await send<RefreshResult>("POST", "/api/v1/status/refresh", { force })).data;
       invalidateArticles();
@@ -244,11 +247,14 @@ export function createApiClient(getToken: TokenGetter, cacheScope = "default") {
       if (filters.sort) params.set("sort", filters.sort);
       if (filters.readOrder) params.set("readOrder", filters.readOrder);
       if (filters.cursor) params.set("cursor", filters.cursor);
+      if (filters.checkNew) params.set("checkNew", "true");
+      if (filters.afterId !== undefined) params.set("afterId", String(filters.afterId));
       params.set("limit", String(filters.limit ?? 20));
       const path = `/api/v1/articles?${params}`;
       return cached(path, 5_000, async () => {
         const res = await get<ArticleListItem[]>(path);
-        return { articles: res.data, nextCursor: res.meta?.nextCursor ?? null };
+        if (filters.checkNew && (res.meta?.latestArticleId ?? 0) > (filters.afterId ?? 0)) invalidateArticles();
+        return { articles: res.data, nextCursor: res.meta?.nextCursor ?? null, latestArticleId: res.meta?.latestArticleId };
       });
     },
     getUnreadCounts: async (scope: UnreadCountScope = "both") => {

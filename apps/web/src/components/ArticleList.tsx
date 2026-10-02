@@ -23,6 +23,8 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   const [error, setError] = useState<string | null>(null);
   const filtersKey = JSON.stringify(filters);
   const generation = useRef(0);
+  const [hasNewArticles, setHasNewArticles] = useState(false);
+  const watermark = useRef<{ api: ApiClient; filtersKey: string; id: number } | null>(null);
   const viewIdentity = useRef({ api, filtersKey });
   viewIdentity.current = { api, filtersKey };
 
@@ -34,20 +36,57 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
     try {
       const parsed = JSON.parse(filtersKey) as ArticleListFilters;
       const result = await api.listArticles(parsed);
-      if (generation.current !== gen) return;
+      if (generation.current !== gen) return false;
+      watermark.current = result.latestArticleId === undefined ? null : { api, filtersKey, id: result.latestArticleId };
+      setHasNewArticles(false);
       setArticles(result.articles);
       setNextCursor(result.nextCursor);
+      return true;
     } catch (e) {
-      if (generation.current !== gen) return;
+      if (generation.current !== gen) return false;
       setError(errorMessage(e, language));
+      return false;
     } finally {
       if (generation.current === gen) setLoading(false);
     }
   }, [api, filtersKey, language]);
 
   useEffect(() => {
+    watermark.current = null;
+    setHasNewArticles(false);
     void load();
+    return () => { generation.current += 1; };
   }, [load]);
+
+  useEffect(() => {
+    let disposed = false;
+    let checking = false;
+    const check = async () => {
+      const baseline = watermark.current;
+      if (document.visibilityState !== "visible" || checking || !baseline
+        || baseline.api !== api || baseline.filtersKey !== filtersKey) return;
+      const gen = generation.current;
+      checking = true;
+      try {
+        const result = await api.listArticles({ ...JSON.parse(filtersKey) as ArticleListFilters, checkNew: true, afterId: baseline.id });
+        if (!disposed && document.visibilityState === "visible" && generation.current === gen && watermark.current === baseline) {
+          setHasNewArticles((result.latestArticleId ?? 0) > baseline.id);
+        }
+      } catch {
+        // Background checks should not interrupt reading on a network failure.
+      } finally {
+        checking = false;
+      }
+    };
+    const onVisible = () => { void check(); };
+    const timer = window.setInterval(onVisible, 30_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [api, filtersKey]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
@@ -121,7 +160,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
     [api, articles, filtersKey, language, adjustUnreadCounts],
   );
 
-  return { articles, nextCursor, loading, loadingMore, error, reload: load, loadMore, updateState };
+  return { articles, nextCursor, loading, loadingMore, error, hasNewArticles, reload: load, loadMore, updateState };
 }
 
 export function ArticleRows({
@@ -364,5 +403,18 @@ function ArticleRow({
       </div>
       {titleEl}
     </li>
+  );
+}
+
+export function NewArticlesNotice({ visible, disabled, onLoad }: { visible: boolean; disabled?: boolean; onLoad: () => void }) {
+  const { t } = useAppData();
+  if (!visible) return null;
+  return (
+    <div className="fl-new-articles" role="status" aria-live="polite">
+      <button type="button" className="fl-btn fl-btn--primary" disabled={disabled} onClick={onLoad}>
+        <Icon name="refresh" size={16} />
+        {t("新着記事があります")}
+      </button>
+    </div>
   );
 }

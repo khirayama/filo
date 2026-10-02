@@ -44,6 +44,7 @@ object AppStrings {
     // back to the shared English catalog.
     private val completionTranslations = mapOf(
         "en" to mapOf(
+            "新着記事があります" to "New articles available",
             "今" to "now",
             "閲覧開始" to "Start reading",
             "ブラウザで開く" to "Open in browser",
@@ -61,6 +62,7 @@ object AppStrings {
             "OPML" to "OPML",
         ),
         "zh" to mapOf(
+            "新着記事があります" to "有新文章",
             "今" to "现在",
             "閲覧開始" to "开始阅读",
             "ブラウザで開く" to "在浏览器中打开",
@@ -88,6 +90,7 @@ object AppStrings {
             "既読への変更が完了しました。" to "已标记为已读。",
         ),
         "ko" to mapOf(
+            "新着記事があります" to "새 기사가 있습니다",
             "今" to "지금",
             "閲覧開始" to "읽기 시작",
             "ブラウザで開く" to "브라우저에서 열기",
@@ -115,6 +118,7 @@ object AppStrings {
             "既読への変更が完了しました。" to "읽음으로 표시했습니다.",
         ),
         "es" to mapOf(
+            "新着記事があります" to "Hay artículos nuevos",
             "今" to "ahora",
             "閲覧開始" to "Empezar a leer",
             "ブラウザで開く" to "Abrir en el navegador",
@@ -576,6 +580,13 @@ object AppStrings {
         "es" to mapOf("8文字以上のパスワード" to "Contraseña (8 caracteres o más)", "このフィードを取得" to "Obtener este feed", "システムに合わせる" to "Sistema", "フィードを更新しています…" to "Actualizando feeds…", "リーディングリストから削除" to "Quitar de la lista de lectura", "中断" to "Interrumpido", "処理中…" to "Procesando…", "初回取得を再試行" to "Reintentar obtención inicial", "失敗" to "Error", "完了" to "Completado", "翻訳中…" to "Traduciendo…", "色を解除" to "Quitar color", "読み上げる内容" to "Qué leer", "読み上げる文章がありません。" to "No hay texto para leer en voz alta.", "読み上げ開始" to "Empezar a escuchar", "購読一覧（%d）" to "Suscripciones (%d)", "選択範囲を読み上げ" to "Leer la selección en voz alta", "更新異常" to "Error de actualización", "本文を抽出" to "Extraer artículo", "表示中の文章" to "Texto visible", "読み込み中…" to "Cargando…"),
     )
 
+    private val readingTranslations = mapOf(
+        "en" to mapOf("翻訳を利用できないため原文で読み上げています。" to "Translation is unavailable, so the original text is being read aloud."),
+        "zh" to mapOf("翻訳を利用できないため原文で読み上げています。" to "翻译不可用，正在朗读原文。"),
+        "ko" to mapOf("翻訳を利用できないため原文で読み上げています。" to "번역을 사용할 수 없어 원문을 읽고 있습니다."),
+        "es" to mapOf("翻訳を利用できないため原文で読み上げています。" to "La traducción no está disponible; se está leyendo el texto original."),
+    )
+
     fun get(source: String): String {
         val language = LanguagePreference.value
         val localized = translations[language]?.get(source)
@@ -585,6 +596,7 @@ object AppStrings {
             ?: settingsTranslations[language]?.get(source)
             ?: completionTranslations[language]?.get(source)
             ?: designTranslations[language]?.get(source)
+            ?: readingTranslations[language]?.get(source)
         if (localized != null) return localized
 
         // Japanese source strings are already the Japanese UI. Do not replace

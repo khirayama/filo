@@ -5,7 +5,7 @@ import { ApiRequestError } from "../api/client";
 import type { Subscription } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
-import { ArticleRows, useArticleList } from "../components/ArticleList";
+import { ArticleRows, NewArticlesNotice, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
 import { SubscriptionHealth } from "../components/SubscriptionHealth";
 import { TagPicker } from "../components/TagPicker";
@@ -149,7 +149,9 @@ export function SubscriptionDetailPage() {
         source: "subscription_detail",
         timed_out: outcome.timedOut,
       });
-      if (outcome.enqueued > 0) setRefreshNotice(t("フィードの取得を開始しました。"));
+      if (outcome.timedOut) setRefreshNotice(t("取得に時間がかかっています。あとで再度更新してください。"));
+      else if (outcome.enqueued > 0) setRefreshNotice(t("フィードの取得を開始しました。"));
+      await load();
       await list.reload();
       void refreshAppData();
     } catch (e) {
@@ -305,6 +307,11 @@ export function SubscriptionDetailPage() {
             {refreshing ? <Spinner label={t("フィードを更新しています…")} /> : null}
             {refreshNotice ? <Toast message={refreshNotice} /> : null}
             {error ? <div style={{ padding: "16px var(--fl-page-gutter) 0" }}><ErrorBox message={error} onRetry={() => void load()} /></div> : null}
+            <NewArticlesNotice visible={list.hasNewArticles} disabled={list.loading || refreshing || markingAllRead} onLoad={() => {
+              void list.reload().then((loaded) => {
+                if (loaded) document.querySelector("[data-filo-page-header]")?.scrollIntoView({ block: "start" });
+              });
+            }} />
             <ArticleRows
               articles={list.articles}
               loading={list.loading}

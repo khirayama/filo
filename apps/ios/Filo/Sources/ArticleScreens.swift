@@ -6,6 +6,8 @@ import SwiftUI
 final class ArticlesViewModel: ObservableObject {
     @Published var articles: [ArticleListItem] = []
     @Published var nextCursor: String?
+    @Published var hasNewArticles = false
+    private var newArticleBaseline: (filters: ArticleListFilters, id: Int)?
     @Published var isLoading = false
     @Published var isLoadingMore = false
     @Published var errorMessage: String?
@@ -20,7 +22,10 @@ final class ArticlesViewModel: ObservableObject {
         didSet { if readFilter != oldValue { invalidateArticleRequests() } }
     }
     @Published var sort = "published_at_desc" {
-        didSet { if sort != oldValue { invalidateArticleRequests() } }
+        didSet {
+            if !applyingDefaultSort { selectedSort = sort }
+            if sort != oldValue { invalidateArticleRequests() }
+        }
     }
     @Published var readOrder = "unread_first" {
         didSet { if readOrder != oldValue { invalidateArticleRequests() } }
@@ -37,6 +42,8 @@ final class ArticlesViewModel: ObservableObject {
 
     private var articleGeneration = 0
     private var loadGeneration = 0
+    private var selectedSort: String?
+    private var applyingDefaultSort = false
 
     var viewTitle: String {
         if let tagId = selectedTagId, let tag = tags.first(where: { $0.id == tagId }) {
@@ -64,28 +71,31 @@ final class ArticlesViewModel: ObservableObject {
         loadGeneration += 1
         let currentLoadGeneration = loadGeneration
         invalidateArticleRequests()
-        let currentArticleGeneration = articleGeneration
+        var currentArticleGeneration = articleGeneration
         isLoading = true
         errorMessage = nil
         do {
-            async let articlesTask = APIClient.shared.listArticles(filters: filters)
-            async let bootstrapTask = APIClient.shared.getBootstrap()
-            let result = try await articlesTask
-            if articleGeneration == currentArticleGeneration {
-                articles = result.articles
-                nextCursor = result.nextCursor
-            }
-            let loadedBootstrap = try? await bootstrapTask
+            let loadedBootstrap = try? await APIClient.shared.getBootstrap()
             guard loadGeneration == currentLoadGeneration else { return }
             if let loadedBootstrap {
                 tags = loadedBootstrap.tags
                 subscriptions = loadedBootstrap.subscriptions
                 unreadCounts = loadedBootstrap.unreadCounts
                 settings = loadedBootstrap.settings
-                if sort != loadedBootstrap.settings.articleSortOrder { sort = loadedBootstrap.settings.articleSortOrder }
+                applyingDefaultSort = true
+                sort = selectedSort ?? loadedBootstrap.settings.articleSortOrder
+                applyingDefaultSort = false
             }
             // 起動時にサーバー設定のテーマを描画へ反映する (他端末での変更を取り込む)
             if let settings { ThemeManager.shared.theme = settings.theme }
+            currentArticleGeneration = articleGeneration
+            let result = try await APIClient.shared.listArticles(filters: filters)
+            if articleGeneration == currentArticleGeneration {
+                newArticleBaseline = result.latestArticleId.map { (filters, $0) }
+                hasNewArticles = false
+                articles = result.articles
+                nextCursor = result.nextCursor
+            }
         } catch {
             if loadGeneration == currentLoadGeneration, articleGeneration == currentArticleGeneration {
                 errorMessage = ErrorMessages.message(for: error)
@@ -100,6 +110,8 @@ final class ArticlesViewModel: ObservableObject {
         do {
             let result = try await APIClient.shared.listArticles(filters: filters)
             guard articleGeneration == currentGeneration else { return }
+            newArticleBaseline = result.latestArticleId.map { (filters, $0) }
+            hasNewArticles = false
             articles = result.articles
             nextCursor = result.nextCursor
             errorMessage = nil
@@ -113,15 +125,14 @@ final class ArticlesViewModel: ObservableObject {
     @Published var isRefreshingFeeds = false
     @Published var refreshNotice: String?
 
-    // Manual refresh: enqueue feed fetches, then reload the list once. The
-    // server continues the queued work after this method returns.
+    // Wait for queued feed fetches before reloading the visible articles.
     func refreshFeedsAndReload() async {
         guard !isRefreshingFeeds else { return }
         FiloAnalytics.track("refresh_feeds")
         isRefreshingFeeds = true
         refreshNotice = nil
         do {
-            let result = try await APIClient.shared.refreshFeeds(force: false)
+            let result = try await APIClient.shared.refreshFeeds(force: false, waitForCompletion: true)
             if result.enqueued == 0, (result.skipped ?? 0) > 0 {
                 refreshNotice = L10n.string("最近取得済みのため、今回の取得対象はありませんでした。")
             } else if result.enqueued > 0 {
@@ -131,6 +142,7 @@ final class ArticlesViewModel: ObservableObject {
             refreshNotice = ErrorMessages.message(for: error)
         }
         await reloadArticles()
+        subscriptions = (try? await APIClient.shared.listSubscriptions()) ?? subscriptions
         await refreshUnreadCounts()
         isRefreshingFeeds = false
     }
@@ -152,8 +164,18 @@ final class ArticlesViewModel: ObservableObject {
         if articleGeneration == currentGeneration { isLoadingMore = false }
     }
 
+    func checkForNewArticles() async {
+        guard !isLoading, !isRefreshingFeeds, !isMarkingAllRead,
+              let baseline = newArticleBaseline, baseline.filters == filters else { return }
+        let currentGeneration = articleGeneration
+        guard let result = try? await APIClient.shared.listArticles(filters: baseline.filters, checkNew: true, afterId: baseline.id),
+              !Task.isCancelled, articleGeneration == currentGeneration, baseline.filters == filters else { return }
+        hasNewArticles = (result.latestArticleId ?? 0) > baseline.id
+    }
+
     private func invalidateArticleRequests() {
         articleGeneration += 1
+        if newArticleBaseline?.filters != filters { hasNewArticles = false }
         isLoadingMore = false
     }
 
@@ -255,6 +277,8 @@ final class ArticlesViewModel: ObservableObject {
 }
 
 struct ArticlesScreen: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isLoadingNewArticles = false
     @Binding var path: NavigationPath
     @ObservedObject var model: ArticlesViewModel
     @ObservedObject private var translations = TitleTranslationStore.shared
@@ -307,6 +331,13 @@ struct ArticlesScreen: View {
             await model.load()
             registerTitlesForTranslation()
             await translations.refreshLanguages()
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await model.checkForNewArticles()
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
         }
         .onChange(of: model.selectedTagId) { Task { await model.reloadArticles() } }
         .onChange(of: model.readFilter) { Task { await model.reloadArticles() } }
@@ -408,6 +439,25 @@ struct ArticlesScreen: View {
             .background(FiloPalette.background)
             .environment(\.defaultMinListRowHeight, 0)
             .refreshable { await model.refreshFeedsAndReload() }
+            .overlay(alignment: .top) {
+                if model.hasNewArticles {
+                    FiloButton("新着記事があります", icon: .refresh, kind: .primary) {
+                        guard !isLoadingNewArticles else { return }
+                        isLoadingNewArticles = true
+                        Task {
+                            defer { isLoadingNewArticles = false }
+                            await model.reloadArticles()
+                            guard !model.hasNewArticles, model.errorMessage == nil else { return }
+                            selectedArticleIndex = nil
+                            listScrollPosition = nil
+                            scrollToTopToken += 1
+                            await model.refreshUnreadCounts()
+                        }
+                    }
+                    .disabled(isLoadingNewArticles || model.isLoading || model.isRefreshingFeeds || model.isMarkingAllRead)
+                    .padding(.top, 12)
+                }
+            }
             .scrollPosition(id: $listScrollPosition)
             .onChange(of: selectedArticleIndex) { _, index in
                 guard let index, model.articles.indices.contains(index) else { return }

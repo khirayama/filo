@@ -14,7 +14,7 @@ private struct DataEnvelope<T: Decodable>: Decodable {
 }
 
 private struct ListEnvelope<T: Decodable>: Decodable {
-    struct Meta: Decodable { let nextCursor: String? }
+    struct Meta: Decodable { let nextCursor: String?; let latestArticleId: Int? }
     let data: [T]
     let meta: Meta?
 }
@@ -149,16 +149,40 @@ final class APIClient: Sendable {
         try await cachedGet("status", ttl: 3, "/api/v1/status")
     }
 
-    func refreshFeeds(force: Bool = false) async throws -> RefreshResult {
+    func refreshFeeds(force: Bool = false, waitForCompletion: Bool = false) async throws -> RefreshResult {
         let result: RefreshResult = try await send("POST", "/api/v1/status/refresh", json: ["force": force])
         await invalidateCaches()
+        if waitForCompletion { try await waitForFeedRefresh(result) }
         return result
     }
 
-    func refreshFeed(_ feedId: Int) async throws -> RefreshResult {
+    func refreshFeed(_ feedId: Int, waitForCompletion: Bool = false) async throws -> RefreshResult {
         let result: RefreshResult = try await send("POST", "/api/v1/status/refresh/\(feedId)", json: [:])
         await invalidateCaches()
+        if waitForCompletion { try await waitForFeedRefresh(result, feedId: feedId) }
         return result
+    }
+
+    private func waitForFeedRefresh(_ result: RefreshResult, feedId: Int? = nil) async throws {
+        guard result.enqueued > 0 || (result.skipped ?? 0) > 0 else { return }
+        do {
+            for attempt in 0 ..< 11 {
+                try Task.checkCancellation()
+                let status: StatusOverview = try await get("/api/v1/status")
+                let active = status.subscriptionStatuses.contains {
+                    (feedId == nil || $0.feedId == feedId) && $0.fetchJob?.isActive == true
+                }
+                if !active {
+                    await invalidateCaches()
+                    return
+                }
+                if attempt == 10 { throw APIError(status: 0, code: "feed_refresh_timeout") }
+                try await Task.sleep(for: .seconds(3))
+            }
+        } catch {
+            await invalidateCaches()
+            throw error
+        }
     }
 
 
@@ -280,7 +304,7 @@ final class APIClient: Sendable {
         return result
     }
 
-    func listArticles(filters: ArticleListFilters, cursor: String? = nil, limit: Int = 20) async throws -> (articles: [ArticleListItem], nextCursor: String?) {
+    func listArticles(filters: ArticleListFilters, cursor: String? = nil, limit: Int = 20, checkNew: Bool = false, afterId: Int? = nil) async throws -> (articles: [ArticleListItem], nextCursor: String?, latestArticleId: Int?) {
         var components = URLComponents()
         var items = [URLQueryItem(name: "limit", value: String(limit))]
         if let id = filters.subscriptionId { items.append(.init(name: "subscriptionId", value: String(id))) }
@@ -291,6 +315,8 @@ final class APIClient: Sendable {
         if let sort = filters.sort { items.append(.init(name: "sort", value: sort)) }
         if let readOrder = filters.readOrder { items.append(.init(name: "readOrder", value: readOrder)) }
         if let cursor { items.append(.init(name: "cursor", value: cursor)) }
+        if checkNew { items.append(.init(name: "checkNew", value: "true")) }
+        if let afterId { items.append(.init(name: "afterId", value: String(afterId))) }
         components.queryItems = items
         let query = components.percentEncodedQuery ?? ""
         let path = "/api/v1/articles?\(query)"
@@ -298,7 +324,8 @@ final class APIClient: Sendable {
             try await request("GET", path)
         }
         let envelope = try JSONDecoder().decode(ListEnvelope<ArticleListItem>.self, from: data)
-        return (envelope.data, envelope.meta?.nextCursor)
+        if checkNew, let id = envelope.meta?.latestArticleId, id > (afterId ?? 0) { await invalidateCaches() }
+        return (envelope.data, envelope.meta?.nextCursor, envelope.meta?.latestArticleId)
     }
 
     func getUnreadCounts() async throws -> UnreadCounts {

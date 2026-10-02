@@ -176,7 +176,7 @@ data class ArticleListFilters(
     val readOrder: String? = null,
 )
 
-data class ArticlePage(val articles: List<ArticleListItem>, val nextCursor: String?)
+data class ArticlePage(val articles: List<ArticleListItem>, val nextCursor: String?, val latestArticleId: Int? = null)
 
 internal fun JSONObject.optStringOrNull(key: String): String? =
     if (isNull(key)) null else optString(key, null)

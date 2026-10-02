@@ -69,6 +69,7 @@ fun ArticlesScreen(
     onOpenArticle: (ArticleListItem) -> Unit,
 ) {
     val vm = model
+    PollForNewArticles { vm.checkForNewArticles() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -421,6 +422,20 @@ fun ArticlesScreen(
                         }
                     }
                 }
+                NewArticlesNotice(
+                    visible = vm.hasNewArticles,
+                    enabled = !isLoading && !vm.isRefreshingFeeds && !vm.isMarkingAllRead,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    onLoad = {
+                        scope.launch {
+                            vm.reload()
+                            if (vm.hasNewArticles || vm.errorMessage != null) return@launch
+                            selectedArticleIndex = null
+                            listState.scrollToItem(0)
+                            vm.saveListPosition(0, 0)
+                        }
+                    },
+                )
             }
         }
         FiloToast(vm.refreshNotice?.let { tr(it) }, onDismiss = { vm.refreshNotice = null })

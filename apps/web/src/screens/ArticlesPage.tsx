@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
-import { ArticleRows, useArticleList } from "../components/ArticleList";
+import { ArticleRows, NewArticlesNotice, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
 import { BlockingProgress, Button, EmptyState, ErrorBox, IconButton, Spinner, Toast, useDialogFocus } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
@@ -127,14 +127,16 @@ function ArticlesListPage() {
 
   const selectedTag = tagId !== undefined ? tags.find((t) => t.id === tagId) : undefined;
 
-  // 更新: 購読 feed の取得ジョブを enqueue し、一覧を一度再読込する。
+  // 更新: 購読 feed の取得ジョブの完了を確認してから再読込する。
   const refreshFeeds = async () => {
     if (refreshing) return;
     setRefreshing(true);
     setRefreshNotice(null);
     try {
       const outcome = await enqueueFeedRefresh(api);
-      if (outcome.enqueued === 0 && outcome.skipped > 0) {
+      if (outcome.timedOut) {
+        setRefreshNotice(t("取得に時間がかかっています。あとで再度更新してください。"));
+      } else if (outcome.enqueued === 0 && outcome.skipped > 0) {
         setRefreshNotice(t("最近取得済みのため、今回の取得対象はありませんでした。"));
       } else if (outcome.enqueued > 0) {
         setRefreshNotice(`${outcome.enqueued}${t("件のフィードの取得を開始しました。")}`);
@@ -359,6 +361,10 @@ function ArticlesListPage() {
   return (
     <AppShell title={title} actions={headerActions}>
       <main className="articles-page" aria-busy={markingAllRead} style={{ paddingBottom: "32px" }}>
+        <NewArticlesNotice visible={list.hasNewArticles} disabled={list.loading || refreshing || markingAllRead} onLoad={() => {
+          setActiveArticleIndex(null);
+          void list.reload().then((loaded) => { if (loaded) { scrollArticlesToTop(); void refreshUnreadCounts(); } });
+        }} />
         {sideError || markAllError ? (
           <div style={{ display: "grid", gap: "8px", padding: "16px var(--fl-page-gutter) 0" }}>
             {sideError ? <ErrorBox message={sideError} /> : null}

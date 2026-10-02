@@ -15,9 +15,12 @@ import com.filo.app.api.UnreadCounts
 import com.filo.app.LanguagePreference
 import com.filo.app.FiloApplication
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 
 class ArticlesViewModel : ViewModel() {
     var articles by mutableStateOf<List<ArticleListItem>>(emptyList())
+    var hasNewArticles by mutableStateOf(false)
+    private var newArticleBaseline: Pair<ArticleListFilters, Int>? = null
     var nextCursor by mutableStateOf<String?>(null)
     var tags by mutableStateOf<List<Tag>>(emptyList())
     var subscriptions by mutableStateOf<List<Subscription>>(emptyList())
@@ -36,7 +39,14 @@ class ArticlesViewModel : ViewModel() {
 
     var selectedTagId by mutableStateOf<Int?>(null)
     var readFilter by mutableStateOf<Boolean?>(null)
-    var sort by mutableStateOf("published_at_desc")
+    private var selectedSort: String? = null
+    private var sortValue by mutableStateOf("published_at_desc")
+    var sort: String
+        get() = sortValue
+        set(value) {
+            selectedSort = value
+            sortValue = value
+        }
     var readOrder by mutableStateOf("unread_first")
     var readingListOnly by mutableStateOf(false)
     var bookmarkedOnly by mutableStateOf(false)
@@ -93,35 +103,59 @@ class ArticlesViewModel : ViewModel() {
 
     suspend fun reload() {
         val requestGeneration = ++articleGeneration
-        val requestFilters = filters()
+        if (newArticleBaseline?.first != filters()) hasNewArticles = false
+        var requestFilters = filters()
         isLoading = true
         isLoadingMore = false
         nextCursor = null
         errorMessage = null
         try {
+            val bootstrap = runCatching { ApiClient.getBootstrap() }.getOrNull()
+            if (requestGeneration != articleGeneration || requestFilters != filters()) return
+            if (bootstrap != null) {
+                tags = bootstrap.tags
+                subscriptions = bootstrap.subscriptions
+                unreadCounts = bootstrap.unreadCounts
+                openInBrowserByDefault = bootstrap.settings.openInBrowserByDefault
+                theme = bootstrap.settings.theme
+                language = bootstrap.settings.language
+                LanguagePreference.set(FiloApplication.context, bootstrap.settings.language)
+                readableLanguages = bootstrap.settings.readableLanguages
+                // The server setting is the default; an explicit list selection
+                // remains in effect when refreshing or changing other filters.
+                sortValue = selectedSort ?: bootstrap.settings.articleSortOrder
+            }
+            requestFilters = filters()
+            lastLoadedFilters = listPositionFilterKey()
             val page = ApiClient.listArticles(requestFilters)
             if (requestGeneration != articleGeneration || requestFilters != filters()) return
+            newArticleBaseline = page.latestArticleId?.let { requestFilters to it }
+            hasNewArticles = false
             articles = page.articles
             nextCursor = page.nextCursor
-            runCatching { ApiClient.getBootstrap() }.getOrNull()?.let { bootstrap ->
-                if (requestGeneration == articleGeneration) {
-                    tags = bootstrap.tags
-                    subscriptions = bootstrap.subscriptions
-                    unreadCounts = bootstrap.unreadCounts
-                    openInBrowserByDefault = bootstrap.settings.openInBrowserByDefault
-                    theme = bootstrap.settings.theme
-                    language = bootstrap.settings.language
-                    LanguagePreference.set(FiloApplication.context, bootstrap.settings.language)
-                    readableLanguages = bootstrap.settings.readableLanguages
-                    sort = bootstrap.settings.articleSortOrder
-                }
-            }
         } catch (e: Exception) {
             if (requestGeneration == articleGeneration && requestFilters == filters()) {
                 errorMessage = ErrorMessages.forErrorText(e)
             }
         } finally {
             if (requestGeneration == articleGeneration) isLoading = false
+        }
+    }
+
+    suspend fun checkForNewArticles() {
+        val baseline = newArticleBaseline ?: return
+        if (isLoading || isRefreshingFeeds || isMarkingAllRead || baseline.first != filters()) return
+        val requestGeneration = articleGeneration
+        try {
+            val page = ApiClient.listArticles(baseline.first, checkNew = true, afterId = baseline.second)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (requestGeneration == articleGeneration && baseline.first == filters()) {
+                hasNewArticles = (page.latestArticleId ?: 0) > baseline.second
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Background checks never replace the list with a network error.
         }
     }
 
@@ -148,7 +182,7 @@ class ArticlesViewModel : ViewModel() {
         }
     }
 
-    // Manual refresh: enqueue feed fetches, then reload the visible list once.
+    // Wait for queued feed fetches before reloading the visible articles.
     suspend fun refreshFeedsAndReload(feedId: Int? = null) {
         if (isRefreshingFeeds) return
         com.filo.app.Analytics.track(
@@ -158,7 +192,8 @@ class ArticlesViewModel : ViewModel() {
         isRefreshingFeeds = true
         refreshNotice = null
         try {
-            val result = if (feedId != null) ApiClient.refreshFeed(feedId) else ApiClient.refreshFeeds(force = false)
+            val result = if (feedId != null) ApiClient.refreshFeed(feedId, waitForCompletion = true)
+                else ApiClient.refreshFeeds(force = false, waitForCompletion = true)
             if (result.enqueued == 0 && result.skipped > 0) {
                 refreshNotice = AppText("最近取得済みのため、今回の取得対象はありませんでした。")
             } else if (result.enqueued > 0) {

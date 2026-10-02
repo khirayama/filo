@@ -114,6 +114,7 @@ export interface RefreshResult {
 }
 
 export interface ListMeta {
+  latestArticleId?: number;
   nextCursor: string | null;
 }
 
@@ -166,6 +167,8 @@ export interface StatusOverview {
 }
 
 export interface ArticleListFilters {
+  checkNew?: boolean;
+  afterId?: number;
   subscriptionId?: number;
   tagId?: number;
   read?: boolean;

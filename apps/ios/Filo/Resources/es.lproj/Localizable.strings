@@ -270,3 +270,6 @@
 "リスト" = "Lista";
 "選択範囲を読み上げ" = "Leer la selección en voz alta";
 "読み上げる文章がありません。" = "No hay texto para leer en voz alta.";
+"翻訳を利用できないため原文で読み上げています。" = "La traducción no está disponible; se está leyendo el texto original.";
+
+"新着記事があります" = "Hay artículos nuevos";

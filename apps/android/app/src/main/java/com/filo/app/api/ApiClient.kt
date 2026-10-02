@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -171,16 +172,37 @@ object ApiClient {
         parseStatusOverview(getData("/api/v1/status"))
     }
 
-    suspend fun refreshFeeds(force: Boolean = false): RefreshResult {
+    suspend fun refreshFeeds(force: Boolean = false, waitForCompletion: Boolean = false): RefreshResult {
         val body = JSONObject().put("force", force)
-        return parseRefreshResult(JSONObject(sendJson("POST", "/api/v1/status/refresh", body)).getJSONObject("data"))
-            .also { invalidateCache() }
+        val result = parseRefreshResult(JSONObject(sendJson("POST", "/api/v1/status/refresh", body)).getJSONObject("data"))
+        invalidateCache()
+        if (waitForCompletion) waitForFeedRefresh(result)
+        return result
     }
 
-    suspend fun refreshFeed(feedId: Int): RefreshResult =
-        parseRefreshResult(JSONObject(sendJson("POST", "/api/v1/status/refresh/$feedId", JSONObject())).getJSONObject("data"))
-            .also { invalidateCache() }
+    suspend fun refreshFeed(feedId: Int, waitForCompletion: Boolean = false): RefreshResult {
+        val result = parseRefreshResult(JSONObject(sendJson("POST", "/api/v1/status/refresh/$feedId", JSONObject())).getJSONObject("data"))
+        invalidateCache()
+        if (waitForCompletion) waitForFeedRefresh(result, feedId)
+        return result
+    }
 
+    private suspend fun waitForFeedRefresh(result: RefreshResult, feedId: Int? = null) {
+        if (result.enqueued == 0 && result.skipped == 0) return
+        try {
+            repeat(11) { attempt ->
+                val status = parseStatusOverview(getData("/api/v1/status"))
+                val active = status.subscriptionStatuses.any {
+                    (feedId == null || it.feedId == feedId) && it.fetchJob?.isActive == true
+                }
+                if (!active) return
+                if (attempt == 10) throw ApiException(0, "feed_refresh_timeout")
+                delay(3000)
+            }
+        } finally {
+            invalidateCache()
+        }
+    }
 
     // Settings
 
@@ -295,8 +317,8 @@ object ApiClient {
         invalidateCache()
     }
 
-    suspend fun listArticles(filters: ArticleListFilters, cursor: String? = null, limit: Int = 20): ArticlePage {
-        val cacheKey = "${filters}|${cursor ?: "first"}|$limit"
+    suspend fun listArticles(filters: ArticleListFilters, cursor: String? = null, limit: Int = 20, checkNew: Boolean = false, afterId: Int? = null): ArticlePage {
+        val cacheKey = "${filters}|${cursor ?: "first"}|$limit|$checkNew|$afterId"
         return cached(
             "articles:$cacheKey",
             ARTICLE_CACHE_MS,
@@ -312,10 +334,16 @@ object ApiClient {
             filters.sort?.let { params.add("sort=$it") }
             filters.readOrder?.let { params.add("readOrder=$it") }
             cursor?.let { params.add("cursor=" + URLEncoder.encode(it, "UTF-8")) }
-            val (data, next) = getList("/api/v1/articles?" + params.joinToString("&"))
+            if (checkNew) params.add("checkNew=true")
+            afterId?.let { params.add("afterId=$it") }
+            val response = JSONObject(request("GET", "/api/v1/articles?" + params.joinToString("&")))
+            val data = response.getJSONArray("data")
+            val meta = response.optJSONObject("meta")
+            if (checkNew && (meta?.optInt("latestArticleId") ?: 0) > (afterId ?: 0)) invalidateCache()
             ArticlePage(
                 articles = (0 until data.length()).map { parseArticleListItem(data.getJSONObject(it)) },
-                nextCursor = next,
+                nextCursor = meta?.optStringOrNull("nextCursor"),
+                latestArticleId = if (meta?.has("latestArticleId") == true) meta.getInt("latestArticleId") else null,
             )
         }
     }

@@ -105,6 +105,53 @@ const ARTICLE_LIST_COLUMNS = `
   CASE WHEN rli.user_id IS NULL THEN 0 ELSE 1 END AS in_reading_list,
   CASE WHEN ab.user_id IS NULL THEN 0 ELSE 1 END AS is_bookmarked`;
 
+// The insertion watermark is independent of display order and read state on
+// initial loads. This also finds newly fetched articles with old publish dates.
+async function latestArticleId(db: D1Database, scope: ArticleListScope, read?: boolean, afterId?: number): Promise<number> {
+  const conditions = [...scope.conditions];
+  const binds = [...scope.binds];
+  if (read !== undefined) conditions.push(readGroupCondition(read ? 1 : 0));
+  if (afterId !== undefined) {
+    conditions.push("a.id > ?");
+    binds.push(afterId);
+  }
+  const joins = `
+    LEFT JOIN article_read_states ars ON ars.article_id = a.id AND ars.user_id = ?
+    ${scope.readingListJoin} article_user_collections rli
+      ON rli.article_id = a.id AND rli.user_id = ? AND rli.kind = 'reading_list'
+    ${scope.bookmarkJoin} article_user_collections ab
+      ON ab.article_id = a.id AND ab.user_id = ? AND ab.kind = 'bookmark'
+    LEFT JOIN feed_read_cursors frc ON frc.feed_id = a.feed_id AND frc.user_id = ?`;
+  const stateBinds = [scope.userId, scope.userId, scope.userId, scope.userId];
+  let sql: string;
+  let queryBinds: unknown[];
+  if (scope.readingListJoin === "JOIN" || scope.bookmarkJoin === "JOIN") {
+    // Start from the user's collection, including retained articles.
+    if (scope.subscribedOnly) {
+      conditions.push("EXISTS (SELECT 1 FROM subscriptions s WHERE s.feed_id = a.feed_id AND s.user_id = ?)");
+      binds.push(scope.userId);
+    }
+    sql = `SELECT COALESCE(MAX(a.id), 0) AS id
+      FROM article_user_collections collection
+      JOIN articles a ON a.id = collection.article_id
+      ${joins}
+      WHERE collection.user_id = ? AND collection.kind = ?
+      ${conditions.length ? `AND ${conditions.join(" AND ")}` : ""}`;
+    queryBinds = [...stateBinds, scope.userId, scope.readingListJoin === "JOIN" ? "reading_list" : "bookmark", ...binds];
+  } else {
+    // One indexed feed/id lookup per subscription, including for empty lists.
+    // Never walk the global article table just to poll one user's feeds.
+    sql = `SELECT COALESCE(MAX((
+      SELECT a.id FROM articles a ${joins}
+      WHERE a.feed_id = s.feed_id ${conditions.length ? `AND ${conditions.join(" AND ")}` : ""}
+      ORDER BY a.id DESC LIMIT 1
+    )), 0) AS id FROM subscriptions s WHERE s.user_id = ?`;
+    queryBinds = [...stateBinds, ...binds, scope.userId];
+  }
+  const row = await db.prepare(sql).bind(...queryBinds).first<{ id: number }>();
+  return row?.id ?? 0;
+}
+
 // The general list query: walks the article-order index and evaluates the
 // scope and read state per row until LIMIT. The subscription filter is a
 // correlated EXISTS so SQLite can stop at LIMIT instead of joining every
@@ -443,6 +490,12 @@ export const articleRoutes = new Hono<AppContext>()
       throw errors.validation((e as Error).message);
     }
 
+    const checkNew = parseBoolQuery(c.req.query("checkNew"), "checkNew") === true;
+    const afterIdRaw = c.req.query("afterId");
+    const afterId = afterIdRaw === undefined ? undefined : Number(afterIdRaw);
+    if (afterIdRaw !== undefined && (!/^\d+$/.test(afterIdRaw) || !Number.isSafeInteger(afterId))) {
+      throw errors.validation("invalid afterId");
+    }
     const read = parseBoolQuery(c.req.query("read"), "read");
     const readingList = parseCollectionQuery(c.req.query("readingList"), "readingList");
     const bookmarked = parseCollectionQuery(c.req.query("bookmarked"), "bookmarked");
@@ -503,6 +556,13 @@ export const articleRoutes = new Hono<AppContext>()
       ? undefined
       : await decodeCursor(cursorSecret, sort, cursorRaw, readOrder);
 
+    if (checkNew) {
+      return c.json({ data: [], meta: { nextCursor: null, latestArticleId: await latestArticleId(c.env.DB, scope, read, afterId) } });
+    }
+    // Capture before reading the page so arrivals during a load are detected
+    // on the next check. Pagination must not acknowledge unseen new articles.
+    const watermark = cursor ? undefined : await latestArticleId(c.env.DB, scope);
+
     // Decided at most once per request, and only if an unread group is read.
     let strategyPromise: Promise<UnreadQueryStrategy> | undefined;
     const strategy = () => (strategyPromise ??= unreadQueryStrategy(c.env.DB, user.id, limit));
@@ -552,7 +612,7 @@ export const articleRoutes = new Hono<AppContext>()
         r: last.is_read ? 1 : 0,
       }, readOrder);
     }
-    return c.json({ data, meta: { nextCursor } });
+    return c.json({ data, meta: { nextCursor, latestArticleId: watermark } });
   })
   .post("/import", async (c) => {
     const user = c.get("user");

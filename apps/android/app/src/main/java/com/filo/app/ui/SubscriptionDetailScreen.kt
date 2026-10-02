@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +40,7 @@ import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import java.util.concurrent.atomic.AtomicLong
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -55,6 +57,10 @@ fun SubscriptionDetailScreen(
     var subscription by remember { mutableStateOf<Subscription?>(null) }
     var allTags by remember { mutableStateOf<List<Tag>>(emptyList()) }
     var articles by remember { mutableStateOf<List<ArticleListItem>>(emptyList()) }
+    val listState = rememberLazyListState()
+    var isLoadingNewArticles by remember { mutableStateOf(false) }
+    var hasNewArticles by remember { mutableStateOf(false) }
+    var newArticleBaseline by remember { mutableStateOf<Pair<ArticleListFilters, Int>?>(null) }
     var nextCursor by remember { mutableStateOf<String?>(null) }
     var isLoadingMore by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
@@ -66,6 +72,7 @@ fun SubscriptionDetailScreen(
     var markAllReadNotice by remember { mutableStateOf<AppText?>(null) }
 
     var sort by remember { mutableStateOf("published_at_desc") }
+    var selectedSort by remember { mutableStateOf<String?>(null) }
     var readFilter by remember { mutableStateOf<Boolean?>(null) }
     var readOrder by remember { mutableStateOf("unread_first") }
     var openInBrowserByDefault by remember { mutableStateOf(false) }
@@ -87,11 +94,15 @@ fun SubscriptionDetailScreen(
     suspend fun reloadArticles() {
         val requestGeneration = articleGeneration.incrementAndGet()
         val requestFilters = filters()
+        if (newArticleBaseline?.first != requestFilters) hasNewArticles = false
         isLoadingMore = false
         nextCursor = null
         try {
             val page = ApiClient.listArticles(requestFilters)
             if (requestGeneration == articleGeneration.get() && requestFilters == filters()) {
+                newArticleBaseline = page.latestArticleId?.let { requestFilters to it }
+                hasNewArticles = false
+                errorMessage = null
                 articles = page.articles
                 nextCursor = page.nextCursor
             }
@@ -178,7 +189,7 @@ fun SubscriptionDetailScreen(
             // 初期並び順は current user の articleSortOrder に従う
             runCatching {
                 ApiClient.getSettings().let { settings ->
-                    sort = settings.articleSortOrder
+                    sort = selectedSort ?: settings.articleSortOrder
                     openInBrowserByDefault = settings.openInBrowserByDefault
                 }
             }
@@ -197,7 +208,7 @@ fun SubscriptionDetailScreen(
         isRefreshingFeed = true
         refreshNotice = null
         try {
-            val result = ApiClient.refreshFeed(feedId)
+            val result = ApiClient.refreshFeed(feedId, waitForCompletion = true)
             com.filo.app.Analytics.track(
                 "refresh_feed",
                 mapOf("feed_id" to feedId, "source" to "subscription_detail"),
@@ -206,10 +217,28 @@ fun SubscriptionDetailScreen(
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forErrorText(e)
         }
+        runCatching { subscription = ApiClient.getSubscription(subscriptionId) }
         reloadArticles()
         isRefreshingFeed = false
     }
 
+    PollForNewArticles {
+        val baseline = newArticleBaseline
+        if (baseline != null && baseline.first == filters() && !isLoading && !isRefreshingFeed && !isMarkingAllRead && !isGone) {
+            val requestGeneration = articleGeneration.get()
+            try {
+                val page = ApiClient.listArticles(baseline.first, checkNew = true, afterId = baseline.second)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (requestGeneration == articleGeneration.get() && baseline.first == filters()) {
+                    hasNewArticles = (page.latestArticleId ?: 0) > baseline.second
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Retry on the next background check without interrupting reading.
+            }
+        }
+    }
     LaunchedEffect(Unit) { reload() }
     // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
     LaunchedEffect(articles, translations.isEnabled, translations.languages) { translations.register(articles) }
@@ -299,7 +328,7 @@ fun SubscriptionDetailScreen(
                         sort = sort,
                         readOrder = readOrder,
                         onReadFilter = { readFilter = it },
-                        onSort = { sort = it },
+                        onSort = { selectedSort = it; sort = it },
                         onReadOrder = { readOrder = it },
                     )
                 }
@@ -309,7 +338,7 @@ fun SubscriptionDetailScreen(
                 onRefresh = { scope.launch { refreshFeedAndReload() } },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
                     if (isLoading) {
                         item { FiloSpinner() }
                         return@LazyColumn
@@ -393,6 +422,24 @@ fun SubscriptionDetailScreen(
                         if (isLoadingMore) item { FiloSpinner() }
                     }
                 }
+                NewArticlesNotice(
+                    visible = hasNewArticles,
+                    enabled = !isLoadingNewArticles && !isLoading && !isRefreshingFeed && !isMarkingAllRead,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    onLoad = {
+                        if (!isLoadingNewArticles) {
+                            isLoadingNewArticles = true
+                            scope.launch {
+                                try {
+                                    reloadArticles()
+                                    if (!hasNewArticles && errorMessage == null) listState.scrollToItem(0)
+                                } finally {
+                                    isLoadingNewArticles = false
+                                }
+                            }
+                        }
+                    },
+                )
             }
         }
         FiloToast(refreshNotice?.let { tr(it) }, onDismiss = { refreshNotice = null })

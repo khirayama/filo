@@ -1,3 +1,6 @@
 /* Japanese is the source language: keys are the Japanese strings themselves.
    This table exists so SwiftUI resolves literal Text keys to Japanese when the
    app language is ja, instead of falling back to the device language. */
+"翻訳を利用できないため原文で読み上げています。" = "翻訳を利用できないため原文で読み上げています。";
+
+"新着記事があります" = "新着記事があります";
