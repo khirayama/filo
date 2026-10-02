@@ -34,6 +34,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published private(set) var isPageLoaded = false
     @Published var hasSelection = false
     @Published var errorMessage: String?
+    @Published private(set) var noticeMessage: String?
+    @Published private(set) var browserPageId = 0
     @Published var isAddingToReadingList = false
     @Published private(set) var removedReadingListArticleIds: Set<Int> = []
     @Published var rate: Float = UserDefaults.standard.float(forKey: "filo:readingRate") == 0
@@ -46,7 +48,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var chunks: [String] = []
     private var chunkIndex = 0
     private var startingAutoplay = false
-    private var temporary = false
     private var translationToken = 0
     private var nextCaptureId = 0
     private var playbackGeneration = 0
@@ -60,7 +61,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         guard index >= 0, index < items.count else { return nil }
         return items[index]
     }
-    var isTemporary: Bool { temporary }
+    var isTemporary: Bool { currentItem?.articleId == 0 }
     var currentPlaybackTitle: String? { playbackArticleTitle }
     var visibleReadingListItems: [ReadingSessionItem] {
         readingListItems.filter { !removedReadingListArticleIds.contains($0.articleId) }
@@ -78,6 +79,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
 
     func start(autoplay: Bool, temporaryUrl: String? = nil, article: ReadingSessionArticle? = nil) async {
         guard !isLoading else { return }
+        pause()
         isLoading = true
         errorMessage = nil
         startingAutoplay = autoplay
@@ -87,7 +89,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             let settings = try? await settingsTask
             targetLanguage = settings?.language ?? targetLanguage
             if let article {
-                temporary = false
                 items = [ReadingSessionItem(
                     articleId: article.id,
                     sortOrder: 0,
@@ -98,8 +99,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 index = 0
                 readingListItems = (try? await loadReadingList()) ?? []
             } else if let temporaryUrl {
-                temporary = true
-                readingListItems = []
+                readingListItems = (try? await loadReadingList()) ?? []
                 let article = ReadingSessionArticle(
                     id: 0,
                     title: temporaryUrl,
@@ -111,7 +111,6 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 items = [ReadingSessionItem(articleId: 0, sortOrder: 0, article: article, createdAt: nil, isRead: false)]
                 index = 0
             } else {
-                temporary = false
                 let readingList = try await loadReadingList()
                 items = readingList
                 readingListItems = readingList
@@ -144,6 +143,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private func requestCapture(_ kind: ReadingCaptureKind) {
         guard currentItem != nil else { return }
         pause()
+        playbackKind = kind
         errorMessage = nil
         isPreparing = true
         nextCaptureId += 1
@@ -160,7 +160,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             speak(text, language: language, kind: request.kind)
             return
         }
-        guard request.kind == .page, !temporary, let articleId = currentItem?.articleId, articleId > 0 else {
+        guard request.kind == .page, let articleId = currentItem?.articleId, articleId > 0 else {
             isPreparing = false
             errorMessage = L10n.string(request.kind == .selection ? "読み上げる文章がありません。" : "本文を抽出できませんでした。")
             return
@@ -193,7 +193,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     // or a shared page does not.
     private func speak(_ value: String, language: String?, kind: ReadingCaptureKind) {
         let text = clean(value)
-        playbackArticleId = kind == .page && !temporary ? currentItem?.articleId : nil
+        playbackArticleId = kind == .page ? currentItem?.articleId : nil
         playbackArticleTitle = currentItem?.article.title
         playbackKind = kind
         let source = language ?? currentItem?.article.sourceLanguage
@@ -220,9 +220,11 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             let translated = responses.sorted {
                 (Int($0.clientIdentifier ?? "0") ?? 0) < (Int($1.clientIdentifier ?? "0") ?? 0)
             }.map(\.targetText).joined(separator: "\n\n")
+            if translated.isEmpty { noticeMessage = L10n.string("翻訳を利用できないため原文で読み上げています。") }
             beginSpeaking(translated.isEmpty ? original : translated, language: translated.isEmpty ? request.source : request.target)
         } catch {
             guard request.token == translationToken else { return }
+            noticeMessage = L10n.string("翻訳を利用できないため原文で読み上げています。")
             beginSpeaking(original, language: request.source)
         }
         pendingOriginalText = nil
@@ -247,6 +249,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         startingAutoplay = false
         captureRequest = nil
         isPreparing = false
+        noticeMessage = nil
         synthesizer.stopSpeaking(at: .immediate)
         isPlaying = false
     }
@@ -299,19 +302,45 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
 
     // A settings change while speaking restarts with the new settings.
     private func restartIfPlaying() {
-        if isPlaying { requestCapture(playbackKind) }
+        if isPlaying || isPreparing { requestCapture(playbackKind) }
     }
 
     func addCurrentPageToReadingList() {
         guard !isAddingToReadingList, let item = currentItem, let url = item.article.canonicalUrl else { return }
+        let pageId = browserPageId
         isAddingToReadingList = true
         Task {
             defer { isAddingToReadingList = false }
             do {
-                _ = try await APIClient.shared.importArticle(url: url, title: item.article.title)
-                if !temporary, item.articleId > 0,
-                   !readingListItems.contains(where: { $0.articleId == item.articleId }) {
-                    readingListItems.append(item)
+                let saved = try await APIClient.shared.importArticle(url: url, title: item.articleId > 0 ? item.article.title : nil)
+                let existing = (items + readingListItems).first { $0.articleId == saved.articleId }
+                let savedItem = ReadingSessionItem(
+                    articleId: saved.articleId,
+                    sortOrder: item.sortOrder,
+                    article: ReadingSessionArticle(
+                        id: saved.articleId,
+                        title: saved.title,
+                        sourceLanguage: existing?.article.sourceLanguage ?? item.article.sourceLanguage,
+                        canonicalUrl: saved.url,
+                        publishedAt: existing?.article.publishedAt ?? item.article.publishedAt,
+                        feed: existing?.article.feed ?? item.article.feed,
+                    ),
+                    createdAt: existing?.createdAt ?? item.createdAt,
+                    isRead: existing?.isRead ?? item.isRead,
+                )
+                removedReadingListArticleIds.remove(saved.articleId)
+                if let listIndex = readingListItems.firstIndex(where: { $0.articleId == saved.articleId }) {
+                    readingListItems[listIndex] = savedItem
+                } else {
+                    readingListItems.append(savedItem)
+                }
+                // Saving updates metadata without replacing the browser or the session snapshot.
+                if browserPageId == pageId, currentItem?.articleId == item.articleId {
+                    items[index] = savedItem
+                    if playbackKind == .page, isPlaying || isPreparing {
+                        playbackArticleId = saved.articleId
+                        playbackArticleTitle = saved.title
+                    }
                 }
             } catch {
                 errorMessage = ErrorMessages.message(for: error)
@@ -357,6 +386,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     private func resetPage() {
+        browserPageId += 1
         isPageLoaded = false
         hasSelection = false
         chunks = []
@@ -369,6 +399,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * rate
         let language = speechLanguage ?? targetLanguage
         utterance.voice = voiceIdentifier.flatMap(AVSpeechSynthesisVoice.init(identifier:))
+            .flatMap { $0.language.split(separator: "-").first == language.split(separator: "-").first ? $0 : nil }
             ?? AVSpeechSynthesisVoice(language: language)
         synthesizer.speak(utterance)
     }
@@ -467,7 +498,7 @@ struct ReadingSessionScreen: View {
                     onCaptured: player.receiveCapture,
                     onSelectionChanged: { player.hasSelection = $0 },
                 )
-                .id(item.articleId)
+                .id(player.browserPageId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 FiloEmptyState(icon: .playlist, message: player.errorMessage ?? "未読の記事がありません。")
@@ -568,9 +599,14 @@ private struct ReadingSettingsPanel: View {
                     .foregroundStyle(FiloPalette.danger)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if let message = player.noticeMessage, busy {
+                Text(message)
+                    .filoFont(13)
+                    .foregroundStyle(FiloPalette.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack(spacing: 8) {
                 FiloButton("リスト", icon: .playlist, small: true, fullWidth: true, action: onShowReadingList)
-                    .disabled(player.isTemporary)
                 FiloButton("追加", icon: .queueAdd, small: true, fullWidth: true) {
                     player.addCurrentPageToReadingList()
                 }

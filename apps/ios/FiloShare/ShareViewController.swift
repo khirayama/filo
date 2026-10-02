@@ -29,7 +29,7 @@ final class ShareViewController: SLComposeServiceViewController {
             }
             else { value = nil }
             if let value, value.hasPrefix("http://") || value.hasPrefix("https://") {
-                UserDefaults(suiteName: "group.com.filo.app")?.set(value, forKey: "filo.pendingSharedURL")
+                SharedURLInbox.store(value)
             }
             self.complete()
         }

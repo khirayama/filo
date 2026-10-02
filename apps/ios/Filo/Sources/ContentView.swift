@@ -86,6 +86,7 @@ struct AppNavigationView: View {
     @StateObject private var readingPlayer = ReadingPlayerStore()
     @Environment(\.scenePhase) private var scenePhase
     @State private var pendingSharedUrl: String?
+    @State private var isProcessingSharedURL = false
 
     init() {
         _pendingSharedUrl = State(initialValue: SharedURLInbox.take())
@@ -122,6 +123,12 @@ struct AppNavigationView: View {
         .onAppear { openPendingShare() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { openPendingShare() }
+        }
+        .onChange(of: path.count) { oldCount, newCount in
+            if isProcessingSharedURL, newCount < oldCount {
+                isProcessingSharedURL = false
+                openPendingShare()
+            }
         }
         .task {
             if let settings = try? await APIClient.shared.getSettings() {
@@ -269,9 +276,11 @@ struct AppNavigationView: View {
     }
 
     private func openPendingShare() {
+        guard !isProcessingSharedURL else { return }
         let url = pendingSharedUrl ?? SharedURLInbox.take()
         guard let url, !url.isEmpty else { return }
         pendingSharedUrl = nil
+        isProcessingSharedURL = true
         path.append(AppRoute.addArticle(url))
     }
 }

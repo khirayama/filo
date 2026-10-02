@@ -81,6 +81,8 @@ data class ReadingCaptureRequest(
     val kind: CaptureKind,
 )
 
+private data class ReadingTranslationResult(val text: String, val language: String?, val untranslated: Boolean = false)
+
 class ReadingPlayerController(
     private val context: Context,
     private val scope: CoroutineScope,
@@ -104,6 +106,10 @@ class ReadingPlayerController(
     var hasSelection by mutableStateOf(false)
     var errorMessage by mutableStateOf<AppText?>(null)
         private set
+    var noticeMessage by mutableStateOf<AppText?>(null)
+        private set
+    var browserPageId by mutableStateOf(0)
+        private set
     var isAddingToReadingList by mutableStateOf(false)
         private set
     var removedReadingListArticleIds by mutableStateOf<Set<Int>>(emptySet())
@@ -121,7 +127,6 @@ class ReadingPlayerController(
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
-    private var temporary = false
     private var chunks = emptyList<String>()
     private var chunkIndex = 0
     private var speechLanguage: String? = null
@@ -134,7 +139,7 @@ class ReadingPlayerController(
 
     val currentItem: ReadingSessionItem?
         get() = items.getOrNull(index)
-    val isTemporary: Boolean get() = temporary
+    val isTemporary: Boolean get() = currentItem?.articleId == 0
     val currentPlaybackTitle: String? get() = playbackArticleTitle
     val visibleReadingListItems: List<ReadingSessionItem>
         get() = readingListItems.filterNot { removedReadingListArticleIds.contains(it.articleId) }
@@ -164,6 +169,7 @@ class ReadingPlayerController(
         article: ReadingSessionArticle? = null,
     ) {
         if (isLoading) return
+        pause()
         isLoading = true
         errorMessage = null
         autoplayWhenReady = autoplay
@@ -171,7 +177,6 @@ class ReadingPlayerController(
         runCatching {
             runCatching { ApiClient.getSettings() }.getOrNull()?.let { applyLanguage(it.language) }
             if (article != null) {
-                temporary = false
                 items = listOf(
                     ReadingSessionItem(
                         articleId = article.id,
@@ -182,8 +187,7 @@ class ReadingPlayerController(
                 index = 0
                 readingListItems = runCatching { loadReadingList() }.getOrDefault(emptyList())
             } else if (temporaryUrl != null) {
-                temporary = true
-                readingListItems = emptyList()
+                readingListItems = runCatching { loadReadingList() }.getOrDefault(emptyList())
                 items = listOf(
                     ReadingSessionItem(
                         articleId = 0,
@@ -199,7 +203,6 @@ class ReadingPlayerController(
                 )
                 index = 0
             } else {
-                temporary = false
                 val readingList = loadReadingList()
                 items = readingList
                 readingListItems = readingList
@@ -228,6 +231,7 @@ class ReadingPlayerController(
     private fun requestCapture(kind: CaptureKind) {
         if (currentItem == null) return
         pause()
+        playbackKind = kind
         errorMessage = null
         isPreparing = true
         captureRequest = ReadingCaptureRequest(++nextCaptureId, kind)
@@ -243,7 +247,7 @@ class ReadingPlayerController(
             speak(text, language, request.kind)
             return
         }
-        val articleId = currentItem?.articleId?.takeIf { it > 0 && !temporary }
+        val articleId = currentItem?.articleId?.takeIf { it > 0 }
         if (request.kind == CaptureKind.Selection || articleId == null) {
             isPreparing = false
             errorMessage = AppText(if (request.kind == CaptureKind.Selection) "読み上げる文章がありません。" else "本文を抽出できませんでした。")
@@ -276,15 +280,16 @@ class ReadingPlayerController(
     // or a shared page does not.
     private fun speak(text: String, language: String?, kind: CaptureKind) {
         val source = clean(text)
-        playbackArticleId = currentItem?.articleId?.takeIf { kind == CaptureKind.Page && !temporary }
+        playbackArticleId = currentItem?.articleId?.takeIf { kind == CaptureKind.Page && it > 0 }
         playbackArticleTitle = currentItem?.article?.title
         playbackKind = kind
         val generation = playbackGeneration
         scope.launch {
             val translated = translateBestEffort(source, language ?: currentItem?.article?.sourceLanguage)
             if (generation != playbackGeneration) return@launch
-            chunks = split(translated.first)
-            speechLanguage = translated.second
+            chunks = split(translated.text)
+            speechLanguage = translated.language
+            noticeMessage = if (translated.untranslated) AppText("翻訳を利用できないため原文で読み上げています。") else null
             chunkIndex = 0
             isPreparing = false
             isPlaying = true
@@ -297,6 +302,7 @@ class ReadingPlayerController(
         autoplayWhenReady = false
         captureRequest = null
         isPreparing = false
+        noticeMessage = null
         tts?.stop()
         isPlaying = false
         notifyMedia()
@@ -341,6 +347,10 @@ class ReadingPlayerController(
     }
 
     private fun applyLanguage(value: String) {
+        if (targetLanguage != value) {
+            voiceName = null
+            prefs().edit().remove("voice").apply()
+        }
         targetLanguage = value
         prefs().edit().putString("language", value).apply()
         refreshVoices()
@@ -348,7 +358,7 @@ class ReadingPlayerController(
 
     // A settings change while speaking restarts with the new settings.
     private fun restartIfPlaying() {
-        if (isPlaying) requestCapture(playbackKind)
+        if (isPlaying || isPreparing) requestCapture(playbackKind)
     }
 
     fun setVoice(value: String?) {
@@ -361,12 +371,28 @@ class ReadingPlayerController(
         if (isAddingToReadingList) return
         val item = currentItem ?: return
         val url = item.article.canonicalUrl ?: return
+        val pageId = browserPageId
         isAddingToReadingList = true
         scope.launch {
-            runCatching { ApiClient.importArticle(url, item.article.title) }
-                .onSuccess {
-                    if (!temporary && item.articleId > 0 && readingListItems.none { it.articleId == item.articleId }) {
-                        readingListItems = readingListItems + item
+            runCatching { ApiClient.importArticle(url, item.article.title.takeIf { item.articleId > 0 }) }
+                .onSuccess { saved ->
+                    val existing = (items + readingListItems).firstOrNull { it.articleId == saved.articleId }
+                    val savedItem = item.copy(
+                        articleId = saved.articleId,
+                        article = (existing?.article ?: item.article).copy(id = saved.articleId, title = saved.title, canonicalUrl = saved.url),
+                        isRead = existing?.isRead ?: item.isRead,
+                    )
+                    removedReadingListArticleIds -= saved.articleId
+                    readingListItems = if (readingListItems.any { it.articleId == saved.articleId }) {
+                        readingListItems.map { if (it.articleId == saved.articleId) savedItem else it }
+                    } else readingListItems + savedItem
+                    // Saving updates metadata without replacing the browser or the session snapshot.
+                    if (browserPageId == pageId && currentItem?.articleId == item.articleId) {
+                        items = items.mapIndexed { itemIndex, entry -> if (itemIndex == index) savedItem else entry }
+                        if (playbackKind == CaptureKind.Page && (isPlaying || isPreparing)) {
+                            playbackArticleId = saved.articleId
+                            playbackArticleTitle = saved.title
+                        }
                     }
                 }
                 .onFailure { errorMessage = AppText("リーディングリストに追加できませんでした。") }
@@ -419,6 +445,7 @@ class ReadingPlayerController(
     }
 
     private fun resetPage() {
+        browserPageId += 1
         isPageLoaded = false
         hasSelection = false
         chunks = emptyList()
@@ -434,7 +461,9 @@ class ReadingPlayerController(
         val locale = Locale.forLanguageTag(speechLanguage ?: targetLanguage)
         tts?.language = locale
         tts?.setSpeechRate(rate)
-        voiceName?.let { selected -> tts?.voices?.firstOrNull { it.name == selected }?.let { tts?.voice = it } }
+        voiceName?.let { selected ->
+            tts?.voices?.firstOrNull { it.name == selected && it.locale.language == locale.language }?.let { tts?.voice = it }
+        }
         tts?.speak(chunks[chunkIndex], TextToSpeech.QUEUE_FLUSH, null, "filo-$chunkIndex")
         notifyMedia()
     }
@@ -462,12 +491,12 @@ class ReadingPlayerController(
         scope.launch { runCatching { ApiClient.setArticleRead(articleId, true) } }
     }
 
-    private suspend fun translateBestEffort(text: String, sourceLanguage: String?): Pair<String, String?> {
-        val source = sourceLanguage?.substringBefore('-') ?: return text to sourceLanguage
+    private suspend fun translateBestEffort(text: String, sourceLanguage: String?): ReadingTranslationResult {
+        val source = sourceLanguage?.substringBefore('-') ?: return ReadingTranslationResult(text, sourceLanguage)
         val target = targetLanguage.substringBefore('-')
-        if (source == target) return text to sourceLanguage
-        val sourceCode = TranslateLanguage.fromLanguageTag(source) ?: return text to sourceLanguage
-        val targetCode = TranslateLanguage.fromLanguageTag(target) ?: return text to sourceLanguage
+        if (source == target) return ReadingTranslationResult(text, sourceLanguage)
+        val sourceCode = TranslateLanguage.fromLanguageTag(source) ?: return ReadingTranslationResult(text, sourceLanguage, true)
+        val targetCode = TranslateLanguage.fromLanguageTag(target) ?: return ReadingTranslationResult(text, sourceLanguage, true)
         val translator = Translation.getClient(
             TranslatorOptions.Builder().setSourceLanguage(sourceCode).setTargetLanguage(targetCode).build(),
         )
@@ -475,9 +504,11 @@ class ReadingPlayerController(
             translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitReading()
             val output = mutableListOf<String>()
             for (chunk in split(text)) output += translator.translate(chunk).awaitReading()
-            output.joinToString("\n\n") to target
+            val translated = output.joinToString("\n\n")
+            if (translated.isBlank()) ReadingTranslationResult(text, sourceLanguage, true)
+            else ReadingTranslationResult(translated, target)
         } catch (_: Exception) {
-            text to sourceLanguage
+            ReadingTranslationResult(text, sourceLanguage, true)
         } finally {
             translator.close()
         }
@@ -618,7 +649,7 @@ fun ReadingSessionScreen(
                 player.isLoading -> FiloSpinner(modifier = Modifier.align(Alignment.Center))
                 currentItem != null && currentUrl != null -> ReadingWebView(
                     url = currentUrl,
-                    articleId = currentItem.articleId,
+                    pageId = player.browserPageId,
                     captureRequest = player.captureRequest,
                     pageLoaded = player.isPageLoaded,
                     onPageLoaded = player::pageLoaded,
@@ -639,6 +670,14 @@ fun ReadingSessionScreen(
                     tr(message),
                     fontSize = 13.sp,
                     color = Filo.colors.danger,
+                    modifier = Modifier.fillMaxWidth().background(Filo.colors.bg).padding(horizontal = Filo.Gutter, vertical = 8.dp),
+                )
+            }
+            if (busy) player.noticeMessage?.let { message ->
+                Text(
+                    tr(message),
+                    fontSize = 13.sp,
+                    color = Filo.colors.muted,
                     modifier = Modifier.fillMaxWidth().background(Filo.colors.bg).padding(horizontal = Filo.Gutter, vertical = 8.dp),
                 )
             }
@@ -699,7 +738,6 @@ private fun ReadingToolbar(
             onShowReadingList,
             kind = ButtonKind.Ghost,
             icon = FiloIconName.Playlist,
-            enabled = !player.isTemporary,
         )
         FiloButton(
             tr("追加"),
@@ -872,7 +910,7 @@ private fun ReadingListSheet(
 @Composable
 private fun ReadingWebView(
     url: String,
-    articleId: Int,
+    pageId: Int,
     captureRequest: ReadingCaptureRequest?,
     pageLoaded: Boolean,
     onPageLoaded: () -> Unit,
@@ -881,7 +919,7 @@ private fun ReadingWebView(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    key(articleId, url) {
+    key(pageId) {
         val webView = remember {
             val scripts = listOf("Readability.js", "FiloCapture.js").joinToString(";\n") { name ->
                 context.assets.open(name).bufferedReader().use { it.readText() }

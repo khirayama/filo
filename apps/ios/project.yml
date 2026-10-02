@@ -66,6 +66,7 @@ targets:
           NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
     sources:
       - path: FiloShare
+      - path: Filo/Sources/SharedURLInbox.swift
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: FiloShare/FiloShare.entitlements
