@@ -12,6 +12,7 @@
     "deploy:production": "npm run build:production && npx wrangler pages deploy dist --project-name filo-web",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=0",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

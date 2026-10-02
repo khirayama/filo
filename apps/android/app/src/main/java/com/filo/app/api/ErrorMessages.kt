@@ -6,6 +6,7 @@ import com.filo.app.ui.AppText
 object ErrorMessages {
     private val messages = mapOf(
         "network_error" to "ネットワークに接続できません。時間をおいて再試行してください。",
+        "feed_refresh_timeout" to "取得に時間がかかっています。あとで再度更新してください。",
         "unauthorized" to "サインインが必要です。",
         "forbidden" to "この操作を行う権限がありません。",
         "validation_error" to "入力内容を確認してください。",

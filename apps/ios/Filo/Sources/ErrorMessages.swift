@@ -3,6 +3,7 @@ import Foundation
 enum ErrorMessages {
     private static let messages: [String: String] = [
         "network_error": "ネットワークに接続できません。時間をおいて再試行してください。",
+        "feed_refresh_timeout": "取得に時間がかかっています。あとで再度更新してください。",
         "unauthorized": "サインインが必要です。",
         "forbidden": "この操作を行う権限がありません。",
         "validation_error": "入力内容を確認してください。",
