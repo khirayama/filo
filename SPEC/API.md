@@ -346,6 +346,9 @@ Deletes a tag owned by the current user.
 ### GET /api/v1/articles
 
 - filters: `subscriptionId`, `tagId`, `read`, `readingList`, `bookmarked`, `cursor`, `limit`, `sort`
+- 初回ページは `meta.latestArticleId` に対象スコープの最新追加ID（記事なしは `0`）を返す。公開日時・並び順・既読フィルタに依存しない。次ページでは返さない。
+- `checkNew=true&afterId=<latestArticleId>` は一覧を取得せず `data: []` を返す。`meta.latestArticleId` は `afterId` より大きく、現在の既読フィルタを含む条件に一致する最新の記事ID（該当なしは `0`）。`afterId` は非負の整数。通常の一覧取得時の基準IDより大きい場合に新着を通知する。
+- 一覧取得時の基準IDは既読フィルタで除外された記事も含むため、既存記事の既読変更だけでは新着扱いにならない。
 - `sort`: `published_at_desc | fetched_at_desc`
 - `readOrder`: `unread_first | read_first | none`。未指定時は `unread_first`（既読を下）
 - `sort` 未指定時は current user の `settings.articleSortOrder` を適用する
