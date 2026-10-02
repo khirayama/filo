@@ -25,6 +25,7 @@ import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
+import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -64,7 +65,7 @@ data class TitleTranslationLanguage(
 class TitleTranslationStore(private val context: Context, private val scope: CoroutineScope) {
     // 翻訳が届いた分から順に差し替わる。セッション内だけのキャッシュで、永続化しない。
     private val titles = mutableStateMapOf<Int, String>()
-    var isEnabled by mutableStateOf(prefs().getBoolean(ENABLED_KEY, true))
+    var isEnabled by mutableStateOf(prefs().getBoolean(ENABLED_KEY, false))
         private set
     var isTranslating by mutableStateOf(false)
         private set
@@ -249,8 +250,7 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
             try {
                 for (article in items) {
                     // 翻訳できなかったタイトルは原文のまま残す
-                    val translated = runCatching { translator.translate(article.title).await() }.getOrNull()
-                    if (!translated.isNullOrBlank()) titles[article.id] = translated
+                    translateTitle(translator, article.title.trim(), source)?.let { titles[article.id] = it }
                 }
             } catch (_: Exception) {
                 // この言語ペアは原文のまま残す
@@ -258,6 +258,16 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
                 translator.close()
             }
         }
+    }
+
+    // 素のまま訳し、使えない結果なら見出しだと分かる形に包んで最大 2 回訳し直す
+    private suspend fun translateTitle(translator: Translator, title: String, source: String): String? {
+        for (attempt in titleAttempts(title, source)) {
+            val raw = runCatching { translator.translate(attempt.text).await() }.getOrNull() ?: continue
+            val translated = attempt.unwrap(raw.trim()) ?: continue
+            if (isUsableTranslation(title, translated, target)) return translated
+        }
+        return null
     }
 
     private fun reset() {
@@ -271,6 +281,73 @@ class TitleTranslationStore(private val context: Context, private val scope: Cor
     }
 
     private fun prefs() = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+}
+
+// ML Kit は、訳せないタイトルや原文言語の見立てが違うタイトルを、ほぼ原文のまま
+// (大文字小文字だけ変えて)返したり、経由言語の英語で返したりする。そうした結果は
+// 翻訳済みとして扱わず、原文のまま出す。iOS / Web の isUsableTranslation と同じ規則。
+private val targetScripts = mapOf(
+    "ja" to Regex("[\\p{IsHiragana}\\p{IsKatakana}\\p{IsHan}]"),
+    "zh" to Regex("\\p{IsHan}"),
+    "ko" to Regex("\\p{IsHangul}"),
+)
+
+private fun comparable(text: String): String = text.filter { it.isLetterOrDigit() }.lowercase()
+
+internal fun isUsableTranslation(original: String, translated: String, target: String): Boolean {
+    if (translated.isEmpty() || comparable(translated) == comparable(original)) return false
+    val script = targetScripts[target.substringBefore('-')] ?: return true
+    return script.containsMatchIn(translated)
+}
+
+// ML Kit は一部の見出しを、エラーを出さずに原文のまま返す。同じ入力なら毎回同じで、
+// 再試行しても変わらない。見出しだと分かる形に包むと訳されることが多いので、
+// 包んで訳し直し、包んだ部分を訳文から取り除く。
+//
+// 実測(2026-10-01、本番の記事 100 件ずつ): 英→日で 9 件、英→韓で 2 件、英→西で 1 件が
+// 原文のまま返った(英→中と日→英/中/韓/西は 0 件)。「見出し」の前置きで英→日 8 件・英→韓 2 件、
+// 残る英→日 1 件は引用符で訳せた。英→西の 1 件は製品名だけのタイトルで、どれでも訳せない。
+//
+// Apple Translation / Chrome Translator では起きていないので、Android だけの対処。
+internal class TitleAttempt(val text: String, val unwrap: (String) -> String?)
+
+internal fun titleAttempts(title: String, source: String): List<TitleAttempt> = listOf(
+    TitleAttempt(title) { it },
+    TitleAttempt(headlinePrefix(source) + title) { removeHeadlinePrefix(title, it) },
+    TitleAttempt(quoted(title, source)) { removeQuotes(it) },
+)
+
+// 原文と同じ言語で書く。英語の見出しに日本語の前置きを付けても効かない
+private val headlinePrefixes = mapOf(
+    "en" to "Headline: ",
+    "ja" to "見出し：",
+    "zh" to "标题：",
+    "ko" to "헤드라인: ",
+    "es" to "Titular: ",
+)
+
+private fun headlinePrefix(source: String): String =
+    headlinePrefixes[source.substringBefore('-')] ?: headlinePrefixes.getValue("en")
+
+private val colon = Regex("[:：]")
+
+// 前置きは訳されて「見出し：」「헤드 라인 :」などになる。訳文のコロンが原文より
+// 1 つ多いときだけ、最初のコロンまでを前置きとみなして取り除く。
+internal fun removeHeadlinePrefix(original: String, translated: String): String? {
+    if (colon.findAll(translated).count() <= colon.findAll(original).count()) return null
+    return translated.split(colon, limit = 2)[1].trim()
+}
+
+private fun quoted(title: String, source: String): String =
+    if (source.substringBefore('-') == "ja") "「$title」" else "\"$title\""
+
+private const val OPEN_QUOTES = "\"“「『«‘'"
+private const val CLOSE_QUOTES = "\"”」』»’'"
+
+// 引用符は訳文で「」や“”に置き換わる。両端が引用符のときだけ 1 組取り除く
+internal fun removeQuotes(translated: String): String? {
+    if (translated.length < 2 || translated.first() !in OPEN_QUOTES || translated.last() !in CLOSE_QUOTES) return null
+    return translated.substring(1, translated.length - 1).trim()
 }
 
 private suspend fun <T> Task<T>.await(): T? = suspendCancellableCoroutine { cont ->

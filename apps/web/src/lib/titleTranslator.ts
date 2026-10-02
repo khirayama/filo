@@ -375,6 +375,25 @@ function needsTranslation(source: string, targetLanguage: string, readableLangua
   return !readableLanguages.map(baseLanguage).includes(normalizedSource);
 }
 
+// 翻訳エンジンは、訳せないタイトルや原文言語の見立てが違うタイトルを、ほぼ原文のまま
+// (大文字小文字だけ変えて)返したり、経由言語の英語で返したりする。そうした結果は
+// 翻訳済みとして扱わず、原文のまま出す。iOS / Android の isUsableTranslation と同じ規則。
+const TARGET_SCRIPT: Record<string, RegExp> = {
+  ja: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u,
+  zh: /\p{Script=Han}/u,
+  ko: /\p{Script=Hangul}/u,
+};
+
+function comparable(text: string): string {
+  return text.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+}
+
+function isUsableTranslation(original: string, translated: string, targetLanguage: string): boolean {
+  if (!translated || comparable(translated) === comparable(original)) return false;
+  const script = TARGET_SCRIPT[baseLanguage(targetLanguage)];
+  return !script || script.test(translated);
+}
+
 export interface TitleTranslationRequest {
   items: { id: number; title: string; sourceLanguage: string | null }[];
   targetLanguage: string;
@@ -435,7 +454,7 @@ export async function translateTitles({
         if (!translator) continue;
         result = (await translator.translate(title)).trim();
       }
-      if (!result || result === title) continue;
+      if (!isUsableTranslation(title, result, targetLanguage)) continue;
       translated.set(cacheKey, result);
       onTranslated(item.id, result);
       outcome.translated++;

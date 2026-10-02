@@ -18,9 +18,9 @@ const DEFAULT_READABLE_LANGUAGES = ["ja"];
 function loadTranslationEnabled(): boolean {
   if (!titleTranslationSupported) return false;
   try {
-    return localStorage.getItem(STORAGE_KEY) !== "0";
+    return localStorage.getItem(STORAGE_KEY) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 

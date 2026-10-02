@@ -28,6 +28,25 @@ enum TitleTranslationRules {
     static func baseCode(_ code: String) -> String {
         String(code.split(separator: "-").first ?? "")
     }
+
+    // 翻訳エンジンは、訳せないタイトルや原文言語の見立てが違うタイトルを、ほぼ原文のまま
+    // (大文字小文字だけ変えて)返したり、経由言語の英語で返したりする。そうした結果は
+    // 翻訳済みとして扱わず、原文のまま出す。Web / Android の isUsableTranslation と同じ規則。
+    static func isUsableTranslation(original: String, translated: String, target: String) -> Bool {
+        guard !translated.isEmpty, comparable(translated) != comparable(original) else { return false }
+        guard let script = targetScripts[baseCode(target)] else { return true }
+        return translated.range(of: script, options: .regularExpression) != nil
+    }
+
+    private static let targetScripts = [
+        "ja": "[\\p{Hiragana}\\p{Katakana}\\p{Han}]",
+        "zh": "\\p{Han}",
+        "ko": "\\p{Hangul}",
+    ]
+
+    private static func comparable(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.filter(CharacterSet.alphanumerics.contains))).lowercased()
+    }
 }
 
 // Translation framework は 1 セッション 1 言語ペアなので、原文言語ごとに実行する。
@@ -105,7 +124,7 @@ final class TitleTranslationStore: ObservableObject {
     private var subscriptionLanguages: [String] = []
 
     private init() {
-        isEnabled = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true
+        isEnabled = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? false
     }
 
     func title(for articleId: Int) -> String? { titles[articleId] }
@@ -268,8 +287,12 @@ final class TitleTranslationStore: ObservableObject {
         }
 
         do {
-            let requests = items.map {
-                TranslationSession.Request(sourceText: $0.title, clientIdentifier: String($0.id))
+            let originals = Dictionary(
+                items.map { ($0.id, $0.title.trimmingCharacters(in: .whitespacesAndNewlines)) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let requests = originals.map {
+                TranslationSession.Request(sourceText: $0.value, clientIdentifier: String($0.key))
             }
             // 応答順は保証されないので clientIdentifier で戻す
             let responses = try await session.translations(from: requests)
@@ -277,7 +300,9 @@ final class TitleTranslationStore: ObservableObject {
             for response in responses {
                 guard let identifier = response.clientIdentifier, let id = Int(identifier) else { continue }
                 let text = response.targetText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !text.isEmpty else { continue }
+                guard let original = originals[id],
+                      TitleTranslationRules.isUsableTranslation(original: original, translated: text, target: current.target)
+                else { continue }
                 titles[id] = text
             }
             lastError = nil
