@@ -1,16 +1,8 @@
 package com.filo.app.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,9 +18,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,45 +44,43 @@ import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
 import com.filo.app.api.UnreadCounts
 
-private const val DRAWER_ANIMATION_MS = 200
-private val DrawerEasing = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
-
-/** The phone drawer: a sidebar panel sliding over a scrim (web `AppShell`). */
+/**
+ * The phone drawer: the sidebar panel in the standard modal drawer, so it
+ * follows the finger, opens with a horizontal drag and closes on the scrim.
+ */
 @Composable
-fun FiloDrawer(open: Boolean, onClose: () -> Unit, content: @Composable () -> Unit) {
+fun FiloDrawer(
+    open: Boolean,
+    onOpenChange: (Boolean) -> Unit,
+    gesturesEnabled: Boolean,
+    drawerContent: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
     val colors = Filo.colors
-    BackHandler(enabled = open, onBack = onClose)
-    Box(Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visible = open,
-            enter = fadeIn(tween(DRAWER_ANIMATION_MS)),
-            exit = fadeOut(tween(DRAWER_ANIMATION_MS)),
-        ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(colors.scrim)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onClose,
-                    ),
-            )
-        }
-        AnimatedVisibility(
-            visible = open,
-            enter = slideInHorizontally(tween(DRAWER_ANIMATION_MS, easing = DrawerEasing)) { -it },
-            exit = slideOutHorizontally(tween(DRAWER_ANIMATION_MS, easing = DrawerEasing)) { -it },
-        ) {
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val currentOnOpenChange by rememberUpdatedState(onOpenChange)
+    LaunchedEffect(open) { if (open) drawerState.open() else drawerState.close() }
+    // A drag or a scrim tap settles the drawer without going through `open`.
+    LaunchedEffect(drawerState) {
+        snapshotFlow { drawerState.currentValue }.collect { currentOnOpenChange(it == DrawerValue.Open) }
+    }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = gesturesEnabled || open,
+        scrimColor = colors.scrim,
+        drawerContent = {
             Box(
                 Modifier
                     .fillMaxSize()
                     .shadow(32.dp)
                     .background(colors.sidebar)
                     .padding(start = 12.dp, end = 12.dp, top = 8.dp),
-            ) { content() }
-        }
-    }
+            ) { drawerContent() }
+        },
+        content = content,
+    )
+    // Registered after the content so it wins over the navigation back stack.
+    BackHandler(enabled = open) { onOpenChange(false) }
 }
 
 /**

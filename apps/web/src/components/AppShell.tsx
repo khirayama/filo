@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from "react-router-dom";
 import type { Subscription } from "../api/types";
 import { groupSubscriptionsByTag } from "../lib/grouping";
 import { useAppData } from "./AppDataContext";
@@ -44,6 +44,17 @@ export function AppShell({
   const isDesktop = useIsDesktop();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Each screen mounts its own shell, so a mount is a screen change: slide in
+  // from the right going forward and from the left going back, like the
+  // native stacks. The articles screen is the root, so reaching it is "back".
+  // Views of the same screen (tag, reading list, drawer) do not remount.
+  const navigationType = useNavigationType();
+  const [enter] = useState(() =>
+    location.key === "default" || navigationType === "REPLACE"
+      ? undefined
+      : navigationType === "POP" || location.pathname === "/articles" ? "pop" : "push",
+  );
 
   // The mobile drawer lives on the history stack: opening pushes an entry with
   // `state.drawer`, so the browser/OS back gesture closes it, and closing via
@@ -160,6 +171,7 @@ export function AppShell({
         </aside>
         <div
           data-filo-scroll-container="true"
+          data-filo-enter={enter}
           style={{
             height: "100vh",
             marginLeft: `${SIDEBAR_WIDTH}px`,
@@ -175,7 +187,7 @@ export function AppShell({
   }
 
   return (
-    <div style={{ minHeight: "100vh" }}>
+    <div data-filo-enter={enter} style={{ minHeight: "100vh" }}>
       {header}
       {drawerMounted ? (
         <div

@@ -80,6 +80,12 @@ struct AppNavigationView: View {
     @State private var path = NavigationPath()
     @State private var activeRoute: AppRoute?
     @State private var isDrawerOpen = false
+    // Horizontal travel of a drag in progress, so the drawer follows the
+    // finger; releasing short of the threshold eases it back.
+    @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.2)))
+    private var drawerCloseDrag: CGFloat = 0
+    @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.2)))
+    private var drawerOpenDrag: CGFloat?
     @StateObject private var articlesModel = ArticlesViewModel()
     @ObservedObject private var languageManager = LanguageManager.shared
     @ObservedObject private var titleTranslations = TitleTranslationStore.shared
@@ -224,27 +230,66 @@ struct AppNavigationView: View {
         )
     }
 
-    // Slides in from the leading edge over a scrim, like the web drawer.
+    // Slides in from the leading edge over a scrim, like the web drawer, and
+    // follows a drag: from the screen edge to open, on the panel to close.
     private var drawer: some View {
-        ZStack(alignment: .leading) {
-            if isDrawerOpen {
-                FiloPalette.scrim
-                    .ignoresSafeArea()
-                    .onTapGesture(perform: closeDrawer)
-                    .transition(.opacity)
-                    .accessibilityHidden(true)
-                sidebar(onClose: closeDrawer)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(FiloPalette.sidebar.ignoresSafeArea())
-                    .shadow(color: FiloPalette.shadow, radius: 32)
-                    .gesture(
-                        DragGesture(minimumDistance: 20).onEnded { value in
-                            if value.translation.width < -60 { closeDrawer() }
-                        }
-                    )
-                    .transition(.move(edge: .leading))
-                .accessibilityAddTraits(.isModal)
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            // 0 = closed, 1 = fully open.
+            let progress = isDrawerOpen
+                ? 1 + min(0, drawerCloseDrag) / width
+                : min(1, max(0, drawerOpenDrag ?? 0) / width)
+            ZStack(alignment: .leading) {
+                // The edge strip exists only on the articles screen; pushed
+                // screens keep the edge for the back swipe.
+                if !isDrawerOpen, path.isEmpty {
+                    Color.clear
+                        .frame(width: 12)
+                        .contentShape(Rectangle())
+                        // Below the header, so the menu button keeps its taps.
+                        .padding(.top, FiloMetrics.headerHeight)
+                        .gesture(
+                            DragGesture(minimumDistance: 10)
+                                .updating($drawerOpenDrag) { value, state, _ in state = value.translation.width }
+                                .onEnded { value in
+                                    if value.translation.width > 80 || value.predictedEndTranslation.width > width / 2 {
+                                        openDrawer()
+                                    }
+                                }
+                        )
+                        .accessibilityHidden(true)
+                }
+                if isDrawerOpen || drawerOpenDrag != nil {
+                    FiloPalette.scrim
+                        .opacity(progress)
+                        .ignoresSafeArea()
+                        .onTapGesture(perform: closeDrawer)
+                        .transition(.opacity)
+                        .accessibilityHidden(true)
+                    sidebar(onClose: closeDrawer)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(FiloPalette.sidebar.ignoresSafeArea())
+                        .shadow(color: FiloPalette.shadow, radius: 32)
+                        .offset(x: (progress - 1) * width)
+                        .gesture(
+                            DragGesture(minimumDistance: 20)
+                                .updating($drawerCloseDrag) { value, state, _ in
+                                    // Leave vertical drags to the sidebar's scroll.
+                                    if abs(value.translation.width) > abs(value.translation.height) {
+                                        state = value.translation.width
+                                    }
+                                }
+                                .onEnded { value in
+                                    if value.translation.width < -60 || value.predictedEndTranslation.width < -width / 2 {
+                                        closeDrawer()
+                                    }
+                                }
+                        )
+                        .transition(.move(edge: .leading))
+                        .accessibilityAddTraits(.isModal)
+                }
             }
+            .frame(width: width, height: proxy.size.height, alignment: .leading)
         }
         .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.2), value: isDrawerOpen)
     }

@@ -817,10 +817,14 @@ private fun RssNavigation(
                     Box(Modifier.weight(1f)) { navContent() }
                 }
             } else {
-                navContent()
-                FiloDrawer(open = drawerOpen && !isReadingBrowser, onClose = { drawerOpen = false }) {
-                    sidebar { drawerOpen = false }
-                }
+                FiloDrawer(
+                    open = drawerOpen && !isReadingBrowser,
+                    onOpenChange = { drawerOpen = it },
+                    // Only the screens that show the menu button open by drag.
+                    gesturesEnabled = currentRoute in setOf("articles", "subscriptions", "tags", "status", "settings"),
+                    drawerContent = { sidebar { drawerOpen = false } },
+                    content = navContent,
+                )
             }
         }
         if (readingPlayer.isPlaying && !isReadingBrowser) {
