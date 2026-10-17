@@ -22,6 +22,12 @@ const iconPaths = {
       <path d="M16 9.5l-5 5-2.5-2.5" />
     </>
   ),
+  checkAll: (
+    <>
+      <path d="M18 6L7 17l-5-5" />
+      <path d="M22 10l-7.5 7.5L13 16" />
+    </>
+  ),
   refresh: (
     <>
       <path d="M23 4v6h-6" />
@@ -42,6 +48,19 @@ const iconPaths = {
     <>
       <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z" />
       <path d="M7 7h.01" />
+    </>
+  ),
+  sliders: (
+    <>
+      <path d="M4 21v-7" />
+      <path d="M4 10V3" />
+      <path d="M12 21v-9" />
+      <path d="M12 8V3" />
+      <path d="M20 21v-5" />
+      <path d="M20 12V3" />
+      <path d="M1 14h6" />
+      <path d="M9 8h6" />
+      <path d="M17 16h6" />
     </>
   ),
   gear: (

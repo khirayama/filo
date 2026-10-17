@@ -5,7 +5,8 @@ import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, NewArticlesNotice, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
-import { BlockingProgress, Button, EmptyState, ErrorBox, IconButton, Spinner, Toast, useDialogFocus } from "../components/ui";
+import { PullToRefresh } from "../components/PullToRefresh";
+import { Button, EmptyState, ErrorBox, IconButton, Spinner, Toast, useDialogFocus } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { detectReadingExtension, launchReadingExtension } from "../lib/extensionBridge";
 import { errorMessage } from "../lib/messages";
@@ -139,7 +140,7 @@ function ArticlesListPage() {
       } else if (outcome.enqueued === 0 && outcome.skipped > 0) {
         setRefreshNotice(t("最近取得済みのため、今回の取得対象はありませんでした。"));
       } else if (outcome.enqueued > 0) {
-        setRefreshNotice(`${outcome.enqueued}${t("件のフィードの取得を開始しました。")}`);
+        setRefreshNotice(`${outcome.enqueued}${t("件のフィードを更新しました。")}`);
       }
       trackEvent("refresh_feeds", {
         enqueued: outcome.enqueued,
@@ -161,6 +162,7 @@ function ArticlesListPage() {
     setMarkingAllRead(true);
     setMarkAllNotice(null);
     setMarkAllError(null);
+    list.markAllReadLocally();
     try {
       await api.markAllArticlesRead(tagId);
       trackEvent("mark_all_articles_read", { scope: selectedTag ? "tag" : "all_articles" });
@@ -171,6 +173,7 @@ function ArticlesListPage() {
       setMarkAllNotice(t("既読への変更が完了しました。"));
     } catch (e) {
       setMarkAllError(errorMessage(e, language));
+      void list.reload();
     } finally {
       setMarkingAllRead(false);
     }
@@ -235,10 +238,6 @@ function ArticlesListPage() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (markingAllRead) {
-        event.preventDefault();
-        return;
-      }
       if (showShortcutHelp && event.key === "Escape") {
         event.preventDefault();
         setShowShortcutHelp(false);
@@ -306,7 +305,7 @@ function ArticlesListPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeArticleIndex, bookmarkedOnly, goBack, list, markAllRead, markingAllRead, readingListOnly, refreshFeeds, showShortcutHelp]);
+  }, [activeArticleIndex, bookmarkedOnly, goBack, list, markAllRead, readingListOnly, refreshFeeds, showShortcutHelp]);
 
   useEffect(() => {
     const article = activeArticleIndex == null ? undefined : list.articles[activeArticleIndex];
@@ -343,7 +342,10 @@ function ArticlesListPage() {
         />
       ) : null}
       {!bookmarkedOnly && !readingListOnly ? (
-        <IconButton icon="checkCircle" label={t("すべて既読にする")} disabled={markingAllRead} onClick={() => void markAllRead()} />
+        <>
+          <IconButton icon="refresh" label={t("フィードを更新")} disabled={refreshing} spinning={refreshing} onClick={() => void refreshFeeds()} />
+          <IconButton icon="checkAll" label={t("すべて既読にする")} disabled={markingAllRead} onClick={() => void markAllRead()} />
+        </>
       ) : null}
       <ArticleListControls
         read={read}
@@ -361,6 +363,7 @@ function ArticlesListPage() {
   return (
     <AppShell title={title} actions={headerActions}>
       <main className="articles-page" aria-busy={markingAllRead} style={{ paddingBottom: "32px" }}>
+        <PullToRefresh disabled={refreshing} onRefresh={() => void refreshFeeds()} />
         <NewArticlesNotice visible={list.hasNewArticles} disabled={list.loading || refreshing || markingAllRead} onLoad={() => {
           setActiveArticleIndex(null);
           void list.reload().then((loaded) => { if (loaded) { scrollArticlesToTop(); void refreshUnreadCounts(); } });
@@ -371,7 +374,7 @@ function ArticlesListPage() {
             {markAllError ? <ErrorBox message={markAllError} /> : null}
           </div>
         ) : null}
-        {refreshNotice ? <Toast message={refreshNotice} /> : null}
+        {refreshing ? <Toast message={t("フィードを更新しています…")} /> : refreshNotice ? <Toast message={refreshNotice} /> : null}
         {list.loading && list.articles.length === 0 ? (
           <Spinner />
         ) : (
@@ -389,7 +392,6 @@ function ArticlesListPage() {
           />
         )}
       </main>
-      {markingAllRead ? <BlockingProgress message={t("既読に変更しています…")} /> : null}
       {markAllNotice ? <Toast message={markAllNotice} /> : null}
       {showShortcutHelp ? (
         <div

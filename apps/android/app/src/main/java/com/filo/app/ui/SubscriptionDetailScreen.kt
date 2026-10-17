@@ -142,12 +142,19 @@ fun SubscriptionDetailScreen(
             isMarkingAllRead = true
             markAllReadNotice = null
             errorMessage = null
+            // Show the result at once; the reload below brings the server's order.
+            articles = if (readFilter == false) {
+                emptyList()
+            } else {
+                articles.map { if (it.userState.isRead) it else it.copy(userState = it.userState.copy(isRead = true)) }
+            }
             try {
                 val result = ApiClient.markAllRead(subscriptionId)
                 subscription = subscription?.copy(unreadCount = result.unreadCount)
                 reloadArticles()
                 markAllReadNotice = AppText("既読への変更が完了しました。")
             } catch (e: Exception) {
+                reloadArticles()
                 errorMessage = ErrorMessages.forErrorText(e)
             } finally {
                 isMarkingAllRead = false
@@ -155,26 +162,43 @@ fun SubscriptionDetailScreen(
         }
     }
 
+    fun applyState(articleId: Int, state: com.filo.app.api.ArticleUserState) {
+        articles = articles.mapNotNull {
+            if (it.id != articleId) it
+            else if (readFilter != null && state.isRead != readFilter) null
+            else it.copy(userState = state)
+        }
+    }
+
+    // Apply the change before the request so the row answers the tap at once;
+    // the response then confirms it, and a failure puts the old state back.
     fun patchState(
         article: ArticleListItem,
         isRead: Boolean? = null,
         inReadingList: Boolean? = null,
         isBookmarked: Boolean? = null,
     ) {
+        if (isRead == null && inReadingList == null && isBookmarked == null) return
+        val before = article.userState
+        applyState(
+            article.id,
+            before.copy(
+                isRead = isRead ?: before.isRead,
+                inReadingList = inReadingList ?: before.inReadingList,
+                isBookmarked = isBookmarked ?: before.isBookmarked,
+            ),
+        )
         scope.launch {
             try {
                 val state = when {
                     isRead != null -> ApiClient.setArticleRead(article.id, isRead)
                     inReadingList != null -> ApiClient.setReadingListMembership(article.id, inReadingList)
-                    isBookmarked != null -> ApiClient.setBookmarkMembership(article.id, isBookmarked)
-                    else -> return@launch
+                    else -> ApiClient.setBookmarkMembership(article.id, isBookmarked == true)
                 }
-                articles = articles.mapNotNull {
-                    if (it.id != article.id) it
-                    else if (readFilter != null && state.isRead != readFilter) null
-                    else it.copy(userState = state)
-                }
+                applyState(article.id, state)
             } catch (e: Exception) {
+                // A row the optimistic change removed comes back with the reload.
+                articles = articles.map { if (it.id == article.id) it.copy(userState = before) else it }
                 errorMessage = ErrorMessages.forErrorText(e)
             }
         }
@@ -213,7 +237,7 @@ fun SubscriptionDetailScreen(
                 "refresh_feed",
                 mapOf("feed_id" to feedId, "source" to "subscription_detail"),
             )
-            if (result.enqueued > 0) refreshNotice = AppText("フィードの取得を開始しました。")
+            if (result.enqueued > 0) refreshNotice = AppText("フィードを更新しました。")
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forErrorText(e)
         }
@@ -282,7 +306,7 @@ fun SubscriptionDetailScreen(
                         enabled = !isRefreshingFeed,
                     )
                     FiloIconButton(
-                        FiloIconName.CheckCircle,
+                        FiloIconName.CheckAll,
                         tr("すべて既読にする"),
                         ::markAllRead,
                         enabled = !isMarkingAllRead,
@@ -401,6 +425,7 @@ fun SubscriptionDetailScreen(
                         itemsIndexed(articles, key = { _, article -> article.id }) { index, article ->
                             ArticleRow(
                                 article = article,
+                                modifier = Modifier.animateItem(),
                                 showFeed = false,
                                 translations = translations,
                                 onOpen = {
@@ -444,9 +469,6 @@ fun SubscriptionDetailScreen(
         }
         FiloToast(refreshNotice?.let { tr(it) }, onDismiss = { refreshNotice = null })
         FiloToast(markAllReadNotice?.let { tr(it) }, onDismiss = { markAllReadNotice = null }, durationMillis = 3000)
-        if (isMarkingAllRead) {
-            BlockingProgressOverlay(message = tr("既読に変更しています…"))
-        }
     }
 
     if (showRename) {

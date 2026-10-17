@@ -65,6 +65,15 @@ struct ArticleUserState: Codable, Hashable {
     var isRead: Bool
     var inReadingList: Bool
     var isBookmarked: Bool
+
+    // The state a list shows while the matching request is still in flight.
+    func applying(isRead: Bool?, inReadingList: Bool?, isBookmarked: Bool?) -> ArticleUserState {
+        ArticleUserState(
+            isRead: isRead ?? self.isRead,
+            inReadingList: inReadingList ?? self.inReadingList,
+            isBookmarked: isBookmarked ?? self.isBookmarked,
+        )
+    }
 }
 
 struct SavedArticleResult: Codable, Hashable {

@@ -507,35 +507,6 @@ struct FiloToast: View {
     }
 }
 
-struct BlockingProgressOverlay: View {
-    let message: String
-
-    var body: some View {
-        ZStack {
-            FiloPalette.scrim
-                .ignoresSafeArea()
-            HStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(FiloPalette.accent)
-                Text(message)
-                    .filoFont(14)
-                    .foregroundStyle(FiloPalette.text)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .background(RoundedRectangle(cornerRadius: FiloMetrics.radiusLarge).fill(FiloPalette.surface))
-            .overlay(RoundedRectangle(cornerRadius: FiloMetrics.radiusLarge).strokeBorder(FiloPalette.mutedBorder, lineWidth: 1))
-            .shadow(color: FiloPalette.shadow, radius: 32, y: 24)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(message)
-        .accessibilityAddTraits(.isModal)
-        .contentShape(Rectangle())
-        .onTapGesture {}
-    }
-}
-
 // MARK: - Surfaces
 
 // .fl-section-title

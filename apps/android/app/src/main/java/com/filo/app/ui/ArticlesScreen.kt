@@ -233,7 +233,6 @@ fun ArticlesScreen(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (vm.isMarkingAllRead) return@onPreviewKeyEvent true
                 val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
                 if (event.isShiftPressed && event.key == Key.A && !hasModifier) {
                     if (!bookmarkedOnly && !readingListOnly) scope.launch { markAllReadAndResetList() }
@@ -330,7 +329,13 @@ fun ArticlesScreen(
                 }
                 if (!bookmarkedOnly && !readingListOnly) {
                     FiloIconButton(
-                        FiloIconName.CheckCircle,
+                        FiloIconName.Refresh,
+                        tr("フィードを更新"),
+                        { scope.launch { vm.refreshFeedsAndReload() } },
+                        enabled = !vm.isRefreshingFeeds,
+                    )
+                    FiloIconButton(
+                        FiloIconName.CheckAll,
                         tr("すべて既読にする"),
                         { scope.launch { markAllReadAndResetList() } },
                         enabled = !vm.isMarkingAllRead,
@@ -399,6 +404,7 @@ fun ArticlesScreen(
                         itemsIndexed(articles, key = { _, article -> article.id }) { index, article ->
                             ArticleRow(
                                 article = article,
+                                modifier = Modifier.animateItem(),
                                 selected = index == selectedArticleIndex,
                                 translations = translations,
                                 onOpenFeed = article.subscriptionIds.firstOrNull()?.let { subscriptionId ->
@@ -440,9 +446,6 @@ fun ArticlesScreen(
         }
         FiloToast(vm.refreshNotice?.let { tr(it) }, onDismiss = { vm.refreshNotice = null })
         FiloToast(vm.markAllReadNotice?.let { tr(it) }, onDismiss = vm::clearMarkAllReadNotice, durationMillis = 3000)
-        if (vm.isMarkingAllRead) {
-            BlockingProgressOverlay(message = tr("既読に変更しています…"))
-        }
     }
 
     if (showRemoveReadArticles) {
@@ -520,7 +523,7 @@ fun ArticleListControls(
         open = false
     }
     Box {
-        FiloIconButton(FiloIconName.Gear, tr("表示設定"), { open = true }, expanded = open)
+        FiloIconButton(FiloIconName.Sliders, tr("表示設定"), { open = true }, expanded = open)
         FiloMenu(expanded = open, onDismiss = { open = false }, modifier = Modifier.width(300.dp)) {
             Column(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 10.dp)) {
                 if (translations.isSupported) {

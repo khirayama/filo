@@ -22,12 +22,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +65,7 @@ fun SubscriptionHealth(subscription: Subscription) {
 fun ArticleRow(
     article: ArticleListItem,
     onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
     selected: Boolean = false,
     // Off inside a single subscription, where every row has the same feed.
     showFeed: Boolean = true,
@@ -83,36 +87,52 @@ fun ArticleRow(
     val isHovered by hoverInteractionSource.collectIsHoveredAsState()
     val isRead = article.userState.isRead
     val active = selected || (isDesktop && isHovered)
+    val titleColor by animateColorAsState(if (isRead) colors.muted else colors.text, label = "title")
 
+    // A row action answers with a light tick.
+    val view = LocalView.current
+    fun withTick(action: (() -> Unit)?): (() -> Unit)? = action?.let {
+        {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            it()
+        }
+    }
+    val toggleRead = withTick(onToggleRead)
+    val toggleReadingList = withTick(onToggleReadingList)
+    val toggleBookmark = withTick(onToggleBookmark)
+
+    // The whole row opens the article and shows the press; the feed label,
+    // translation toggle and actions inside it keep their own taps.
     val rowModifier = Modifier
         .fillMaxWidth()
         .then(if (isDesktop) Modifier.hoverable(hoverInteractionSource) else Modifier)
         .background(if (active) colors.rowHover else colors.bg)
+        .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
         .drawBehind {
             if (selected) drawRect(colors.accent, size = size.copy(width = 3.dp.toPx()))
         }
         .bottomBorder(colors.mutedBorder)
 
-    val title: @Composable (Modifier, Boolean) -> Unit = { modifier, singleLine ->
+    val title: @Composable (Modifier, Boolean) -> Unit = { titleModifier, singleLine ->
         Text(
             displayTitle,
             fontSize = if (singleLine) 14.sp else 15.sp,
             lineHeight = if (singleLine) 20.sp else 22.sp,
             fontWeight = if (isRead) FontWeight.Normal else FontWeight.SemiBold,
-            color = if (isRead) colors.muted else colors.text,
+            color = titleColor,
             maxLines = if (singleLine) 1 else 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = modifier.combinedClickable(onClick = onOpen, onLongClick = onLongPress),
+            modifier = titleModifier,
         )
     }
-    val feed: @Composable (Modifier) -> Unit = { modifier ->
+    val feed: @Composable (Modifier) -> Unit = { feedModifier ->
         Text(
             article.feedTitle,
             fontSize = 12.sp,
             color = colors.muted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = modifier.then(if (onOpenFeed != null) Modifier.clickable(onClick = onOpenFeed) else Modifier),
+            modifier = feedModifier.then(if (onOpenFeed != null) Modifier.clickable(onClick = onOpenFeed) else Modifier),
         )
     }
     val date: @Composable () -> Unit = {
@@ -125,7 +145,7 @@ fun ArticleRow(
     if (isDesktop) {
         // One dense line per article; the toggles replace the date on hover.
         Row(
-            modifier = rowModifier.height(40.dp).padding(horizontal = 24.dp),
+            modifier = modifier.then(rowModifier).height(40.dp).padding(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -155,7 +175,7 @@ fun ArticleRow(
                 }
             }
             if (active) {
-                ArticleActions(article, onToggleRead, onToggleReadingList, onToggleBookmark)
+                ArticleActions(article, toggleRead, toggleReadingList, toggleBookmark)
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (article.userState.inReadingList) FiloIcon(FiloIconName.Playlist, size = 14.dp, tint = colors.accent)
@@ -166,7 +186,7 @@ fun ArticleRow(
         }
     } else {
         // Feed/date line, then a two-line title.
-        Column(modifier = rowModifier.padding(horizontal = Filo.Gutter, vertical = 12.dp)) {
+        Column(modifier = modifier.then(rowModifier).padding(horizontal = Filo.Gutter, vertical = 12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -185,9 +205,9 @@ fun ArticleRow(
                 // like the web's negative margins, so the icons end on the edge.
                 ArticleActions(
                     article,
-                    onToggleRead,
-                    onToggleReadingList,
-                    onToggleBookmark,
+                    toggleRead,
+                    toggleReadingList,
+                    toggleBookmark,
                     modifier = Modifier
                         .height(24.dp)
                         .wrapContentHeight(unbounded = true)

@@ -169,29 +169,6 @@ export function Spinner({ label = "読み込み中…" }: { label?: string }) {
   );
 }
 
-export function BlockingProgress({ message }: { message: string }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    containerRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, []);
-
-  return (
-    <div ref={containerRef} role="dialog" aria-modal="true" aria-label={message} tabIndex={-1} className="fl-dialog-scrim">
-      <div role="status" aria-live="polite" className="fl-dialog" style={{ alignItems: "center", display: "flex", gap: "12px", maxWidth: "none", padding: "14px 18px", width: "auto" }}>
-        <span className="fl-spinner" aria-hidden="true" />
-        <span style={{ fontSize: "14px" }}>{message}</span>
-      </div>
-    </div>
-  );
-}
-
 export function Toast({ message }: { message: string }) {
   return (
     <p role="status" aria-live="polite" className="fl-toast">
@@ -280,6 +257,7 @@ export function IconButton({
   filled,
   color,
   danger,
+  spinning,
   ariaExpanded,
   ariaHaspopup,
   ariaControls,
@@ -293,6 +271,8 @@ export function IconButton({
   filled?: boolean;
   color?: string;
   danger?: boolean;
+  // The icon turns while the action it started is still running.
+  spinning?: boolean;
   ariaExpanded?: boolean;
   ariaHaspopup?: AriaAttributes["aria-haspopup"];
   ariaControls?: string;
@@ -313,7 +293,8 @@ export function IconButton({
         onClick?.(e);
       }}
       disabled={disabled}
-      className={`fl-icon-btn${danger ? " fl-icon-btn--danger" : ""}`}
+      aria-busy={spinning || undefined}
+      className={`fl-icon-btn${danger ? " fl-icon-btn--danger" : ""}${spinning ? " fl-icon-btn--spinning" : ""}`}
       style={{ color: color ?? (active ? palette.text : undefined), height: box, width: box }}
     >
       <Icon name={icon} size={size} filled={filled ?? active} />

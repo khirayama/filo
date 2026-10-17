@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ApiClient } from "../api/client";
-import type { ArticleListFilters, ArticleListItem } from "../api/types";
+import type { ArticleListFilters, ArticleListItem, ArticleUserState } from "../api/types";
 import { errorMessage } from "../lib/messages";
 import { articleItem, trackEvent } from "../lib/analytics";
 import { useIsDesktop } from "./AppShell";
@@ -54,6 +54,10 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   useEffect(() => {
     watermark.current = null;
     setHasNewArticles(false);
+    // Another view's rows must not linger under the new title. Reloads of the
+    // same view keep their rows on screen until the new page arrives.
+    setArticles([]);
+    setNextCursor(null);
     void load();
     return () => { generation.current += 1; };
   }, [load]);
@@ -106,40 +110,25 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
     }
   }, [api, filtersKey, language, nextCursor, loadingMore]);
 
+  // Apply the change before the request so the row answers the tap at once;
+  // the response then confirms it, and a failure puts the old state back.
   const updateState = useCallback(
     async (articleId: number, patch: ArticleStateMutation) => {
-      try {
-        const article = articles.find((candidate) => candidate.id === articleId);
-        const state = "isRead" in patch
-          ? await api.setArticleRead(articleId, patch.isRead)
-        : "inReadingList" in patch
-          ? await api.setReadingListMembership(articleId, patch.inReadingList)
-          : await api.setBookmarkMembership(articleId, patch.isBookmarked);
-        if (article) {
-          const item = articleItem(article);
-          if ("isRead" in patch) {
-            trackEvent(patch.isRead ? "mark_article_read" : "mark_article_unread", { article_id: String(article.id) });
-          } else if ("inReadingList" in patch) {
-            trackEvent(patch.inReadingList ? "add_to_reading_list" : "remove_from_reading_list", { article_id: String(article.id) });
-          } else {
-            trackEvent(patch.isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", { items: [item] });
-          }
-        }
-        if (article) {
-          const wasUnread = !article.userState.isRead;
-          const isUnread = !state.isRead;
-          const wasUnreadInReadingList = wasUnread && article.userState.inReadingList;
-          const isUnreadInReadingList = isUnread && state.inReadingList;
-          const isSubscribed = article.subscriptionContext.subscriptionIds.length > 0;
-          adjustUnreadCounts({
-            allArticles: isSubscribed ? Number(isUnread) - Number(wasUnread) : 0,
-            readingList: Number(isUnreadInReadingList) - Number(wasUnreadInReadingList),
-          });
-        }
-        // Same-filter reloads may race with this write and read the old server
-        // state, so still apply the mutation response after those reloads.
-        // Only discard it when the API/user or visible filters have changed.
-        if (viewIdentity.current.api !== api || viewIdentity.current.filtersKey !== filtersKey) return;
+      const article = articles.find((candidate) => candidate.id === articleId);
+      if (!article) return;
+      const isSubscribed = article.subscriptionContext.subscriptionIds.length > 0;
+      const adjustCounts = (from: ArticleUserState, to: ArticleUserState) => {
+        adjustUnreadCounts({
+          allArticles: isSubscribed ? Number(!to.isRead) - Number(!from.isRead) : 0,
+          readingList: Number(!to.isRead && to.inReadingList) - Number(!from.isRead && from.inReadingList),
+        });
+      };
+      // Same-filter reloads may race with this write and read the old server
+      // state, so still apply the mutation response after those reloads.
+      // Only discard it when the API/user or visible filters have changed.
+      const isCurrentView = () => viewIdentity.current.api === api && viewIdentity.current.filtersKey === filtersKey;
+      const applyState = (state: ArticleUserState) => {
+        if (!isCurrentView()) return;
         const currentFilters = JSON.parse(filtersKey) as ArticleListFilters;
         setArticles((prev) =>
           prev.flatMap((a) => {
@@ -151,16 +140,48 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
             return remainsInList ? [{ ...a, userState: state }] : [];
           }),
         );
+      };
+
+      const before = article.userState;
+      const optimistic = { ...before, ...patch };
+      applyState(optimistic);
+      adjustCounts(before, optimistic);
+      try {
+        const state = "isRead" in patch
+          ? await api.setArticleRead(articleId, patch.isRead)
+          : "inReadingList" in patch
+            ? await api.setReadingListMembership(articleId, patch.inReadingList)
+            : await api.setBookmarkMembership(articleId, patch.isBookmarked);
+        if ("isRead" in patch) {
+          trackEvent(patch.isRead ? "mark_article_read" : "mark_article_unread", { article_id: String(article.id) });
+        } else if ("inReadingList" in patch) {
+          trackEvent(patch.inReadingList ? "add_to_reading_list" : "remove_from_reading_list", { article_id: String(article.id) });
+        } else {
+          trackEvent(patch.isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", { items: [articleItem(article)] });
+        }
+        applyState(state);
+        adjustCounts(optimistic, state);
       } catch (e) {
-        if (viewIdentity.current.api === api && viewIdentity.current.filtersKey === filtersKey) {
+        adjustCounts(optimistic, before);
+        if (isCurrentView()) {
+          // A row the optimistic change removed comes back with the reload.
           setError(errorMessage(e, language));
+          setArticles((prev) => prev.map((a) => (a.id === articleId ? { ...a, userState: before } : a)));
         }
       }
     },
     [api, articles, filtersKey, language, adjustUnreadCounts],
   );
 
-  return { articles, nextCursor, loading, loadingMore, error, hasNewArticles, reload: load, loadMore, updateState };
+  // "Mark all as read" shows its result at once; the caller reloads afterwards.
+  const markAllReadLocally = useCallback(() => {
+    const hidesRead = (JSON.parse(filtersKey) as ArticleListFilters).read === false;
+    setArticles((prev) =>
+      hidesRead ? [] : prev.map((a) => (a.userState.isRead ? a : { ...a, userState: { ...a.userState, isRead: true } })),
+    );
+  }, [filtersKey]);
+
+  return { articles, nextCursor, loading, loadingMore, error, hasNewArticles, reload: load, loadMore, updateState, markAllReadLocally };
 }
 
 export function ArticleRows({
@@ -231,7 +252,7 @@ export function ArticleRows({
     return () => observer.disconnect();
   }, [nextCursor, onLoadMore]);
 
-  if (loading) return <Spinner />;
+  if (loading && articles.length === 0) return <Spinner />;
   if (error) return <div style={{ padding: "16px var(--fl-page-gutter)" }}><ErrorBox message={error} onRetry={onRetry} /></div>;
   if (articles.length === 0) return <>{emptyContent}</>;
   return (

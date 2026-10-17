@@ -43,6 +43,8 @@ struct ArticleRowView: View {
     @ObservedObject private var translations = TitleTranslationStore.shared
     @State private var showOriginal = false
     @State private var hovered = false
+    // Bumped by a row action so the tap answers with a light tick.
+    @State private var feedbackTick = 0
     @Environment(\.filoIsDesktop) private var isDesktop
 
     // 翻訳は端末内で走るので、届いた分から順に差し替わる
@@ -59,16 +61,22 @@ struct ArticleRowView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selected || hovered ? FiloPalette.rowHover : FiloPalette.background)
+        // The whole row opens the article and shows the press: a button fills
+        // the row behind its content, and the feed label, translation toggle
+        // and actions stay tappable above it.
+        .background {
+            Button { onOpen?() } label: { Color.clear.contentShape(Rectangle()) }
+                .buttonStyle(ArticleRowBackgroundStyle(highlighted: selected || hovered))
+                .accessibilityLabel(Text(verbatim: displayTitle))
+        }
         .overlay(alignment: .leading) {
             if selected {
                 Rectangle().fill(FiloPalette.accent).frame(width: 3)
             }
         }
         .overlay(alignment: .bottom) { FiloDivider() }
-        .contentShape(Rectangle())
-        .onTapGesture { onOpen?() }
         .onHover { hovered = $0 }
+        .sensoryFeedback(.impact(weight: .light), trigger: feedbackTick)
         .contextMenu {
             if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
                 Button {
@@ -79,6 +87,11 @@ struct ArticleRowView: View {
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private func act(_ action: () -> Void) {
+        feedbackTick += 1
+        action()
     }
 
     private var mobileRow: some View {
@@ -120,6 +133,7 @@ struct ArticleRowView: View {
                         .foregroundStyle(FiloPalette.muted)
                         .lineLimit(1)
                         .frame(minWidth: 80, alignment: .leading)
+                        .allowsHitTesting(false)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -197,6 +211,9 @@ struct ArticleRowView: View {
             .foregroundStyle(isRead ? FiloPalette.muted : FiloPalette.text)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+            // Taps fall through to the row button, which also speaks the title.
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private var date: some View {
@@ -205,6 +222,7 @@ struct ArticleRowView: View {
             .monospacedDigit()
             .foregroundStyle(FiloPalette.muted)
             .fixedSize()
+            .allowsHitTesting(false)
     }
 
     // Saved states stay visible as small marks on desktop; the full toggle set
@@ -220,6 +238,7 @@ struct ArticleRowView: View {
                     FiloIcon(.bookmark, size: 14, color: FiloPalette.star, filled: true)
                 }
             }
+            .allowsHitTesting(false)
         }
     }
 
@@ -230,7 +249,7 @@ struct ArticleRowView: View {
                     .checkCircle,
                     label: isRead ? "未読にする" : "既読にする",
                     color: isRead ? FiloPalette.accent : nil,
-                    action: onToggleRead,
+                    action: { act(onToggleRead) },
                 )
             }
             if let onToggleReadingList {
@@ -238,7 +257,7 @@ struct ArticleRowView: View {
                     .queueAdd,
                     label: article.userState.inReadingList ? "リーディングリストから削除" : "リーディングリストに追加",
                     color: article.userState.inReadingList ? FiloPalette.accent : nil,
-                    action: onToggleReadingList,
+                    action: { act(onToggleReadingList) },
                 )
             }
             if let onToggleBookmark {
@@ -247,10 +266,20 @@ struct ArticleRowView: View {
                     label: article.userState.isBookmarked ? "ブックマークを解除" : "ブックマーク",
                     color: article.userState.isBookmarked ? FiloPalette.star : nil,
                     filled: article.userState.isBookmarked,
-                    action: onToggleBookmark,
+                    action: { act(onToggleBookmark) },
                 )
             }
         }
+    }
+}
+
+private struct ArticleRowBackgroundStyle: ButtonStyle {
+    let highlighted: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(highlighted ? FiloPalette.rowHover : FiloPalette.background)
+            .overlay(configuration.isPressed ? FiloPalette.pressed : .clear)
     }
 }
 
@@ -264,7 +293,7 @@ struct ArticleListControls: View {
     @State private var isOpen = false
 
     var body: some View {
-        FiloIconButton(.gear, label: "表示設定") { isOpen = true }
+        FiloIconButton(.sliders, label: "表示設定") { isOpen = true }
             .popover(isPresented: $isOpen, arrowEdge: .top) {
                 content
                     .frame(width: 300)

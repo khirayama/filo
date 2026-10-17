@@ -123,6 +123,11 @@ html {
   background: var(--fl-bg);
 }
 
+/* A screen sliding in must not widen the page while it is off to the side. */
+body {
+  overflow-x: clip;
+}
+
 *,
 *::before,
 *::after {
@@ -464,6 +469,14 @@ textarea {
   opacity: 0.4;
 }
 
+.fl-icon-btn--spinning:disabled {
+  opacity: 1;
+}
+
+.fl-icon-btn--spinning svg {
+  animation: fl-spin 0.8s linear infinite;
+}
+
 .fl-icon-btn--danger:hover:not(:disabled) {
   background: var(--fl-danger-bg);
   color: var(--fl-danger) !important;
@@ -656,12 +669,36 @@ textarea {
   position: absolute;
   right: 0;
   top: calc(100% + 4px);
+  animation: fl-pop-in 120ms var(--fl-ease-out);
+  transform-origin: top right;
   z-index: 20;
 }
 
 .fl-menu--start {
   left: 0;
   right: auto;
+  transform-origin: top left;
+}
+
+/* Surfaces that appear over the page ease in instead of snapping. */
+@keyframes fl-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@keyframes fl-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fl-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
 }
 
 .fl-menu-item {
@@ -794,6 +831,7 @@ textarea {
   pointer-events: none;
   position: fixed;
   transform: translateX(-50%);
+  animation: fl-toast-in 160ms var(--fl-ease-out);
   width: max-content;
   z-index: 40;
 }
@@ -812,6 +850,7 @@ textarea {
   justify-content: center;
   padding: 16px;
   position: fixed;
+  animation: fl-fade-in 120ms ease;
   z-index: 100;
 }
 
@@ -824,6 +863,7 @@ textarea {
   max-width: 420px;
   overflow-y: auto;
   padding: 20px;
+  animation: fl-pop-in 160ms var(--fl-ease-out);
   width: 100%;
 }
 
@@ -866,6 +906,7 @@ textarea {
   color: var(--fl-text);
   font-weight: 600;
   text-decoration: none;
+  transition: color 160ms ease;
 }
 
 .fl-article-row[data-read="true"] .fl-article-title {
@@ -1037,6 +1078,20 @@ a.fl-article-feed:hover span {
 
 .fl-article-row--mobile .fl-article-actions {
   margin: -8px -10px -8px 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* The whole row opens the article: the title link stretches over it, and the
+   feed link, translation toggle and actions sit above that. */
+.fl-article-row--mobile .fl-article-title::after {
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
+.fl-article-row--mobile:has(.fl-article-title:active) {
+  background: var(--fl-pressed);
 }
 
 .fl-article-row--mobile .fl-article-title {
@@ -1152,8 +1207,21 @@ a.fl-article-feed:hover span {
     transition: none !important;
   }
 
-  .fl-spinner {
+  .fl-spinner,
+  .fl-icon-btn--spinning svg {
     animation-duration: 2.4s;
+  }
+
+  .fl-menu,
+  .fl-toast,
+  .fl-dialog-scrim,
+  .fl-dialog,
+  [data-filo-enter] {
+    animation: none;
+  }
+
+  .fl-article-title {
+    transition: none;
   }
 }
 
@@ -1512,6 +1580,59 @@ a.fl-article-feed:hover span {
 }
 
 /* Float over the list so detecting arrivals never moves the reading position. */
+/* ---------- Screen changes ---------- */
+
+@keyframes fl-enter-push {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fl-enter-pop {
+  from {
+    opacity: 0.6;
+    transform: translateX(-33%);
+  }
+}
+
+[data-filo-enter="push"] {
+  animation: fl-enter-push 280ms var(--fl-ease-drawer);
+}
+
+[data-filo-enter="pop"] {
+  animation: fl-enter-pop 280ms var(--fl-ease-drawer);
+}
+
+/* ---------- Pull to refresh ---------- */
+
+.fl-pull-refresh {
+  align-items: center;
+  background: var(--fl-surface);
+  border: 1px solid var(--fl-muted-border);
+  border-radius: 50%;
+  box-shadow: 0 4px 16px var(--fl-shadow);
+  color: var(--fl-muted);
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  left: 50%;
+  pointer-events: none;
+  position: fixed;
+  top: calc(var(--fl-header-h) - 36px);
+  width: 36px;
+  z-index: 16;
+}
+
+.fl-pull-refresh[data-ready="true"] {
+  color: var(--fl-accent);
+}
+
+@media (min-width: 1024px) {
+  .fl-pull-refresh {
+    left: calc(50% + 140px);
+  }
+}
+
 .fl-new-articles {
   position: sticky;
   top: calc(var(--fl-header-h) + 12px);

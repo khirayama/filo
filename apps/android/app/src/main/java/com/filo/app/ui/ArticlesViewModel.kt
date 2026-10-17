@@ -197,7 +197,7 @@ class ArticlesViewModel : ViewModel() {
             if (result.enqueued == 0 && result.skipped > 0) {
                 refreshNotice = AppText("最近取得済みのため、今回の取得対象はありませんでした。")
             } else if (result.enqueued > 0) {
-                refreshNotice = AppText("%d件のフィードの取得を開始しました。", listOf(result.enqueued))
+                refreshNotice = AppText("%d件のフィードを更新しました。", listOf(result.enqueued))
             }
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forErrorText(e)
@@ -213,12 +213,19 @@ class ArticlesViewModel : ViewModel() {
         markAllReadNotice = null
         errorMessage = null
         com.filo.app.Analytics.track("mark_all_articles_read")
+        // Show the result at once; the reload below brings the server's order.
+        articles = if (readFilter == false) {
+            emptyList()
+        } else {
+            articles.map { if (it.userState.isRead) it else it.copy(userState = it.userState.copy(isRead = true)) }
+        }
         try {
             ApiClient.markAllArticlesRead(selectedTagId)
             reload()
             markAllReadNotice = AppText("既読への変更が完了しました。")
             return true
         } catch (e: Exception) {
+            reload()
             errorMessage = ErrorMessages.forErrorText(e)
             return false
         } finally {
@@ -240,42 +247,54 @@ class ArticlesViewModel : ViewModel() {
         }
     }
 
+    // Apply the change before the request so the row answers the tap at once;
+    // the response then confirms it, and a failure puts the old state back.
     fun patchState(article: ArticleListItem, isRead: Boolean? = null, inReadingList: Boolean? = null, isBookmarked: Boolean? = null) {
+        if (isRead == null && inReadingList == null && isBookmarked == null) return
+        val before = article.userState
+        val optimistic = before.copy(
+            isRead = isRead ?: before.isRead,
+            inReadingList = inReadingList ?: before.inReadingList,
+            isBookmarked = isBookmarked ?: before.isBookmarked,
+        )
+        val isSubscribed = article.subscriptionIds.isNotEmpty()
+        com.filo.app.Analytics.track(
+            when {
+                isRead != null -> if (isRead) "mark_article_read" else "mark_article_unread"
+                inReadingList != null -> if (inReadingList) "add_to_reading_list" else "remove_from_reading_list"
+                else -> if (isBookmarked == true) "add_to_wishlist" else "remove_from_wishlist"
+            },
+            mapOf("article_id" to article.id),
+        )
+        applyState(article.id, optimistic)
+        applyUnreadDelta(before = before, after = optimistic, isSubscribed = isSubscribed)
         viewModelScope.launch {
             try {
-                val before = article.userState
-                com.filo.app.Analytics.track(
-                    when {
-                        isRead != null -> if (isRead) "mark_article_read" else "mark_article_unread"
-                        inReadingList != null -> if (inReadingList) "add_to_reading_list" else "remove_from_reading_list"
-                        isBookmarked != null -> if (isBookmarked) "add_to_wishlist" else "remove_from_wishlist"
-                        else -> return@launch
-                    },
-                    mapOf("article_id" to article.id),
-                )
                 val state = when {
                     isRead != null -> ApiClient.setArticleRead(article.id, isRead)
                     inReadingList != null -> ApiClient.setReadingListMembership(article.id, inReadingList)
-                    isBookmarked != null -> ApiClient.setBookmarkMembership(article.id, isBookmarked)
-                    else -> return@launch
+                    else -> ApiClient.setBookmarkMembership(article.id, isBookmarked == true)
                 }
-                articles = articles.mapNotNull {
-                    if (it.id != article.id) it
-                    else if (
-                        (readFilter != null && state.isRead != readFilter) ||
-                        (readingListOnly && !state.inReadingList) ||
-                        (bookmarkedOnly && !state.isBookmarked)
-                    ) null
-                    else it.copy(userState = state)
-                }
-                applyUnreadDelta(
-                    before = before,
-                    after = state,
-                    isSubscribed = article.subscriptionIds.isNotEmpty(),
-                )
+                applyState(article.id, state)
+                applyUnreadDelta(before = optimistic, after = state, isSubscribed = isSubscribed)
             } catch (e: Exception) {
+                // A row the optimistic change removed comes back with the reload.
+                articles = articles.map { if (it.id == article.id) it.copy(userState = before) else it }
+                applyUnreadDelta(before = optimistic, after = before, isSubscribed = isSubscribed)
                 errorMessage = ErrorMessages.forErrorText(e)
             }
+        }
+    }
+
+    private fun applyState(articleId: Int, state: com.filo.app.api.ArticleUserState) {
+        articles = articles.mapNotNull {
+            if (it.id != articleId) it
+            else if (
+                (readFilter != null && state.isRead != readFilter) ||
+                (readingListOnly && !state.inReadingList) ||
+                (bookmarkedOnly && !state.isBookmarked)
+            ) null
+            else it.copy(userState = state)
         }
     }
 

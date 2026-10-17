@@ -7,9 +7,10 @@ import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, NewArticlesNotice, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
+import { PullToRefresh } from "../components/PullToRefresh";
 import { SubscriptionHealth } from "../components/SubscriptionHealth";
 import { TagPicker } from "../components/TagPicker";
-import { BlockingProgress, Button, EmptyState, ErrorBox, IconButton, MenuItem, Spinner, Toast, palette, usePopover } from "../components/ui";
+import { Button, EmptyState, ErrorBox, IconButton, MenuItem, Spinner, Toast, palette, usePopover } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage } from "../lib/messages";
 import { enqueueFeedRefresh } from "../lib/refresh";
@@ -116,6 +117,7 @@ export function SubscriptionDetailPage() {
     setMarkingAllRead(true);
     setMarkAllNotice(null);
     setError(null);
+    list.markAllReadLocally();
     try {
       const result = await api.markAllRead(subscription.id);
       setSubscription({ ...subscription, unreadCount: result.unreadCount });
@@ -124,6 +126,7 @@ export function SubscriptionDetailPage() {
       setMarkAllNotice(t("既読への変更が完了しました。"));
     } catch (e) {
       setError(errorMessage(e, language));
+      void list.reload();
     } finally {
       setMarkingAllRead(false);
     }
@@ -150,7 +153,7 @@ export function SubscriptionDetailPage() {
         timed_out: outcome.timedOut,
       });
       if (outcome.timedOut) setRefreshNotice(t("取得に時間がかかっています。あとで再度更新してください。"));
-      else if (outcome.enqueued > 0) setRefreshNotice(t("フィードの取得を開始しました。"));
+      else if (outcome.enqueued > 0) setRefreshNotice(t("フィードを更新しました。"));
       await load();
       await list.reload();
       void refreshAppData();
@@ -190,10 +193,11 @@ export function SubscriptionDetailPage() {
               icon="refresh"
               label={t("このフィードを更新")}
               disabled={refreshing}
+              spinning={refreshing}
               onClick={() => void refreshFeed()}
             />
             <IconButton
-              icon="checkCircle"
+              icon="checkAll"
               label={t("すべて既読にする")}
               disabled={markingAllRead}
               onClick={() => void markAllRead()}
@@ -269,6 +273,7 @@ export function SubscriptionDetailPage() {
       }
     >
       <main aria-busy={markingAllRead} style={{ paddingBottom: "32px" }}>
+        <PullToRefresh disabled={refreshing || !subscription} onRefresh={() => void refreshFeed()} />
         {loading ? (
           <Spinner />
         ) : subscription ? (
@@ -335,7 +340,6 @@ export function SubscriptionDetailPage() {
           <div style={{ padding: "16px var(--fl-page-gutter)" }}><ErrorBox message={error} onRetry={() => void load()} /></div>
         ) : null}
       </main>
-      {markingAllRead ? <BlockingProgress message={t("既読に変更しています…")} /> : null}
       {markAllNotice ? <Toast message={markAllNotice} /> : null}
     </AppShell>
   );

@@ -136,7 +136,7 @@ final class ArticlesViewModel: ObservableObject {
             if result.enqueued == 0, (result.skipped ?? 0) > 0 {
                 refreshNotice = L10n.string("最近取得済みのため、今回の取得対象はありませんでした。")
             } else if result.enqueued > 0 {
-                refreshNotice = L10n.format("%ld件のフィードの取得を開始しました。", result.enqueued)
+                refreshNotice = L10n.format("%ld件のフィードを更新しました。", result.enqueued)
             }
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
@@ -193,6 +193,14 @@ final class ArticlesViewModel: ObservableObject {
         errorMessage = nil
         defer { isMarkingAllRead = false }
         FiloAnalytics.track("mark_all_articles_read")
+        // Show the result at once; the reload below brings the server's order.
+        withAnimation(.easeOut(duration: 0.2)) {
+            if readFilter == false {
+                articles = []
+            } else {
+                for index in articles.indices { articles[index].userState.isRead = true }
+            }
+        }
         do {
             _ = try await APIClient.shared.markAllArticlesRead(tagId: selectedTagId)
             await reloadArticles()
@@ -201,6 +209,7 @@ final class ArticlesViewModel: ObservableObject {
             markAllReadNotice = L10n.string("既読への変更が完了しました。")
             return true
         } catch {
+            await reloadArticles()
             errorMessage = ErrorMessages.message(for: error)
             return false
         }
@@ -217,16 +226,23 @@ final class ArticlesViewModel: ObservableObject {
         }
     }
 
+    // Apply the change before the request so the row answers the tap at once;
+    // the response then confirms it, and a failure puts the old state back.
     func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
+        guard let article = articles.first(where: { $0.id == articleId }) else { return }
+        let before = article.userState
+        let optimistic = before.applying(isRead: isRead, inReadingList: inReadingList, isBookmarked: isBookmarked)
+        let isSubscribed = !article.subscriptionContext.subscriptionIds.isEmpty
+        if let isRead {
+            FiloAnalytics.track(isRead ? "mark_article_read" : "mark_article_unread", parameters: ["article_id": articleId])
+        } else if let inReadingList {
+            FiloAnalytics.track(inReadingList ? "add_to_reading_list" : "remove_from_reading_list", parameters: ["article_id": articleId])
+        } else if let isBookmarked {
+            FiloAnalytics.track(isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", parameters: ["article_id": articleId])
+        }
+        applyState(optimistic, to: articleId)
+        applyUnreadDelta(before: before, after: optimistic, isSubscribed: isSubscribed)
         do {
-            let before = articles.first(where: { $0.id == articleId })
-            if let isRead {
-                FiloAnalytics.track(isRead ? "mark_article_read" : "mark_article_unread", parameters: ["article_id": articleId])
-            } else if let inReadingList {
-                FiloAnalytics.track(inReadingList ? "add_to_reading_list" : "remove_from_reading_list", parameters: ["article_id": articleId])
-            } else if let isBookmarked {
-                FiloAnalytics.track(isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", parameters: ["article_id": articleId])
-            }
             let state: ArticleUserState
             if let isRead {
                 state = try await APIClient.shared.setArticleRead(articleId, isRead: isRead)
@@ -237,25 +253,29 @@ final class ArticlesViewModel: ObservableObject {
             } else {
                 return
             }
-            if let index = articles.firstIndex(where: { $0.id == articleId }) {
-                let remainsInList = (!readingListOnly || state.inReadingList)
-                    && (!bookmarkedOnly || state.isBookmarked)
-                    && (readFilter == nil || state.isRead == readFilter)
-                if !remainsInList {
-                    articles.remove(at: index)
-                } else {
-                    articles[index].userState = state
-                }
-            }
-            if let before {
-                applyUnreadDelta(
-                    before: before.userState,
-                    after: state,
-                    isSubscribed: !before.subscriptionContext.subscriptionIds.isEmpty,
-                )
-            }
+            applyState(state, to: articleId)
+            applyUnreadDelta(before: optimistic, after: state, isSubscribed: isSubscribed)
         } catch {
+            // A row the optimistic change removed comes back with the reload.
+            if let index = articles.firstIndex(where: { $0.id == articleId }) {
+                articles[index].userState = before
+            }
+            applyUnreadDelta(before: optimistic, after: before, isSubscribed: isSubscribed)
             errorMessage = ErrorMessages.message(for: error)
+        }
+    }
+
+    private func applyState(_ state: ArticleUserState, to articleId: Int) {
+        guard let index = articles.firstIndex(where: { $0.id == articleId }) else { return }
+        let remainsInList = (!readingListOnly || state.inReadingList)
+            && (!bookmarkedOnly || state.isBookmarked)
+            && (readFilter == nil || state.isRead == readFilter)
+        withAnimation(.easeOut(duration: 0.2)) {
+            if remainsInList {
+                articles[index].userState = state
+            } else {
+                articles.remove(at: index)
+            }
         }
     }
 
@@ -362,18 +382,12 @@ struct ArticlesScreen: View {
         .onChange(of: model.settings) { registerTitlesForTranslation() }
         .background(shortcutButtons)
         .sheet(isPresented: $showShortcutHelp) { ShortcutHelpView() }
-        .disabled(model.isMarkingAllRead)
-        .overlay {
-            if model.isMarkingAllRead {
-                BlockingProgressOverlay(message: L10n.string("既読に変更しています…"))
-            }
-        }
         .overlay(alignment: .bottom) {
-            if let notice = model.markAllReadNotice ?? model.refreshNotice {
+            if let notice = notice {
                 FiloToast(message: notice)
             }
         }
-        .animation(.easeOut(duration: 0.2), value: model.markAllReadNotice ?? model.refreshNotice)
+        .animation(.easeOut(duration: 0.2), value: notice)
         .task(id: model.markAllReadNotice) {
             guard model.markAllReadNotice != nil else { return }
             try? await Task.sleep(for: .seconds(3))
@@ -386,6 +400,12 @@ struct ArticlesScreen: View {
             guard !Task.isCancelled else { return }
             model.refreshNotice = nil
         }
+    }
+
+    // The refresh waits for the feed jobs, so it says so until they settle.
+    private var notice: String? {
+        model.markAllReadNotice
+            ?? (model.isRefreshingFeeds ? L10n.string("フィードを更新しています…") : model.refreshNotice)
     }
 
     @ViewBuilder
@@ -411,7 +431,11 @@ struct ArticlesScreen: View {
             FiloIconButton(.trash, label: "既読記事を削除") { showRemoveReadConfirm = true }
         }
         if !model.bookmarkedOnly && !model.readingListOnly {
-            FiloIconButton(.checkCircle, label: "すべて既読にする") {
+            FiloIconButton(.refresh, label: "フィードを更新") {
+                Task { await model.refreshFeedsAndReload() }
+            }
+            .disabled(model.isRefreshingFeeds)
+            FiloIconButton(.checkAll, label: "すべて既読にする") {
                 Task { await markAllReadAndResetList() }
             }
             .disabled(model.isMarkingAllRead)

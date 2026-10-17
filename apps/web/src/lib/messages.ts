@@ -139,10 +139,10 @@ const MORE_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
 
 const STATUS_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
   ja: {},
-  en: { "件のフィードの取得を開始しました。": " feeds queued for fetching." },
-  zh: { "件のフィードの取得を開始しました。": " 个订阅源已开始获取。" },
-  ko: { "件のフィードの取得を開始しました。": "개 피드 가져오기를 시작했습니다." },
-  es: { "件のフィードの取得を開始しました。": " feeds añadidos a la cola." },
+  en: { "件のフィードの取得を開始しました。": " feeds queued for fetching.", "件のフィードを更新しました。": " feeds refreshed.", "フィードを更新しました。": "Feed refreshed." },
+  zh: { "件のフィードの取得を開始しました。": " 个订阅源已开始获取。", "件のフィードを更新しました。": " 个订阅源已更新。", "フィードを更新しました。": "订阅源已更新。" },
+  ko: { "件のフィードの取得を開始しました。": "개 피드 가져오기를 시작했습니다.", "件のフィードを更新しました。": "개 피드를 새로고침했습니다.", "フィードを更新しました。": "피드를 새로고침했습니다." },
+  es: { "件のフィードの取得を開始しました。": " feeds añadidos a la cola.", "件のフィードを更新しました。": " feeds actualizados.", "フィードを更新しました。": "Feed actualizado." },
 };
 
 // Keep the catalog complete when a screen introduces copy that is shared by
@@ -170,7 +170,6 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "選択範囲を読み上げ": "Read selection aloud",
     "選択範囲がありません。読み上げる文章を選択してください。": "No selection. Select some text to read aloud.",
     "Filo Reader": "Filo Reader",
-    "既読に変更しています…": "Marking as read…",
     "既読への変更が完了しました。": "Marked as read.",
   },
   zh: {
@@ -200,7 +199,6 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "選択範囲を読み上げ": "朗读选中的文字",
     "選択範囲がありません。読み上げる文章を選択してください。": "没有选中内容，请选择要朗读的文字。",
     "Filo Reader": "Filo Reader",
-    "既読に変更しています…": "正在标记为已读…",
     "既読への変更が完了しました。": "已标记为已读。",
   },
   ko: {
@@ -232,7 +230,6 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "選択範囲を読み上げ": "선택한 텍스트 낭독",
     "選択範囲がありません。読み上げる文章を選択してください。": "선택한 내용이 없습니다. 읽을 텍스트를 선택하세요.",
     "Filo Reader": "Filo Reader",
-    "既読に変更しています…": "읽음으로 표시하는 중…",
     "既読への変更が完了しました。": "읽음으로 표시했습니다.",
   },
   es: {
@@ -264,7 +261,6 @@ const COMPLETION_MESSAGES: Record<SupportedLanguage, MessageCatalog> = {
     "選択範囲を読み上げ": "Leer la selección en voz alta",
     "選択範囲がありません。読み上げる文章を選択してください。": "No hay selección. Selecciona el texto que quieres leer.",
     "Filo Reader": "Filo Reader",
-    "既読に変更しています…": "Marcando como leído…",
     "既読への変更が完了しました。": "Marcado como leído.",
   },
 };

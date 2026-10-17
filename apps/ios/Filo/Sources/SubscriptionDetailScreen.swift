@@ -123,7 +123,12 @@ final class SubscriptionDetailViewModel: ObservableObject {
         isLoadingMore = false
     }
 
+    // Apply the change before the request so the row answers the tap at once;
+    // the response then confirms it, and a failure puts the old state back.
     func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
+        guard let article = articles.first(where: { $0.id == articleId }) else { return }
+        let before = article.userState
+        applyState(before.applying(isRead: isRead, inReadingList: inReadingList, isBookmarked: isBookmarked), to: articleId)
         do {
             let state: ArticleUserState
             if let isRead {
@@ -135,15 +140,24 @@ final class SubscriptionDetailViewModel: ObservableObject {
             } else {
                 return
             }
-            if let index = articles.firstIndex(where: { $0.id == articleId }) {
-                if readFilter == nil || state.isRead == readFilter {
-                    articles[index].userState = state
-                } else {
-                    articles.remove(at: index)
-                }
-            }
+            applyState(state, to: articleId)
         } catch {
+            // A row the optimistic change removed comes back with the reload.
+            if let index = articles.firstIndex(where: { $0.id == articleId }) {
+                articles[index].userState = before
+            }
             errorMessage = ErrorMessages.message(for: error)
+        }
+    }
+
+    private func applyState(_ state: ArticleUserState, to articleId: Int) {
+        guard let index = articles.firstIndex(where: { $0.id == articleId }) else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            if readFilter == nil || state.isRead == readFilter {
+                articles[index].userState = state
+            } else {
+                articles.remove(at: index)
+            }
         }
     }
 
@@ -172,12 +186,21 @@ final class SubscriptionDetailViewModel: ObservableObject {
         markAllReadNotice = nil
         errorMessage = nil
         defer { isMarkingAllRead = false }
+        // Show the result at once; the reload below brings the server's order.
+        withAnimation(.easeOut(duration: 0.2)) {
+            if readFilter == false {
+                articles = []
+            } else {
+                for index in articles.indices { articles[index].userState.isRead = true }
+            }
+        }
         do {
             let result = try await APIClient.shared.markAllRead(subscriptionId)
             subscription?.unreadCount = result.unreadCount
             await reloadArticles()
             markAllReadNotice = L10n.string("既読への変更が完了しました。")
         } catch {
+            await reloadArticles()
             errorMessage = ErrorMessages.message(for: error)
         }
     }
@@ -212,7 +235,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
         do {
             let result = try await APIClient.shared.refreshFeed(feedId, waitForCompletion: true)
             FiloAnalytics.track("refresh_feed", parameters: ["feed_id": feedId])
-            if result.enqueued > 0 { refreshNotice = L10n.string("フィードの取得を開始しました。") }
+            if result.enqueued > 0 { refreshNotice = L10n.string("フィードを更新しました。") }
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
         }
@@ -292,12 +315,6 @@ struct SubscriptionDetailScreen: View {
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
         .onChange(of: model.articles, initial: true) { translations.register(model.articles) }
         .onChange(of: translations.isEnabled) { translations.register(model.articles) }
-        .disabled(model.isMarkingAllRead)
-        .overlay {
-            if model.isMarkingAllRead {
-                BlockingProgressOverlay(message: L10n.string("既読に変更しています…"))
-            }
-        }
         .overlay(alignment: .bottom) {
             if let notice = model.markAllReadNotice ?? model.refreshNotice {
                 FiloToast(message: notice)
@@ -342,7 +359,7 @@ struct SubscriptionDetailScreen: View {
             Task { await model.refreshFeedAndReload() }
         }
         .disabled(model.isRefreshingFeed)
-        FiloIconButton(.checkCircle, label: "すべて既読にする") {
+        FiloIconButton(.checkAll, label: "すべて既読にする") {
             Task { await model.markAllRead() }
         }
         .disabled(model.isMarkingAllRead)

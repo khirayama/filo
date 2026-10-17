@@ -35,7 +35,7 @@ export function ArticleListControls({
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <IconButton
-        icon="gear"
+        icon="sliders"
         label={t("表示設定")}
         ariaExpanded={open}
         ariaHaspopup="dialog"

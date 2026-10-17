@@ -57,7 +57,6 @@ object AppStrings {
             "フィードを解析できませんでした。" to "Could not parse the feed.",
             "フィードがHTTPエラーを返しました。(%d)" to "Feed returned an HTTP error (%d).",
             "フィードの取得に失敗しました。" to "Failed to fetch the feed.",
-            "既読に変更しています…" to "Marking as read…",
             "既読への変更が完了しました。" to "Marked as read.",
             "OPML" to "OPML",
         ),
@@ -86,7 +85,6 @@ object AppStrings {
             "サインアウト" to "退出登录",
             "危険な操作" to "危险操作",
             "この操作は取り消せません。" to "此操作无法撤销。",
-            "既読に変更しています…" to "正在标记为已读…",
             "既読への変更が完了しました。" to "已标记为已读。",
         ),
         "ko" to mapOf(
@@ -114,7 +112,6 @@ object AppStrings {
             "サインアウト" to "로그아웃",
             "危険な操作" to "위험한 작업",
             "この操作は取り消せません。" to "되돌릴 수 없습니다.",
-            "既読に変更しています…" to "읽음으로 표시하는 중…",
             "既読への変更が完了しました。" to "읽음으로 표시했습니다.",
         ),
         "es" to mapOf(
@@ -522,7 +519,6 @@ object AppStrings {
             "登録済みのメールアドレスにリセット用のリンクを送信します。" to "Enviaremos un enlace de restablecimiento a tu correo registrado.",
             "記事" to "Artículos",
             "記事の読み上げ再生中に表示されます" to "Se muestra mientras se lee un artículo en voz alta",
-            "既読に変更しています…" to "Marcando como leído…",
             "既読への変更が完了しました。" to "Marcado como leído.",
         ),
     )
@@ -581,10 +577,10 @@ object AppStrings {
     )
 
     private val readingTranslations = mapOf(
-        "en" to mapOf("翻訳を利用できないため原文で読み上げています。" to "Translation is unavailable, so the original text is being read aloud."),
-        "zh" to mapOf("翻訳を利用できないため原文で読み上げています。" to "翻译不可用，正在朗读原文。"),
-        "ko" to mapOf("翻訳を利用できないため原文で読み上げています。" to "번역을 사용할 수 없어 원문을 읽고 있습니다."),
-        "es" to mapOf("翻訳を利用できないため原文で読み上げています。" to "La traducción no está disponible; se está leyendo el texto original."),
+        "en" to mapOf("フィードを更新" to "Refresh feeds", "%d件のフィードを更新しました。" to "%d feeds refreshed.", "フィードを更新しました。" to "Feed refreshed.", "翻訳を利用できないため原文で読み上げています。" to "Translation is unavailable, so the original text is being read aloud."),
+        "zh" to mapOf("フィードを更新" to "刷新订阅源", "%d件のフィードを更新しました。" to "%d 个订阅源已更新。", "フィードを更新しました。" to "订阅源已更新。", "翻訳を利用できないため原文で読み上げています。" to "翻译不可用，正在朗读原文。"),
+        "ko" to mapOf("フィードを更新" to "피드 새로고침", "%d件のフィードを更新しました。" to "%d개 피드를 새로고침했습니다.", "フィードを更新しました。" to "피드를 새로고침했습니다.", "翻訳を利用できないため原文で読み上げています。" to "번역을 사용할 수 없어 원문을 읽고 있습니다."),
+        "es" to mapOf("フィードを更新" to "Actualizar feeds", "%d件のフィードを更新しました。" to "%d feeds actualizados.", "フィードを更新しました。" to "Feed actualizado.", "翻訳を利用できないため原文で読み上げています。" to "La traducción no está disponible; se está leyendo el texto original."),
     )
 
     fun get(source: String): String {

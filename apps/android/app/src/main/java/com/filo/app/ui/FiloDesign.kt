@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -807,35 +806,6 @@ fun BoxScope.FiloToast(message: String?, onDismiss: () -> Unit, durationMillis: 
             .background(colors.text, shape)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     )
-}
-
-@Composable
-fun BlockingProgressOverlay(message: String) {
-    val colors = Filo.colors
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.scrim)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(
-            modifier = Modifier
-                .shadow(24.dp, RoundedCornerShape(Filo.RadiusLg))
-                .background(colors.surface, RoundedCornerShape(Filo.RadiusLg))
-                .border(1.dp, colors.mutedBorder, RoundedCornerShape(Filo.RadiusLg))
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FiloSpinnerMark()
-            Text(message, fontSize = 14.sp, color = colors.text)
-        }
-    }
 }
 
 // ---------- Dialogs ----------
