@@ -478,6 +478,7 @@ struct ReadingSessionScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var isReadingListPresented = false
+    @State private var isSettingsPresented = false
     @State private var showShortcutHelp = false
 
     init(autoplay: Bool, temporaryUrl: String? = nil, article: ReadingSessionArticle? = nil) {
@@ -487,22 +488,58 @@ struct ReadingSessionScreen: View {
     }
 
     var body: some View {
+        let busy = player.isPlaying || player.isPreparing
+        // The same layout as Android: play/stop in the header, the page, then
+        // one toolbar row; voice, language and speed live in a sheet.
         FiloPage(player.currentItem?.article.title ?? L10n.string("リーディングリスト"), showsBack: true) {
-            if player.isLoading {
-                FiloSpinner().frame(maxHeight: .infinity)
-            } else if let item = player.currentItem, let url = item.article.canonicalUrl {
-                ReadingWebView(
-                    url: url,
-                    captureRequest: player.captureRequest,
-                    onLoaded: player.pageLoaded,
-                    onCaptured: player.receiveCapture,
-                    onSelectionChanged: { player.hasSelection = $0 },
-                )
-                .id(player.browserPageId)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                FiloEmptyState(icon: .playlist, message: player.errorMessage ?? "未読の記事がありません。")
+            FiloIconButton(
+                busy ? .pause : .play,
+                label: busy ? "読み上げを停止" : "このページを読み上げ",
+                color: FiloPalette.accent,
+                filled: busy,
+            ) {
+                if busy { player.pause() } else { player.play() }
             }
+            .disabled(player.currentItem == nil)
+        } content: {
+            VStack(spacing: 0) {
+                Group {
+                    if player.isLoading {
+                        FiloSpinner()
+                    } else if let item = player.currentItem, let url = item.article.canonicalUrl {
+                        ReadingWebView(
+                            url: url,
+                            captureRequest: player.captureRequest,
+                            onLoaded: player.pageLoaded,
+                            onCaptured: player.receiveCapture,
+                            onSelectionChanged: { player.hasSelection = $0 },
+                        )
+                        .id(player.browserPageId)
+                    } else {
+                        FiloEmptyState(icon: .playlist, message: player.errorMessage ?? "未読の記事がありません。")
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if player.currentItem != nil {
+                    if let message = player.errorMessage {
+                        readingMessage(message, color: FiloPalette.danger)
+                    }
+                    if let message = player.noticeMessage, busy {
+                        readingMessage(message, color: FiloPalette.muted)
+                    }
+                }
+                ReadingToolbar(
+                    player: player,
+                    onShowReadingList: { isReadingListPresented = true },
+                    onShowSettings: { isSettingsPresented = true },
+                )
+            }
+        }
+        .sheet(isPresented: $isSettingsPresented) {
+            ReadingSettingsSheet(player: player)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(FiloPalette.surface)
         }
         .sheet(isPresented: $isReadingListPresented) {
             ReadingListView(
@@ -517,11 +554,6 @@ struct ReadingSessionScreen: View {
             )
             .presentationDetents([.medium, .large])
             .presentationBackground(FiloPalette.background)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            ReadingSettingsPanel(player: player) {
-                isReadingListPresented = true
-            }
         }
         .task { await player.start(autoplay: autoplay, temporaryUrl: temporaryUrl, article: article) }
         .onAppear {
@@ -547,6 +579,16 @@ struct ReadingSessionScreen: View {
         )
         .sheet(isPresented: $showShortcutHelp) { ShortcutHelpView() }
     }
+
+    private func readingMessage(_ message: String, color: Color) -> some View {
+        Text(message)
+            .filoFont(13)
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, FiloMetrics.gutter)
+            .padding(.vertical, 8)
+            .background(FiloPalette.background)
+    }
 }
 
 private struct ReadingTranslationTask: ViewModifier {
@@ -570,11 +612,36 @@ private struct ReadingTranslationTask: ViewModifier {
     }
 }
 
-// The native counterpart of the extension popup controls: one primary action,
-// the reading-list actions, then labelled voice/language/speed settings.
-private struct ReadingSettingsPanel: View {
+// The reading-list actions in one row under the page (Android `ReadingToolbar`).
+private struct ReadingToolbar: View {
     @ObservedObject var player: ReadingPlayerStore
     let onShowReadingList: () -> Void
+    let onShowSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            FiloButton("リスト", icon: .playlist, kind: .ghost, small: true, action: onShowReadingList)
+            FiloButton("追加", icon: .queueAdd, kind: .ghost, small: true) {
+                player.addCurrentPageToReadingList()
+            }
+            .disabled(player.isAddingToReadingList || player.currentItem == nil)
+            FiloButton("選択範囲を読み上げ", icon: .play, kind: .ghost, small: true, action: player.playSelection)
+                .disabled(!player.hasSelection)
+            Spacer(minLength: 0)
+            FiloIconButton(.sliders, label: "読み上げ設定", action: onShowSettings)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(FiloPalette.background.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { FiloDivider() }
+    }
+}
+
+// Voice, language and speed are set once and rarely again, so they stay out
+// of the page in a sheet (Android `ReadingSettingsSheet`).
+private struct ReadingSettingsSheet: View {
+    @ObservedObject var player: ReadingPlayerStore
 
     private static let languages: [(code: String, name: String)] = [
         ("ja", "日本語"), ("en", "English"), ("zh", "简体中文"), ("ko", "한국어"), ("es", "Español"),
@@ -582,82 +649,53 @@ private struct ReadingSettingsPanel: View {
     private static let rates: [Float] = [0.75, 1, 1.25, 1.5, 2, 3]
 
     var body: some View {
-        let busy = player.isPlaying || player.isPreparing
-        VStack(spacing: 10) {
-            FiloButton(
-                busy ? "読み上げを停止" : "このページを読み上げ",
-                icon: busy ? .pause : .play,
-                kind: .primary,
-                fullWidth: true,
-            ) {
-                if busy { player.pause() } else { player.play() }
+        VStack(alignment: .leading, spacing: 0) {
+            Text(localized: "読み上げ設定")
+                .filoFont(16, .bold)
+                .padding(.vertical, 12)
+                .accessibilityAddTraits(.isHeader)
+            setting("声") {
+                FiloSelect(
+                    selection: Binding(
+                        get: { player.voiceIdentifier ?? "" },
+                        set: { player.setVoice($0.isEmpty ? nil : $0) },
+                    ),
+                    options: [("", L10n.string("自動"))] + player.availableVoices.map { ($0.identifier, $0.name) },
+                    label: "声",
+                )
             }
-            .disabled(player.currentItem == nil)
-            if let message = player.errorMessage, player.currentItem != nil {
-                Text(message)
-                    .filoFont(13)
-                    .foregroundStyle(FiloPalette.danger)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            FiloDivider()
+            setting("言語") {
+                FiloSelect(
+                    selection: Binding(get: { player.targetLanguage }, set: player.setLanguage),
+                    options: Self.languages.map { ($0.code, $0.name) },
+                    label: "言語",
+                )
             }
-            if let message = player.noticeMessage, busy {
-                Text(message)
-                    .filoFont(13)
-                    .foregroundStyle(FiloPalette.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            FiloDivider()
+            setting("速度") {
+                FiloSelect(
+                    selection: Binding(get: { player.rate }, set: player.setRate),
+                    options: Self.rates.map { ($0, "\($0.formatted())x") },
+                    label: "速度",
+                )
             }
-            HStack(spacing: 8) {
-                FiloButton("リスト", icon: .playlist, small: true, fullWidth: true, action: onShowReadingList)
-                FiloButton("追加", icon: .queueAdd, small: true, fullWidth: true) {
-                    player.addCurrentPageToReadingList()
-                }
-                .disabled(player.isAddingToReadingList || player.currentItem == nil)
-                FiloButton("選択範囲を読み上げ", icon: .play, small: true, fullWidth: true, action: player.playSelection)
-                    .disabled(!player.hasSelection)
-            }
-            HStack(spacing: 8) {
-                setting("声") {
-                    FiloSelect(
-                        selection: Binding(
-                            get: { player.voiceIdentifier ?? "" },
-                            set: { player.setVoice($0.isEmpty ? nil : $0) },
-                        ),
-                        options: [("", L10n.string("自動"))] + player.availableVoices.map { ($0.identifier, $0.name) },
-                        label: "声",
-                    )
-                }
-                setting("言語") {
-                    FiloSelect(
-                        selection: Binding(get: { player.targetLanguage }, set: player.setLanguage),
-                        options: Self.languages.map { ($0.code, $0.name) },
-                        label: "言語",
-                    )
-                }
-                .frame(maxWidth: 120)
-                setting("速度") {
-                    FiloSelect(
-                        selection: Binding(get: { player.rate }, set: player.setRate),
-                        options: Self.rates.map { ($0, "\($0.formatted())x") },
-                        label: "速度",
-                    )
-                }
-                .frame(maxWidth: 88)
-            }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, FiloMetrics.gutter)
+        .foregroundStyle(FiloPalette.text)
+        .padding(.horizontal, 20)
         .padding(.top, 12)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity)
-        .background(FiloPalette.surface.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { FiloDivider() }
     }
 
     private func setting<Control: View>(_ label: String, @ViewBuilder control: () -> Control) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 12) {
             Text(localized: label)
-                .filoFont(12, .semibold)
-                .foregroundStyle(FiloPalette.muted)
+                .filoFont(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
             control()
+                .frame(maxWidth: 200)
         }
+        .frame(minHeight: 52)
     }
 }
 
@@ -775,6 +813,7 @@ private struct ReadingWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.alwaysBounceVertical = true
+        webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         if let value = URL(string: url) { webView.load(URLRequest(url: value)) }

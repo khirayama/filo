@@ -1,3 +1,4 @@
+"読み上げ設定" = "Ajustes de lectura en voz alta";
 "設定" = "Ajustes";
 "フィードを追加" = "Añadir feed";
 "全ての記事" = "Todos los artículos";
@@ -82,7 +83,6 @@
 "すべて" = "Todo";
 "すべて取得" = "Obtener todo";
 "すべて既読にする" = "Marcar todo como leído";
-"既読に変更しています…" = "Marcando como leído…";
 "既読への変更が完了しました。" = "Marcado como leído.";
 "アカウントの削除が完了しました。ご利用ありがとうございました。" = "Tu cuenta se ha eliminado. Gracias por usar Filo.";
 "アカウントを作成" = "Crear cuenta";
@@ -131,6 +131,8 @@
 "フィードURLを表示" = "Mostrar URL del feed";
 "フィードに接続できませんでした。" = "No se pudo conectar con el feed.";
 "フィードの取得を開始しました。" = "Se inició la obtención del feed.";
+"フィードを更新" = "Actualizar feeds";
+"フィードを更新しました。" = "Feed actualizado.";
 "フィードを更新しています…" = "Actualizando el feed…";
 "フィードを確認中…" = "Comprobando el feed…";
 "フィードを見つけられませんでした。" = "No se encontró el feed.";
@@ -250,6 +252,7 @@
 "%ld件の購読" = "%ld suscripciones";
 "%@は準備できていません。設定の「翻訳の準備」からダウンロードしてください。" = "%@ no está preparado. Descárgalo desde «Preparar traducción» en Ajustes.";
 "%ld件のフィードの取得を開始しました。" = "%ld feeds añadidos a la cola.";
+"%ld件のフィードを更新しました。" = "%ld feeds actualizados.";
 "タグ%@を削除しますか？購読は削除されません。" = "¿Eliminar la etiqueta %@? Las suscripciones no se eliminarán.";
 "追加 %ld / スキップ %ld / 失敗 %ld" = "Añadidas %ld / Omitidas %ld / Fallidas %ld";
 "最終公開 %@" = "Última publicación %@";

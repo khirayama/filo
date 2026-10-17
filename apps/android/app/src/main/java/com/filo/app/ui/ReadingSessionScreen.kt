@@ -160,7 +160,10 @@ class ReadingPlayerController(
             })
         }
         TtsMediaService.onPlayPause = { if (isPlaying) pause() else play() }
-        TtsMediaService.onDismiss = { pause() }
+        TtsMediaService.onDismiss = {
+            mediaNotificationShown = false
+            pause()
+        }
     }
 
     suspend fun start(
@@ -170,6 +173,7 @@ class ReadingPlayerController(
     ) {
         if (isLoading) return
         pause()
+        dismissMedia()
         isLoading = true
         errorMessage = null
         autoplayWhenReady = autoplay
@@ -314,6 +318,7 @@ class ReadingPlayerController(
             if (nextIndex == index) return
             markArticleRead(currentItem?.articleId)
             pause()
+            dismissMedia()
             index = nextIndex
             resetPage()
             return
@@ -322,6 +327,7 @@ class ReadingPlayerController(
         if (listIndex < 0) return
         markArticleRead(currentItem?.articleId)
         pause()
+        dismissMedia()
         items = readingListItems
         index = listIndex
         resetPage()
@@ -441,7 +447,7 @@ class ReadingPlayerController(
         tts = null
         TtsMediaService.onPlayPause = null
         TtsMediaService.onDismiss = null
-        context.stopService(Intent(context, TtsMediaService::class.java))
+        dismissMedia()
     }
 
     private fun resetPage() {
@@ -476,7 +482,7 @@ class ReadingPlayerController(
             return
         }
         isPlaying = false
-        notifyMedia()
+        dismissMedia()
         markArticleRead(playbackArticleId)
     }
 
@@ -521,8 +527,21 @@ class ReadingPlayerController(
             .sorted()
     }
 
+    // Like a music player, the media notification appears when playback
+    // starts, stays while it is paused, and goes away when the reading ends
+    // or moves to another page. Opening the screen alone shows nothing.
+    private var mediaNotificationShown = false
+
+    private fun dismissMedia() {
+        if (!mediaNotificationShown) return
+        mediaNotificationShown = false
+        context.stopService(Intent(context, TtsMediaService::class.java))
+    }
+
     private fun notifyMedia() {
+        if (!isPlaying && !mediaNotificationShown) return
         val item = currentItem ?: return
+        mediaNotificationShown = true
         val intent = Intent(context, TtsMediaService::class.java).apply {
             action = TtsMediaService.ACTION_UPDATE
             putExtra("title", playbackArticleTitle ?: item.article.title)
@@ -754,7 +773,7 @@ private fun ReadingToolbar(
             enabled = player.hasSelection,
         )
         Spacer(Modifier.weight(1f))
-        FiloIconButton(FiloIconName.Gear, tr("読み上げ設定"), onShowSettings)
+        FiloIconButton(FiloIconName.Sliders, tr("読み上げ設定"), onShowSettings)
     }
 }
 

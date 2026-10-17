@@ -10,6 +10,7 @@ enum FiloIconName: Hashable {
     case star
     case bookmark
     case checkCircle
+    case checkAll
     case refresh
     case externalLink
     case chevronRight
@@ -17,6 +18,7 @@ enum FiloIconName: Hashable {
     case chevronUp
     case tag
     case gear
+    case sliders
     case list
     case queueAdd
     case inbox
@@ -40,6 +42,7 @@ enum FiloIconName: Hashable {
         case .star: return [.polygon("12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2")]
         case .bookmark: return [.path("M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z")]
         case .checkCircle: return [.circle(12, 12, 9), .path("M16 9.5l-5 5-2.5-2.5")]
+        case .checkAll: return [.path("M18 6L7 17l-5-5"), .path("M22 10l-7.5 7.5L13 16")]
         case .refresh: return [.path("M23 4v6h-6"), .path("M20.49 15a9 9 0 1 1-2.12-9.36L23 10")]
         case .externalLink:
             return [
@@ -59,6 +62,11 @@ enum FiloIconName: Hashable {
             return [
                 .circle(12, 12, 3),
                 .path("M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"),
+            ]
+        case .sliders:
+            return [
+                .path("M4 21v-7"), .path("M4 10V3"), .path("M12 21v-9"), .path("M12 8V3"), .path("M20 21v-5"), .path("M20 12V3"),
+                .path("M1 14h6"), .path("M9 8h6"), .path("M17 16h6"),
             ]
         case .list:
             return [

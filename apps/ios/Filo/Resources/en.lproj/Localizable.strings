@@ -1,3 +1,4 @@
+"読み上げ設定" = "Listening settings";
 "設定" = "Settings";
 "フィードを追加" = "Add feed";
 "全ての記事" = "All articles";
@@ -81,7 +82,6 @@
 "すべて" = "All";
 "すべて取得" = "Fetch all";
 "すべて既読にする" = "Mark all as read";
-"既読に変更しています…" = "Marking as read…";
 "既読への変更が完了しました。" = "Marked as read.";
 "アカウントの削除が完了しました。ご利用ありがとうございました。" = "Your account has been deleted. Thank you for using Filo.";
 "アカウントを作成" = "Create account";
@@ -130,6 +130,8 @@
 "フィードURLを表示" = "Show feed URL";
 "フィードに接続できませんでした。" = "Could not connect to the feed.";
 "フィードの取得を開始しました。" = "Feed fetch started.";
+"フィードを更新" = "Refresh feeds";
+"フィードを更新しました。" = "Feed refreshed.";
 "フィードを更新しています…" = "Refreshing feed…";
 "フィードを確認中…" = "Checking feed…";
 "フィードを見つけられませんでした。" = "Could not find the feed.";
@@ -249,6 +251,7 @@
 "%ld件の購読" = "%ld subscriptions";
 "%@は準備できていません。設定の「翻訳の準備」からダウンロードしてください。" = "%@ is not ready. Download it from Prepare translation in Settings.";
 "%ld件のフィードの取得を開始しました。" = "%ld feeds queued for fetching.";
+"%ld件のフィードを更新しました。" = "%ld feeds refreshed.";
 "タグ%@を削除しますか？購読は削除されません。" = "Delete tag %@? Subscriptions will not be deleted.";
 "追加 %ld / スキップ %ld / 失敗 %ld" = "Added %ld / Skipped %ld / Failed %ld";
 "最終公開 %@" = "Last published %@";
