@@ -5,7 +5,7 @@ Cloudflare Workers + D1 + Queues implementation of `SPEC/API.md`. Translation is
 ## Setup
 
 ```bash
-npm install
+npm ci
 cp .dev.vars.example .dev.vars   # Better Auth / Resend を設定
 npm run db:migrate:local
 npm run dev                      # http://localhost:8787

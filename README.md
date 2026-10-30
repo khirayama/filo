@@ -30,6 +30,28 @@ RSS で記事を見つけ、一覧タイトルを端末内で翻訳して読む 
 
 ## Run
 
+JavaScript/TypeScript アプリは Node.js 24 LTS / npm 11 を使用する。`nvm use` で
+Node.js のメジャーバージョンを合わせ、`npm install --global npm@11.9.0` で npm を合わせる。
+
+```bash
+just install      # API / Web / Extension を lockfile どおりに npm ci
+just check        # 型検査、Web の lint、API / Web のテスト
+just audit        # 開発用を含む npm 依存関係の脆弱性検査
+```
+
+Web は `apps/web/.env.development.example`、拡張機能は
+`apps/extension/.env.development.example` をそれぞれ同じディレクトリの
+`.env.development.local` にコピーして起動する。本番ビルドは `.env.production.example`
+を参考に設定する。API は `apps/api/README.md` を参照する。
+
+GitHub Actions でも各アプリを `npm ci` から検証し、クライアントの開発・本番ビルドと
+脆弱性検査を行う。週次でも実行し、Dependabot で npm / Gradle / Actions の更新を確認する。
+
+Web の Transformers.js は Safari での翻訳互換性のため 3.8.1 を維持している。
+その Node.js 用画像処理依存 `sharp` は、脆弱性を解消した 0.35.5 以降に限定して
+override する。ブラウザ用ランタイムには含まれない。Transformers.js を更新するときは
+Safari の翻訳動作とともに、この override が不要になったかを確認する。
+
 各アプリのセットアップは `apps/*/README.md` を参照する。`justfile` から起動できる。
 
 ```bash

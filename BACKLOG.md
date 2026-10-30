@@ -1,1 +1,2 @@
+ios, androidのwebviewで記事を開いたあと、ページ遷移したら元のページ戻るすべきがない
 extensionの公開

@@ -79,8 +79,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       return cached.value;
     }
 
-    let request: Promise<UnreadCounts>;
-    request = api.getUnreadCounts().then((nextUnreadCounts) => {
+    const request: Promise<UnreadCounts> = api.getUnreadCounts().then((nextUnreadCounts) => {
       if (activeUserId.current === userId) {
         unreadCache.current = {
           userId,

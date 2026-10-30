@@ -1,6 +1,8 @@
 {
   "name": "@filo/extension",
   "private": true,
+  "packageManager": "npm@11.9.0",
+  "engines": { "node": ">=24 <25", "npm": ">=11 <12" },
   "version": "0.1.0",
   "scripts": {
     "dev": "vite build --watch --mode development & vite build --watch --mode development --config vite.content.config.ts & wait",
@@ -11,7 +13,9 @@
     "build:firefox:production": "rm -rf dist-firefox && FILO_BROWSER=firefox vite build --mode production && FILO_BROWSER=firefox vite build --mode production --config vite.content.config.ts",
     "build:safari": "rm -rf dist-safari && FILO_BROWSER=safari vite build --mode development && FILO_BROWSER=safari vite build --mode development --config vite.content.config.ts",
     "build:safari:production": "rm -rf dist-safari && FILO_BROWSER=safari vite build --mode production && FILO_BROWSER=safari vite build --mode production --config vite.content.config.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "check": "npm run typecheck && npm test"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.43",
@@ -19,7 +23,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.4.5"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

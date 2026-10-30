@@ -893,6 +893,12 @@ textarea {
   position: relative;
 }
 
+.fl-article-more {
+  display: flex;
+  justify-content: center;
+  padding: 20px var(--fl-page-gutter) 32px;
+}
+
 .fl-article-row:hover,
 .fl-article-row[data-active="true"] {
   background: var(--fl-row-hover);
@@ -900,6 +906,10 @@ textarea {
 
 .fl-article-row[data-active="true"] {
   box-shadow: inset 3px 0 0 var(--fl-accent);
+}
+
+.fl-article-row:active {
+  background: var(--fl-pressed);
 }
 
 .fl-article-title {
@@ -998,7 +1008,7 @@ a.fl-article-feed:hover span {
   align-items: center;
   display: flex;
   gap: 16px;
-  height: 40px;
+  min-height: 48px;
   padding: 0 var(--fl-page-gutter);
 }
 
@@ -1066,7 +1076,7 @@ a.fl-article-feed:hover span {
 
 /* Mobile: feed/date line, then a two-line title. */
 .fl-article-row--mobile {
-  padding: 12px var(--fl-page-gutter);
+  padding: 14px var(--fl-page-gutter) 16px;
 }
 
 .fl-article-row--mobile .fl-article-head {
@@ -1096,12 +1106,22 @@ a.fl-article-feed:hover span {
 
 .fl-article-row--mobile .fl-article-title {
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   display: -webkit-box;
   font-size: 15px;
   line-height: 22px;
   margin-top: 4px;
   overflow: hidden;
+}
+
+@media (pointer: coarse) {
+  .fl-nav-row, .fl-nav-group { min-height: 44px; }
+  .fl-nav-disclosure { height: 40px; top: 2px; width: 32px; }
+  .fl-article-row--desktop .fl-article-actions { opacity: 1; pointer-events: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
 
 /* ---------- Lists with hover-revealed controls ---------- */

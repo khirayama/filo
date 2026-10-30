@@ -3,6 +3,23 @@ set shell := ["zsh", "-cu"]
 default:
   @just --list
 
+# Install the exact dependencies recorded in each lockfile.
+install:
+  cd apps/api && npm ci
+  cd apps/web && npm ci
+  cd apps/extension && npm ci
+
+# Run all JavaScript/TypeScript checks without local secrets or deployment.
+check:
+  cd apps/api && npm run check
+  cd apps/web && npm run check
+  cd apps/extension && npm run check
+
+audit:
+  cd apps/api && npm audit
+  cd apps/web && npm audit
+  cd apps/extension && npm audit
+
 android:
   cd apps/android && just build && just run
 

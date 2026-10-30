@@ -5,6 +5,7 @@ export default [
   {
     ignores: ["dist/**", "node_modules/**"],
   },
+  ...tseslint.configs.recommended,
   {
     files: ["**/*.{ts,tsx,mts,cts}"],
     languageOptions: {
@@ -22,6 +23,8 @@ export default [
     plugins: {
       "@typescript-eslint": tseslint.plugin,
     },
-    rules: {},
+    rules: {
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
+    },
   },
 ];

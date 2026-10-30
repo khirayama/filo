@@ -223,7 +223,7 @@ export function AppShell({
               top: 0,
               transform: drawerShown ? "translateX(0)" : "translateX(-100%)",
               transition: `transform ${DRAWER_ANIMATION_MS}ms var(--fl-ease-drawer)`,
-              width: "100%",
+              width: "min(320px, 88vw)",
             }}
           >
             <SidebarNav trailing={<IconButton icon="close" label={t("閉じる")} onClick={closeDrawer} />} />

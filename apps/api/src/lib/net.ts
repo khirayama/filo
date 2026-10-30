@@ -5,11 +5,15 @@ const BLOCKED_HOSTNAMES = new Set(["localhost", "metadata.google.internal"]);
 function isPrivateIpv4(host: string): boolean {
   const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!m) return false;
-  const [a, b] = [Number(m[1]), Number(m[2])];
+  const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (a === 10 || a === 127 || a === 0) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // shared address space
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
   if (a === 169 && b === 254) return true; // link-local / cloud metadata
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
+  if (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) return true;
+  if (a === 203 && b === 0 && c === 113) return true; // documentation ranges
   if (a >= 224) return true; // multicast / reserved
   return false;
 }
@@ -19,10 +23,14 @@ function isBlockedHost(hostname: string): boolean {
   if (BLOCKED_HOSTNAMES.has(host)) return true;
   if (host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return true;
   if (isPrivateIpv4(host)) return true;
-  // IPv6 literal: loopback, link-local, unique-local
+  // URL normalizes IPv6 literals, including dotted IPv4-mapped addresses.
   if (host.includes(":")) {
     const v6 = host.replace(/^\[|\]$/g, "");
-    if (v6 === "::1" || v6 === "::" || /^(fe80|fc|fd)/i.test(v6)) return true;
+    // Reject IPv4-compatible/mapped and NAT64 literals as well: they can
+    // encode private IPv4 destinations and bypass the IPv4 checks above.
+    if (v6.startsWith("::") || v6.startsWith("64:ff9b:")) return true;
+    if (/^(?:f[cd]|fe[89abcdef]|ff)/.test(v6)) return true;
+    if (v6.startsWith("2001:db8:")) return true;
   }
   return false;
 }
@@ -36,6 +44,9 @@ function assertSafeUrl(rawUrl: string): URL {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw errors.validation("Only http(s) URLs are allowed");
+  }
+  if (url.username || url.password) {
+    throw errors.validation("URLs must not contain credentials");
   }
   if (isBlockedHost(url.hostname)) {
     throw new ApiError(400, "feed_unreachable", "URL is not reachable");

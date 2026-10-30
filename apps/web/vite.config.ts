@@ -20,5 +20,9 @@ function validateEnvironment(mode: string, env: Record<string, string>): void {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, "");
   validateEnvironment(mode, env);
-  return { plugins: [react()] };
+  return {
+    plugins: [react()],
+    // Auth and extension origins expect this port; fail clearly if occupied.
+    server: { port: 5173, strictPort: true },
+  };
 });

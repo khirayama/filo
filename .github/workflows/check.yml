@@ -1,0 +1,64 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, web, extension]
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/${{ matrix.app }}/package-lock.json
+      - run: npm install --global npm@11.9.0
+      - run: npm ci
+      - run: npm audit
+      - run: npm run check
+      - name: Bundle API without deploying
+        if: matrix.app == 'api'
+        run: npm exec -- wrangler deploy --dry-run --env development
+      - name: Build development clients
+        if: matrix.app != 'api'
+        run: npm run build:development
+        env:
+          VITE_API_BASE_URL: http://localhost:8787
+          VITE_WEB_APP_URL: http://localhost:5173
+      - name: Build production clients
+        if: matrix.app != 'api'
+        run: npm run build:production
+        env:
+          VITE_API_BASE_URL: https://api.filoreader.app
+          VITE_WEB_APP_URL: https://filoreader.app
+      - name: Build Firefox and Safari extensions
+        if: matrix.app == 'extension'
+        run: |
+          npm run build:firefox:production
+          npm run build:safari:production
+        env:
+          VITE_API_BASE_URL: https://api.filoreader.app
+          VITE_WEB_APP_URL: https://filoreader.app
+

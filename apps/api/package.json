@@ -2,12 +2,15 @@
   "name": "@filo/api",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@11.9.0",
+  "engines": { "node": ">=24 <25", "npm": ">=11 <12" },
   "type": "module",
   "scripts": {
     "dev": "npm run db:migrate:local && wrangler dev --env development",
     "deploy:production": "wrangler deploy --env production --keep-vars",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "check": "npm run typecheck && npm test",
     "db:migrate:local": "wrangler d1 migrations apply filo-db --local --env development",
     "db:migrate:remote": "node scripts/ensure-remote-d1-config.mjs && wrangler d1 migrations apply filo-db --remote --env production"
   },
@@ -18,15 +21,15 @@
     "drizzle-orm": "^0.45.2",
     "fast-xml-parser": "^5.2.5",
     "franc-min": "^6.2.0",
-    "hono": "^4.9.1",
+    "hono": "^4.13.13",
     "linkedom": "^0.18.12",
     "resend": "^6.25.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250620.0",
+    "@cloudflare/workers-types": "^5.20261023.1",
     "@types/mozilla__readability": "^0.4.2",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.26.0"
+    "vitest": "^4.1.12",
+    "wrangler": "^4.152.0"
   }
 }
