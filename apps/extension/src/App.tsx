@@ -8,7 +8,8 @@ import { speech, type Voice } from "./speech";
 import { LANGUAGE_NAMES, normalizeLanguage, SUPPORTED_LANGUAGES, translate, type SupportedLanguage } from "../../web/src/lib/messages";
 import {
   baseLanguage,
-  currentSessionItem,
+  sessionPageItem,
+  articleUrlKey,
   EMPTY_READER_STATE,
   READER_SETTINGS_KEY,
   READER_STATE_KEY,
@@ -103,6 +104,7 @@ export function App() {
   // Reading list
   const [items, setItems] = useState<ReaderItem[]>([]);
   const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -143,18 +145,20 @@ export function App() {
 
   const loadReadingList = useCallback(async () => {
     setListLoading(true);
+    setListError(null);
     try {
       setItems(await api.listReadingList());
     } catch (cause) {
-      fail(cause);
+      setListError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setListLoading(false);
     }
-  }, [fail]);
+  }, []);
 
   useEffect(() => {
     if (!isSignedIn) {
       setItems([]);
+      setListError(null);
       return;
     }
     void loadReadingList();
@@ -172,8 +176,8 @@ export function App() {
   const session = reader.session;
   const playback = reader.playback;
   const inReaderTab = session !== null && activeTab?.id === session.tabId;
-  const currentArticle = inReaderTab ? currentSessionItem(session) : null;
-  const currentArticleId = currentSessionItem(session)?.articleId ?? null;
+  const currentArticle = inReaderTab ? sessionPageItem(session, activeTab?.url) : null;
+  const currentArticleId = currentArticle?.articleId ?? null;
   const playingHere = playback !== null && playback.tabId === activeTab?.id;
   const playingElsewhere = playback !== null && !playingHere;
 
@@ -189,7 +193,9 @@ export function App() {
       run({ type: "stop" });
     } else if (activeTab) {
       trackEvent("start_reading", { source: "extension_current_page" });
-      run({ type: "play", tabId: activeTab.id, kind: "page" });
+      const pageArticleKey = articleUrlKey(activeTab.url);
+      const article = pageArticleKey ? items.find((item) => articleUrlKey(item.url) === pageArticleKey) : undefined;
+      run({ type: "play", tabId: activeTab.id, kind: "page", article });
     }
   };
 
@@ -210,7 +216,8 @@ export function App() {
     setError(null);
     setNotice(null);
     try {
-      await api.importArticle({ url: activeTab.url, title: activeTab.title });
+      const saved = await api.importArticle({ url: activeTab.url, title: activeTab.title });
+      await send({ type: "savedPage", tabId: activeTab.id, pageUrl: activeTab.url, ...saved });
       trackEvent("add_to_reading_list", { source: "extension_current_page" });
       setNotice(t("リーディングリストに追加しました。"));
       await loadReadingList();
@@ -264,7 +271,7 @@ export function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, button, [contenteditable='true']")) return;
+      if (target?.closest("input, textarea, select, button, [contenteditable]:not([contenteditable='false'])")) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const key = event.key.toLowerCase();
       if (event.key === "?") {
@@ -403,11 +410,12 @@ export function App() {
       {isSignedIn ? (
         <section className="reading-list" aria-label={t("リーディングリスト")}>
           <p className="section-label list-heading">{t("リーディングリスト")}</p>
+          {listError ? <div role="alert"><p className="message message-error">{t(listError)}</p><button className="button button-small" onClick={() => void loadReadingList()}>{t("再試行")}</button></div> : null}
           {listLoading && items.length === 0 ? (
             <p className="message">{t("リーディングリストを読み込んでいます…")}</p>
-          ) : items.length === 0 ? (
+          ) : items.length === 0 && !listError ? (
             <p className="message">{t("リーディングリストに記事がありません。")}</p>
-          ) : (
+          ) : items.length > 0 ? (
             <ul className="list">
               {items.map((item) => {
                 const current = item.articleId === currentArticleId;
@@ -424,7 +432,7 @@ export function App() {
                 );
               })}
             </ul>
-          )}
+          ) : null}
         </section>
       ) : null}
     </main>

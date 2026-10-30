@@ -29,7 +29,7 @@ export async function detectReadingExtension(timeoutMs = 800): Promise<boolean> 
 export function launchReadingExtension(
   article: { id: number; url: string; title?: string | null },
   options: { autoplay: boolean; targetLanguage: string },
-  timeoutMs = 3000,
+  timeoutMs = 30_000,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const id = requestId();
@@ -46,7 +46,7 @@ export function launchReadingExtension(
       if (event.source !== window) return;
       const data = event.data;
       if (data?.source !== EXTENSION_SOURCE || data?.type !== "startResult" || data?.requestId !== id) return;
-      finish(data.ok === true ? undefined : new Error(EXTENSION_ERROR));
+      finish(data.ok === true ? undefined : new Error(typeof data.error === "string" ? data.error : EXTENSION_ERROR));
     };
     window.addEventListener("message", onMessage);
     const timeoutId = window.setTimeout(() => finish(new Error(EXTENSION_ERROR)), timeoutMs);

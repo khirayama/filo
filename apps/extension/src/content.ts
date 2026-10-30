@@ -141,7 +141,7 @@ if (firstInjection && location.origin === WEB_APP_ORIGIN) {
     if (event.data.type !== "startArticle") return;
 
     const requestId = typeof event.data.requestId === "string" ? event.data.requestId : "";
-    const reply = (ok: boolean) => window.postMessage({ source: EXTENSION_SOURCE, type: "startResult", requestId, ok }, WEB_APP_ORIGIN);
+    const reply = (ok: boolean, error?: string) => window.postMessage({ source: EXTENSION_SOURCE, type: "startResult", requestId, ok, error }, WEB_APP_ORIGIN);
     chrome.runtime.sendMessage({
       type: "startFromWeb",
       articleId: typeof event.data.articleId === "number" ? event.data.articleId : undefined,
@@ -149,6 +149,6 @@ if (firstInjection && location.origin === WEB_APP_ORIGIN) {
       title: typeof event.data.title === "string" ? event.data.title : "",
       autoplay: event.data.autoplay === true,
       targetLanguage: typeof event.data.targetLanguage === "string" ? event.data.targetLanguage : undefined,
-    }).then((response: { ok?: boolean } | undefined) => reply(response?.ok === true), () => reply(false));
+    }).then((response: { ok?: boolean; error?: string } | undefined) => reply(response?.ok === true, response?.error), () => reply(false));
   });
 }

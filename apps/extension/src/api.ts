@@ -76,8 +76,8 @@ export const api = {
     } while (cursor);
     return items;
   },
-  async importArticle(input: { url: string; title?: string }): Promise<void> {
-    await request("POST", "/api/v1/articles/import", input);
+  async importArticle(input: { url: string; title?: string }): Promise<{ articleId: number; title: string; url: string }> {
+    return (await request<{ data: { articleId: number; title: string; url: string } }>("POST", "/api/v1/articles/import", input)).data;
   },
   async removeFromReadingList(articleId: number): Promise<void> {
     await request("DELETE", `/api/v1/articles/${articleId}/reading-list`);

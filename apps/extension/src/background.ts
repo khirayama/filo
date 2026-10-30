@@ -1,9 +1,14 @@
-import { api } from "./api";
+import { api, ExtensionApiError } from "./api";
 import { speech, type SpeakOptions } from "./speech";
 import { normalizeLanguage, translate } from "../../web/src/lib/messages";
 import {
   baseLanguage,
   currentSessionItem,
+  completedPageArticleId,
+  saveSessionPage,
+  sessionPageItem,
+  pageKey,
+  articleUrlKey,
   EMPTY_READER_STATE,
   READER_SETTINGS_KEY,
   READER_STATE_KEY,
@@ -169,6 +174,8 @@ class PlaybackCancelled extends Error {}
 
 const TTS_START_TIMEOUT_MS = 15_000;
 let playToken = 0;
+let playbackTabId: number | null = null;
+let playbackPage: { url: string; kind: CaptureKind; savedArticleId: number | null; article?: ReaderItem } | null = null;
 
 function splitText(text: string, maxLength = 1000): string[] {
   const chunks: string[] = [];
@@ -344,21 +351,30 @@ async function markRead(articleId: number): Promise<void> {
 }
 
 // Reads the page (or its selection). Finishing the reading-browser article
-// marks it read; a selection or a page outside the session does not.
-async function play(tabId: number, kind: CaptureKind, fallbackText?: CapturedText): Promise<void> {
+// marks it read; a selection or an unsaved page does not.
+async function play(tabId: number, kind: CaptureKind, fallbackText?: CapturedText, knownArticle?: ReaderItem): Promise<void> {
   const token = ++playToken;
+  playbackTabId = tabId;
   speech.stop();
   keepAlive(true);
   const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (token !== playToken) return;
   if (!tab) {
     await setPlayback(token, null, "読み上げできるページがありません。");
+    if (token === playToken) playbackTabId = null;
     keepAlive(false);
     return;
   }
-  const [state, settings] = await Promise.all([readState(), loadSettings()]);
-  const sessionItem = state.session?.tabId === tabId ? currentSessionItem(state.session) : null;
+  playbackPage = tab.url ? { url: tab.url, kind, savedArticleId: null, article: knownArticle } : null;
+  let [state, settings] = await Promise.all([readState(), loadSettings()]);
+  if (token !== playToken) return;
+  if (state.session?.tabId === tabId && !state.session.pageUrl && tab.url && tab.status === "complete") {
+    state = await registerSessionPage(tabId, tab.url);
+  }
+  const sessionItem = state.session?.tabId === tabId && tab.url
+    ? sessionPageItem(state.session, tab.url) ?? { articleId: 0, url: tab.url, title: tab.title || tab.url, feedTitle: "", isRead: false }
+    : knownArticle && tab.url && articleUrlKey(knownArticle.url) === articleUrlKey(tab.url) ? knownArticle : null;
   const articleId = kind === "page" && sessionItem && sessionItem.articleId > 0 ? sessionItem.articleId : null;
-  const alreadyRead = sessionItem?.isRead === true;
   const playback: ReaderPlayback = {
     tabId,
     title: tab.title || sessionItem?.title || tab.url || "",
@@ -387,17 +403,23 @@ async function play(tabId: number, kind: CaptureKind, fallbackText?: CapturedTex
     });
     if (token !== playToken) return;
     await setPlayback(token, null);
-    if (articleId !== null && !alreadyRead) await markRead(articleId);
+    // The current page may have been saved while it was being read.
+    const currentState = await readState();
+    const currentItem = currentState.session?.tabId === tabId ? sessionPageItem(currentState.session, tab.url) : null;
+    const completedArticleId = completedPageArticleId(kind, sessionItem, currentItem, playbackPage?.savedArticleId ?? null);
+    if (completedArticleId !== null) await markRead(completedArticleId);
   } catch (cause) {
     if (token !== playToken || cause instanceof PlaybackCancelled) return;
     await setPlayback(token, null, errorText(cause));
   } finally {
-    if (token === playToken) keepAlive(false);
+    if (token === playToken) { playbackTabId = null; playbackPage = null; keepAlive(false); }
   }
 }
 
 async function stop(): Promise<void> {
   playToken += 1;
+  playbackTabId = null;
+  playbackPage = null;
   speech.stop();
   keepAlive(false);
   await updateState((state) => ({ ...state, playback: null }));
@@ -412,7 +434,8 @@ async function openInSession(previous: ReaderSession | null, items: ReaderItem[]
   const { playback } = await readState();
   if (previous && playback?.tabId === previous.tabId) await stop();
   // Leaving an article moves it to read, like the apps' previous / next.
-  const leaving = currentSessionItem(previous);
+  const oldTab = previous ? await chrome.tabs.get(previous.tabId).catch(() => null) : null;
+  const leaving = previous && oldTab?.url ? sessionPageItem(previous, oldTab.url) : null;
   let nextItems = items;
   if (leaving && leaving.articleId !== item.articleId && leaving.articleId > 0 && !leaving.isRead) {
     nextItems = items.map((entry) => entry.articleId === leaving.articleId ? { ...entry, isRead: true } : entry);
@@ -426,6 +449,8 @@ async function openInSession(previous: ReaderSession | null, items: ReaderItem[]
   if (tabId === undefined) throw new Error("記事を開けませんでした。");
   const sessionTabId = tabId;
   await updateState((state) => ({ ...state, error: null, session: { tabId: sessionTabId, items: nextItems, index } }));
+  const currentTab = await chrome.tabs.get(sessionTabId).catch(() => null);
+  if (currentTab?.status === "complete" && currentTab.url) await registerSessionPage(sessionTabId, currentTab.url);
 }
 
 async function move(delta: 1 | -1): Promise<void> {
@@ -447,22 +472,45 @@ async function select(articleId: number): Promise<void> {
   await openInSession(session, items, nextIndex);
 }
 
+async function savedPage(command: Extract<ReaderCommand, { type: "savedPage" }>): Promise<void> {
+  const tab = await chrome.tabs.get(command.tabId).catch(() => null);
+  if (tab?.url !== command.pageUrl) return;
+  if (playbackTabId === command.tabId && playbackPage?.kind === "page" && pageKey(playbackPage.url) === pageKey(command.pageUrl)) {
+    playbackPage.savedArticleId = command.articleId;
+  }
+  await updateState((state) => saveSessionPage(state, command));
+}
+
+async function registerSessionPage(tabId: number, url: string): Promise<ReaderState> {
+  return updateState((state) => {
+    const session = state.session;
+    const item = currentSessionItem(session);
+    if (!session || session.tabId !== tabId || session.pageUrl || !item) return state;
+    return { ...state, session: { ...session, pageUrl: url, pageArticles: { [pageKey(url)]: item.articleId } } };
+  });
+}
+
 async function startFromWeb(command: Extract<ReaderCommand, { type: "startFromWeb" }>): Promise<void> {
   if (!/^https?:\/\//i.test(command.url)) throw new Error("読み上げできるページがありません。");
   if (command.targetLanguage) await saveSettings({ targetLanguage: command.targetLanguage });
-  // Like the apps, the session is the reading list at start time. Without an
-  // extension sign-in it falls back to the one article the Web handed over.
-  let items = await api.listReadingList().catch(() => []);
-  let index = items.findIndex((item) => item.articleId === command.articleId);
-  if (index < 0) {
-    items = [{ articleId: command.articleId ?? 0, title: command.title || command.url, url: command.url, feedTitle: "", isRead: false }];
-    index = 0;
+  // The extension needs the same account and complete list to navigate and
+  // update read state. Never silently degrade to an unauthenticated one-item session.
+  let items: ReaderItem[];
+  try {
+    items = await api.listReadingList();
+  } catch (cause) {
+    if (cause instanceof ExtensionApiError && cause.status === 401) throw new Error("拡張機能にログインしてください。");
+    throw cause;
   }
+  const index = items.findIndex((item) => item.articleId === command.articleId);
+  if (index < 0) throw new Error("拡張機能で同じアカウントにログインし、記事がリーディングリストにあることを確認してください。");
   await stop();
-  const tab = await chrome.tabs.create({ url: command.url, active: true });
+  const tab = await chrome.tabs.create({ url: items[index].url, active: true });
   if (tab.id === undefined) throw new Error("記事を開けませんでした。");
   const tabId = tab.id;
   await updateState(() => ({ session: { tabId, items, index }, playback: null, error: null }));
+  const currentTab = await chrome.tabs.get(tabId).catch(() => null);
+  if (currentTab?.status === "complete" && currentTab.url) await registerSessionPage(tabId, currentTab.url);
   if (command.autoplay) {
     void waitForTabComplete(tabId).then((open) => open ? play(tabId, "page") : undefined);
   }
@@ -472,7 +520,13 @@ async function applySettings(patch: Partial<ReaderSettings>): Promise<void> {
   await saveSettings(patch);
   // Like the apps, a settings change while speaking restarts with the new voice.
   const { playback } = await readState();
-  if (playback) void play(playback.tabId, playback.kind);
+  if (playback) {
+    const current = playbackPage;
+    const article = current?.savedArticleId ? {
+      articleId: current.savedArticleId, url: current.url, title: playback.title, feedTitle: "", isRead: false,
+    } : current?.article;
+    void play(playback.tabId, playback.kind, undefined, article);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +537,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     if (state.playback?.tabId === tabId) await stop();
     if (state.session?.tabId === tabId) await updateState((current) => ({ ...current, session: null }));
   });
+});
+
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (change.status === "loading" || change.url) {
+    if (playbackTabId === tabId) void stop();
+  } else if (change.status === "complete" && tab.url) {
+    void registerSessionPage(tabId, tab.url);
+  }
 });
 
 const SELECTION_MENU_ID = "filo-read-selection";
@@ -507,7 +569,7 @@ function run(command: ReaderCommand): Promise<void> {
   switch (command.type) {
     case "play":
       // Playback runs on; its progress and errors are reported through state.
-      void play(command.tabId, command.kind);
+      void play(command.tabId, command.kind, undefined, command.article);
       return Promise.resolve();
     case "stop":
       return stop();
@@ -515,6 +577,8 @@ function run(command: ReaderCommand): Promise<void> {
       return move(command.delta);
     case "select":
       return select(command.articleId);
+    case "savedPage":
+      return savedPage(command);
     case "setSettings":
       return applySettings(command.settings);
     case "startFromWeb":
