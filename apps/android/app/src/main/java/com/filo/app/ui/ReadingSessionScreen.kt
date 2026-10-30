@@ -61,6 +61,7 @@ import com.filo.app.api.ReadingSessionArticle
 import com.filo.app.api.ReadingSessionItem
 import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
@@ -136,6 +137,10 @@ class ReadingPlayerController(
     private var playbackGeneration = 0
     private var playbackArticleId: Int? = null
     private var playbackArticleTitle: String? = null
+    private val page = ReadingPageTracker()
+    private var pageTitle: String? = null
+    val currentPageUrl: String? get() = page.url
+    val currentPageArticleId: Int? get() = page.articleId
 
     val currentItem: ReadingSessionItem?
         get() = items.getOrNull(index)
@@ -218,12 +223,31 @@ class ReadingPlayerController(
         isLoading = false
     }
 
-    fun pageLoaded() {
+    fun pageLoading() {
+        if (isPageLoaded) pause()
+        isPageLoaded = false
+        hasSelection = false
+        page.loading()
+    }
+
+    fun pageLoaded(url: String?, title: String?) {
+        page.loaded(url, currentItem?.articleId)
+        pageTitle = title
+        if (page.articleId == null) {
+            val match = readingListItems.firstOrNull { sameArticleUrl(it.article.canonicalUrl, page.url) }
+            if (match != null && page.url != null) page.saved(page.url!!, page.version, match.articleId)
+        }
         isPageLoaded = true
         if (autoplayWhenReady) {
             autoplayWhenReady = false
             play()
         }
+    }
+
+    fun pageLocationChanged(url: String, title: String) {
+        val previous = page.url ?: return
+        if (previous.substringBefore('#') != url.substringBefore('#')) pageLoading()
+        pageLoaded(url, title)
     }
 
     fun play() = requestCapture(CaptureKind.Page)
@@ -251,7 +275,7 @@ class ReadingPlayerController(
             speak(text, language, request.kind)
             return
         }
-        val articleId = currentItem?.articleId?.takeIf { it > 0 }
+        val articleId = currentPageArticleId
         if (request.kind == CaptureKind.Selection || articleId == null) {
             isPreparing = false
             errorMessage = AppText(if (request.kind == CaptureKind.Selection) "読み上げる文章がありません。" else "本文を抽出できませんでした。")
@@ -284,12 +308,22 @@ class ReadingPlayerController(
     // or a shared page does not.
     private fun speak(text: String, language: String?, kind: CaptureKind) {
         val source = clean(text)
-        playbackArticleId = currentItem?.articleId?.takeIf { kind == CaptureKind.Page && it > 0 }
-        playbackArticleTitle = currentItem?.article?.title
+        playbackArticleId = currentPageArticleId.takeIf { kind == CaptureKind.Page }
+        playbackArticleTitle = pageTitle ?: currentItem?.article?.title
         playbackKind = kind
         val generation = playbackGeneration
         scope.launch {
-            val translated = translateBestEffort(source, language ?: currentItem?.article?.sourceLanguage)
+            val identifier = LanguageIdentification.getClient()
+            val detected = try {
+                identifier.identifyLanguage(source.take(3000)).awaitReading().takeUnless { it == "und" }
+            } catch (_: Exception) {
+                null
+            } finally {
+                identifier.close()
+            }
+            if (generation != playbackGeneration) return@launch
+            val declared = if (currentPageArticleId == currentItem?.articleId) currentItem?.article?.sourceLanguage else null
+            val translated = translateBestEffort(source, detected ?: language ?: declared)
             if (generation != playbackGeneration) return@launch
             chunks = split(translated.text)
             speechLanguage = translated.language
@@ -315,8 +349,8 @@ class ReadingPlayerController(
     fun select(articleId: Int) {
         val nextIndex = items.indexOfFirst { it.articleId == articleId }
         if (nextIndex >= 0) {
-            if (nextIndex == index) return
-            markArticleRead(currentItem?.articleId)
+            if (nextIndex == index && page.isSessionPage) return
+            markArticleRead(currentPageArticleId)
             pause()
             dismissMedia()
             index = nextIndex
@@ -325,7 +359,7 @@ class ReadingPlayerController(
         }
         val listIndex = readingListItems.indexOfFirst { it.articleId == articleId }
         if (listIndex < 0) return
-        markArticleRead(currentItem?.articleId)
+        markArticleRead(currentPageArticleId)
         pause()
         dismissMedia()
         items = readingListItems
@@ -376,25 +410,31 @@ class ReadingPlayerController(
     fun addCurrentPageToReadingList() {
         if (isAddingToReadingList) return
         val item = currentItem ?: return
-        val url = item.article.canonicalUrl ?: return
+        val url = page.url ?: return
         val pageId = browserPageId
+        val version = page.version
+        val sessionPage = page.isSessionPage
+        val title = if (sessionPage && item.articleId > 0) item.article.title else pageTitle
         isAddingToReadingList = true
         scope.launch {
-            runCatching { ApiClient.importArticle(url, item.article.title.takeIf { item.articleId > 0 }) }
+            runCatching { ApiClient.importArticle(url, title) }
                 .onSuccess { saved ->
                     val existing = (items + readingListItems).firstOrNull { it.articleId == saved.articleId }
                     val savedItem = item.copy(
                         articleId = saved.articleId,
-                        article = (existing?.article ?: item.article).copy(id = saved.articleId, title = saved.title, canonicalUrl = saved.url),
-                        isRead = existing?.isRead ?: item.isRead,
+                        article = (existing?.article ?: if (sessionPage) item.article else ReadingSessionArticle(0, url, null, url, AppStrings.get("共有ページ")))
+                            .copy(id = saved.articleId, title = saved.title, canonicalUrl = saved.url),
+                        isRead = existing?.isRead ?: (sessionPage && item.isRead),
                     )
                     removedReadingListArticleIds -= saved.articleId
                     readingListItems = if (readingListItems.any { it.articleId == saved.articleId }) {
                         readingListItems.map { if (it.articleId == saved.articleId) savedItem else it }
                     } else readingListItems + savedItem
                     // Saving updates metadata without replacing the browser or the session snapshot.
-                    if (browserPageId == pageId && currentItem?.articleId == item.articleId) {
-                        items = items.mapIndexed { itemIndex, entry -> if (itemIndex == index) savedItem else entry }
+                    if (browserPageId == pageId && page.saved(url, version, saved.articleId)) {
+                        if (sessionPage && currentItem?.articleId == item.articleId) {
+                            items = items.mapIndexed { itemIndex, entry -> if (itemIndex == index) savedItem else entry }
+                        }
                         if (playbackKind == CaptureKind.Page && (isPlaying || isPreparing)) {
                             playbackArticleId = saved.articleId
                             playbackArticleTitle = saved.title
@@ -452,6 +492,8 @@ class ReadingPlayerController(
 
     private fun resetPage() {
         browserPageId += 1
+        page.reset()
+        pageTitle = null
         isPageLoaded = false
         hasSelection = false
         chunks = emptyList()
@@ -593,6 +635,7 @@ fun ReadingSessionScreen(
     var showReadingList by remember { mutableStateOf(false) }
     var showReadingSettings by remember { mutableStateOf(false) }
     var showShortcutHelp by remember { mutableStateOf(false) }
+    var pageEditing by remember(player.browserPageId) { mutableStateOf(false) }
     val context = LocalContext.current
     val busy = player.isPlaying || player.isPreparing
     LaunchedEffect(autoplay, temporaryUrl, directArticle) { player.start(autoplay, temporaryUrl, directArticle) }
@@ -602,6 +645,7 @@ fun ReadingSessionScreen(
             .fillMaxSize()
             .onPreviewKeyEvent { event ->
             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            if (pageEditing) return@onPreviewKeyEvent false
             val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
             if (event.isShiftPressed && event.key == Key.Slash && !hasModifier) {
                 showShortcutHelp = true
@@ -633,7 +677,7 @@ fun ReadingSessionScreen(
                         true
                     }
                     event.key == Key.V -> {
-                        player.currentItem?.article?.canonicalUrl?.let {
+                        player.currentPageUrl?.let {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
                         }
                         true
@@ -671,9 +715,12 @@ fun ReadingSessionScreen(
                     pageId = player.browserPageId,
                     captureRequest = player.captureRequest,
                     pageLoaded = player.isPageLoaded,
+                    onPageLoading = player::pageLoading,
                     onPageLoaded = player::pageLoaded,
+                    onPageLocationChanged = player::pageLocationChanged,
                     onCaptured = player::receiveCapture,
                     onSelectionChanged = { player.hasSelection = it },
+                    onEditingChanged = { pageEditing = it },
                     modifier = Modifier.fillMaxSize(),
                 )
                 else -> FiloEmptyState(
@@ -879,7 +926,7 @@ private fun ReadingListSheet(
                     items = player.visibleReadingListItems,
                     key = { it.articleId },
                 ) { item ->
-                    val current = item.articleId == player.currentItem?.articleId
+                    val current = item.articleId == player.currentPageArticleId
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -932,9 +979,12 @@ private fun ReadingWebView(
     pageId: Int,
     captureRequest: ReadingCaptureRequest?,
     pageLoaded: Boolean,
-    onPageLoaded: () -> Unit,
+    onPageLoading: () -> Unit,
+    onPageLoaded: (String?, String?) -> Unit,
+    onPageLocationChanged: (String, String) -> Unit,
     onCaptured: (ReadingCaptureRequest, String?, String?) -> Unit,
     onSelectionChanged: (Boolean) -> Unit,
+    onEditingChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -948,13 +998,25 @@ private fun ReadingWebView(
                 settings.domStorageEnabled = true
                 isVerticalScrollBarEnabled = true
                 overScrollMode = WebView.OVER_SCROLL_IF_CONTENT_SCROLLS
-                addJavascriptInterface(SelectionBridge(onSelectionChanged), "FiloReader")
+                addJavascriptInterface(SelectionBridge(onSelectionChanged, onEditingChanged, onPageLocationChanged), "FiloReader")
                 webViewClient = object : WebViewClient() {
+                    private var navigationVersion = 0
+                    override fun onPageStarted(view: WebView, startedUrl: String?, favicon: android.graphics.Bitmap?) {
+                        navigationVersion += 1
+                        onPageLoading()
+                    }
                     override fun onPageFinished(view: WebView, loadedUrl: String) {
+                        if (view.url != loadedUrl) return
+                        val version = navigationVersion
                         view.evaluateJavascript(
                             "$scripts;(() => { const report = () => FiloReader.selectionChanged(window.__filoHasSelection());" +
-                                "document.addEventListener('selectionchange', report); report(); })();",
-                        ) { onPageLoaded() }
+                                "const editing = () => { const e = document.activeElement; FiloReader.editingChanged(!!e && (e.matches('input, textarea, select') || e.isContentEditable)); };" +
+                                "if (!window.__filoLocationHook) { window.__filoLocationHook = true; let last = location.href; const locationChanged = () => { if (last !== location.href) { last = location.href; FiloReader.locationChanged(last, document.title || ''); } };" +
+                                "for (const name of ['pushState','replaceState']) { const original = history[name]; history[name] = function(...args) { const result = original.apply(this, args); locationChanged(); return result; }; }" +
+                                "addEventListener('popstate', locationChanged); addEventListener('hashchange', locationChanged); }" +
+                                "document.addEventListener('selectionchange', report); document.addEventListener('focusin', editing);" +
+                                "document.addEventListener('focusout', () => setTimeout(editing, 0)); report(); editing(); })();",
+                        ) { if (version == navigationVersion) onPageLoaded(loadedUrl, view.title) }
                     }
                 }
                 loadUrl(url)
@@ -993,9 +1055,19 @@ private suspend fun WebView.capture(kind: String): Pair<String, String?>? = susp
     }
 }
 
-private class SelectionBridge(private val onSelectionChanged: (Boolean) -> Unit) {
+private class SelectionBridge(private val onSelectionChanged: (Boolean) -> Unit, private val onEditingChanged: (Boolean) -> Unit, private val onLocationChanged: (String, String) -> Unit) {
     @JavascriptInterface
     fun selectionChanged(value: Boolean) {
         Handler(Looper.getMainLooper()).post { onSelectionChanged(value) }
+    }
+
+    @JavascriptInterface
+    fun editingChanged(value: Boolean) {
+        Handler(Looper.getMainLooper()).post { onEditingChanged(value) }
+    }
+
+    @JavascriptInterface
+    fun locationChanged(url: String, title: String) {
+        Handler(Looper.getMainLooper()).post { onLocationChanged(url, title) }
     }
 }

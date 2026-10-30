@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -28,10 +29,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.filo.app.api.ApiClient
 import com.filo.app.api.ApiException
 import com.filo.app.api.ArticleListFilters
@@ -43,6 +57,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import java.util.concurrent.atomic.AtomicLong
 
+class SubscriptionDetailState : ViewModel() {
+    var subscription by mutableStateOf<Subscription?>(null)
+    var allTags by mutableStateOf<List<Tag>>(emptyList())
+    var articles by mutableStateOf<List<ArticleListItem>>(emptyList())
+    var baseline by mutableStateOf<Pair<ArticleListFilters, Int>?>(null)
+    var nextCursor by mutableStateOf<String?>(null)
+    var hasNewArticles by mutableStateOf(false)
+    var sort by mutableStateOf("published_at_desc")
+    var selectedSort by mutableStateOf<String?>(null)
+    var readFilter by mutableStateOf<Boolean?>(null)
+    var readOrder by mutableStateOf("unread_first")
+    var openInBrowserByDefault by mutableStateOf(false)
+    var loaded = false
+    var loadedFilters: ArticleListFilters? = null
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SubscriptionDetailScreen(
@@ -52,18 +82,20 @@ fun SubscriptionDetailScreen(
     onSelectTag: (Int) -> Unit,
     onOpenArticle: (ArticleListItem) -> Unit,
 ) {
+    val saved: SubscriptionDetailState = viewModel()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var subscription by remember { mutableStateOf<Subscription?>(null) }
-    var allTags by remember { mutableStateOf<List<Tag>>(emptyList()) }
-    var articles by remember { mutableStateOf<List<ArticleListItem>>(emptyList()) }
+    val focusRequester = remember { FocusRequester() }
+    var subscription by saved::subscription
+    var allTags by saved::allTags
+    var articles by saved::articles
     val listState = rememberLazyListState()
     var isLoadingNewArticles by remember { mutableStateOf(false) }
-    var hasNewArticles by remember { mutableStateOf(false) }
-    var newArticleBaseline by remember { mutableStateOf<Pair<ArticleListFilters, Int>?>(null) }
-    var nextCursor by remember { mutableStateOf<String?>(null) }
+    var hasNewArticles by saved::hasNewArticles
+    var newArticleBaseline by saved::baseline
+    var nextCursor by saved::nextCursor
     var isLoadingMore by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(!saved.loaded) }
     var isGone by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<AppText?>(null) }
     var isRefreshingFeed by remember { mutableStateOf(false) }
@@ -71,17 +103,23 @@ fun SubscriptionDetailScreen(
     var isMarkingAllRead by remember { mutableStateOf(false) }
     var markAllReadNotice by remember { mutableStateOf<AppText?>(null) }
 
-    var sort by remember { mutableStateOf("published_at_desc") }
-    var selectedSort by remember { mutableStateOf<String?>(null) }
-    var readFilter by remember { mutableStateOf<Boolean?>(null) }
-    var readOrder by remember { mutableStateOf("unread_first") }
-    var openInBrowserByDefault by remember { mutableStateOf(false) }
+    var sort by saved::sort
+    var selectedSort by saved::selectedSort
+    var readFilter by saved::readFilter
+    var readOrder by saved::readOrder
+    var openInBrowserByDefault by saved::openInBrowserByDefault
 
     var showRename by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
     var showUnsubscribe by remember { mutableStateOf(false) }
     var showFeedUrl by remember { mutableStateOf(false) }
     var subscriptionActionsMenuOpen by remember { mutableStateOf(false) }
+    var showShortcutHelp by remember { mutableStateOf(false) }
+    var selectedArticleIndex by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(articles.size) {
+        selectedArticleIndex = selectedArticleIndex?.let { if (articles.isEmpty()) null else it.coerceAtMost(articles.lastIndex) }
+    }
+    val pendingArticles = remember(subscriptionId) { mutableSetOf<Int>() }
     val articleGeneration = remember(subscriptionId) { AtomicLong(0L) }
 
     fun filters() = ArticleListFilters(
@@ -105,6 +143,7 @@ fun SubscriptionDetailScreen(
                 errorMessage = null
                 articles = page.articles
                 nextCursor = page.nextCursor
+                saved.loadedFilters = requestFilters
             }
         } catch (e: Exception) {
             if (requestGeneration == articleGeneration.get() && requestFilters == filters()) {
@@ -142,6 +181,8 @@ fun SubscriptionDetailScreen(
             isMarkingAllRead = true
             markAllReadNotice = null
             errorMessage = null
+            val previousArticles = articles
+            val requestFilters = filters()
             // Show the result at once; the reload below brings the server's order.
             articles = if (readFilter == false) {
                 emptyList()
@@ -154,8 +195,10 @@ fun SubscriptionDetailScreen(
                 reloadArticles()
                 markAllReadNotice = AppText("既読への変更が完了しました。")
             } catch (e: Exception) {
-                reloadArticles()
-                errorMessage = ErrorMessages.forErrorText(e)
+                if (requestFilters == filters()) {
+                    articles = restoringArticleReadStates(articles, previousArticles, restoreHidden = requestFilters.read == false)
+                    errorMessage = ErrorMessages.forErrorText(e)
+                }
             } finally {
                 isMarkingAllRead = false
             }
@@ -179,6 +222,11 @@ fun SubscriptionDetailScreen(
         isBookmarked: Boolean? = null,
     ) {
         if (isRead == null && inReadingList == null && isBookmarked == null) return
+        if (!pendingArticles.add(article.id)) return
+        val originalIndex = articles.indexOfFirst { it.id == article.id }
+        if (originalIndex < 0) { pendingArticles.remove(article.id); return }
+        val requestFilters = filters()
+        errorMessage = null
         val before = article.userState
         applyState(
             article.id,
@@ -195,11 +243,18 @@ fun SubscriptionDetailScreen(
                     inReadingList != null -> ApiClient.setReadingListMembership(article.id, inReadingList)
                     else -> ApiClient.setBookmarkMembership(article.id, isBookmarked == true)
                 }
-                applyState(article.id, state)
+                if (requestFilters == filters()) applyState(article.id, state)
             } catch (e: Exception) {
-                // A row the optimistic change removed comes back with the reload.
-                articles = articles.map { if (it.id == article.id) it.copy(userState = before) else it }
-                errorMessage = ErrorMessages.forErrorText(e)
+                if (requestFilters == filters()) {
+                    articles = if (articles.any { it.id == article.id }) {
+                        articles.map { if (it.id == article.id) it.copy(userState = before) else it }
+                    } else {
+                        articles.toMutableList().apply { add(originalIndex.coerceAtMost(size), article) }
+                    }
+                    errorMessage = ErrorMessages.forErrorText(e)
+                }
+            } finally {
+                pendingArticles.remove(article.id)
             }
         }
     }
@@ -237,7 +292,7 @@ fun SubscriptionDetailScreen(
                 "refresh_feed",
                 mapOf("feed_id" to feedId, "source" to "subscription_detail"),
             )
-            if (result.enqueued > 0) refreshNotice = AppText("フィードを更新しました。")
+            if (result.enqueued > 0) refreshNotice = AppText("%d件のフィードを更新しました。", listOf(result.enqueued))
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forErrorText(e)
         }
@@ -263,11 +318,16 @@ fun SubscriptionDetailScreen(
             }
         }
     }
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(Unit) {
+        if (!saved.loaded) {
+            reload()
+            if (subscription != null && errorMessage == null) saved.loaded = true
+        }
+    }
     // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
     LaunchedEffect(articles, translations.isEnabled, translations.languages) { translations.register(articles) }
     LaunchedEffect(sort, readFilter, readOrder) {
-        if (!isLoading) reloadArticles()
+        if (!isLoading && saved.loadedFilters != filters()) reloadArticles()
     }
 
 
@@ -291,7 +351,49 @@ fun SubscriptionDetailScreen(
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    Box(modifier = Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed ||
+            showRename || showFeedUrl || showUnsubscribe || subscriptionActionsMenuOpen || showShortcutHelp) return@onPreviewKeyEvent false
+        if (event.isShiftPressed && event.key == Key.A) {
+            if (event.nativeKeyEvent.repeatCount == 0) markAllRead()
+            return@onPreviewKeyEvent true
+        }
+        val navigation = event.key == Key.J || event.key == Key.K || event.key == Key.DirectionDown || event.key == Key.DirectionUp
+        if (event.nativeKeyEvent.repeatCount > 0 && !navigation) return@onPreviewKeyEvent false
+        if (navigation) {
+            if (articles.isNotEmpty()) {
+                val visibleIds = listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet()
+                val selected = selectedArticleIndex?.takeIf { it in articles.indices && articles[it].id in visibleIds }
+                val firstVisible = articles.indexOfFirst { it.id in visibleIds }.coerceAtLeast(0)
+                val delta = if (event.key == Key.J || event.key == Key.DirectionDown) 1 else -1
+                val next = (selected?.plus(delta) ?: firstVisible).coerceIn(0, articles.lastIndex)
+                selectedArticleIndex = next
+                val headers = (if (subscription != null) 1 else 0) + (if (isRefreshingFeed) 1 else 0) + (if (errorMessage != null) 1 else 0)
+                scope.launch { listState.animateScrollToItem(headers + next) }
+            }
+            true
+        } else if (event.isShiftPressed && event.key == Key.Slash) {
+            showShortcutHelp = true
+            true
+        } else if (event.key == Key.R && !event.isShiftPressed) {
+            scope.launch { refreshFeedAndReload() }; true
+        } else if (event.key == Key.Enter || event.key == Key.O || event.key == Key.V || event.key == Key.M || event.key == Key.S || event.key == Key.B) {
+            val index = (selectedArticleIndex ?: 0).coerceIn(0, (articles.size - 1).coerceAtLeast(0))
+            val article = articles.getOrNull(index)
+            if (article != null) {
+                selectedArticleIndex = index
+                when (event.key) {
+                    Key.Enter, Key.O -> if (openInBrowserByDefault && article.canonicalUrl != null) context.startActivity(Intent(Intent.ACTION_VIEW, article.canonicalUrl.toUri())) else onOpenArticle(article)
+                    Key.V -> article.canonicalUrl?.let { context.startActivity(Intent(Intent.ACTION_VIEW, it.toUri())) }
+                    Key.M -> patchState(article, isRead = !article.userState.isRead)
+                    Key.S -> patchState(article, inReadingList = !article.userState.inReadingList)
+                    Key.B -> patchState(article, isBookmarked = !article.userState.isBookmarked)
+                }
+            }
+            true
+        } else false
+    }.focusRequester(focusRequester).focusable()) {
         Column(Modifier.fillMaxSize()) {
             FiloHeader(
                 title = subscription?.displayTitle.orEmpty(),
@@ -426,6 +528,7 @@ fun SubscriptionDetailScreen(
                             ArticleRow(
                                 article = article,
                                 modifier = Modifier.animateItem(),
+                                selected = index == selectedArticleIndex,
                                 showFeed = false,
                                 translations = translations,
                                 onOpen = {
@@ -469,6 +572,13 @@ fun SubscriptionDetailScreen(
         }
         FiloToast(refreshNotice?.let { tr(it) }, onDismiss = { refreshNotice = null })
         FiloToast(markAllReadNotice?.let { tr(it) }, onDismiss = { markAllReadNotice = null }, durationMillis = 3000)
+    }
+
+    if (showShortcutHelp) {
+        ShortcutHelpDialog(listOf(
+            "J / ↓  次の記事", "K / ↑  前の記事", "Enter / O  記事を開く", "V  元記事を開く",
+            "M  既読／未読", "S  リーディングリスト", "B  ブックマーク", "R  更新", "Shift+A  すべて既読", "?  この一覧",
+        ).map(AppStrings::get)) { showShortcutHelp = false }
     }
 
     if (showRename) {

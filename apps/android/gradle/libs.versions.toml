@@ -28,6 +28,7 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 google-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 mlkit-translate = { group = "com.google.mlkit", name = "translate", version = "17.0.3" }
+mlkit-language-id = { group = "com.google.mlkit", name = "language-id", version = "17.0.6" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }

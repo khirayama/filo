@@ -1,7 +1,42 @@
 import AVFoundation
+import NaturalLanguage
 import SwiftUI
 import Translation
 import WebKit
+
+private struct ReadingArticleURLKey: Equatable {
+    struct Query: Equatable { let name: String; let value: String }
+    let host: String
+    let port: Int?
+    let path: String
+    let query: [Query]
+}
+
+private func readingArticleURLKey(_ value: String) -> ReadingArticleURLKey? {
+    guard let components = URLComponents(string: value), let scheme = components.scheme?.lowercased(),
+          scheme == "http" || scheme == "https", let host = components.host?.lowercased() else { return nil }
+    let port = (scheme == "http" && components.port == 80) || components.port == 443 ? nil : components.port
+    var path = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
+    while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+    let tracking = ["fbclid", "gclid", "yclid", "mc_cid", "mc_eid"]
+    let query = (components.percentEncodedQuery ?? "").split(separator: "&", omittingEmptySubsequences: true).map { pair in
+        let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        func decode(_ value: Substring) -> String {
+            let encoded = String(value).replacingOccurrences(of: "+", with: "%20")
+            return encoded.removingPercentEncoding ?? encoded
+        }
+        return ReadingArticleURLKey.Query(name: decode(parts[0]), value: parts.count > 1 ? decode(parts[1]) : "")
+    }.filter {
+        let name = $0.name.lowercased()
+        return !name.hasPrefix("utm_") && !tracking.contains(name)
+    }
+    return ReadingArticleURLKey(host: host, port: port, path: path, query: query)
+}
+
+func sameReadingArticleURL(_ first: String?, _ second: String?) -> Bool {
+    guard let first, let second, let key = readingArticleURLKey(first) else { return false }
+    return key == readingArticleURLKey(second)
+}
 
 private struct ReadingTranslationRequest: Equatable {
     let source: String
@@ -33,6 +68,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published private(set) var captureRequest: ReadingCaptureRequest?
     @Published private(set) var isPageLoaded = false
     @Published var hasSelection = false
+    @Published var pageEditing = false
     @Published var errorMessage: String?
     @Published private(set) var noticeMessage: String?
     @Published private(set) var browserPageId = 0
@@ -56,6 +92,17 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var playbackArticleId: Int? = nil
     private var playbackArticleTitle: String? = nil
     private var playbackKind = ReadingCaptureKind.page
+    @Published private(set) var currentPageUrl: String?
+    private var pageTitle: String?
+    private var sessionPageUrl: String?
+    private var pageVersion = 0
+    private var pageArticles: [String: Int] = [:]
+
+    private func pageKey(_ url: String) -> String { String(url.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]) }
+    var currentPageArticleId: Int? {
+        guard let url = currentPageUrl, let id = pageArticles[pageKey(url)], id > 0 else { return nil }
+        return id
+    }
 
     var currentItem: ReadingSessionItem? {
         guard index >= 0, index < items.count else { return nil }
@@ -124,12 +171,37 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         isLoading = false
     }
 
-    func pageLoaded() {
+    func pageLoading() {
+        if isPageLoaded { pause() }
+        isPageLoaded = false
+        hasSelection = false
+        pageEditing = false
+        currentPageUrl = nil
+        pageVersion += 1
+    }
+
+    func pageLoaded(_ url: String?, _ title: String?) {
+        currentPageUrl = url.flatMap { $0.hasPrefix("http://") || $0.hasPrefix("https://") ? $0 : nil }
+        pageTitle = title
+        if sessionPageUrl == nil, let currentPageUrl {
+            sessionPageUrl = pageKey(currentPageUrl)
+            if let id = currentItem?.articleId, id > 0 { pageArticles[pageKey(currentPageUrl)] = id }
+        }
+        if let currentPageUrl, currentPageArticleId == nil,
+           let match = readingListItems.first(where: { sameReadingArticleURL($0.article.canonicalUrl, currentPageUrl) }) {
+            pageArticles[pageKey(currentPageUrl)] = match.articleId
+        }
         isPageLoaded = true
         if startingAutoplay {
             startingAutoplay = false
             play()
         }
+    }
+
+    func pageLocationChanged(_ url: String, _ title: String) {
+        guard let previous = currentPageUrl else { return }
+        if pageKey(previous) != pageKey(url) { pageLoading() }
+        pageLoaded(url, title)
     }
 
     func play() {
@@ -160,7 +232,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             speak(text, language: language, kind: request.kind)
             return
         }
-        guard request.kind == .page, let articleId = currentItem?.articleId, articleId > 0 else {
+        guard request.kind == .page, let articleId = currentPageArticleId else {
             isPreparing = false
             errorMessage = L10n.string(request.kind == .selection ? "読み上げる文章がありません。" : "本文を抽出できませんでした。")
             return
@@ -193,10 +265,16 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     // or a shared page does not.
     private func speak(_ value: String, language: String?, kind: ReadingCaptureKind) {
         let text = clean(value)
-        playbackArticleId = kind == .page ? currentItem?.articleId : nil
-        playbackArticleTitle = currentItem?.article.title
+        playbackArticleId = kind == .page ? currentPageArticleId : nil
+        playbackArticleTitle = pageTitle ?? currentItem?.article.title
         playbackKind = kind
-        let source = language ?? currentItem?.article.sourceLanguage
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(String(text.prefix(3000)))
+        let detected = recognizer.languageHypotheses(withMaximum: 1).first.flatMap { language, confidence in
+            confidence >= 0.5 ? language.rawValue : nil
+        }
+        let declared = currentPageArticleId == currentItem?.articleId ? currentItem?.article.sourceLanguage : nil
+        let source = detected ?? language ?? declared
         if let source, source.split(separator: "-").first != targetLanguage.split(separator: "-").first {
             pendingOriginalText = text
             translationToken += 1
@@ -256,15 +334,15 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
 
     func select(articleId: Int) {
         if let nextIndex = items.firstIndex(where: { $0.articleId == articleId }) {
-            guard nextIndex != index else { return }
-            markArticleRead(currentItem?.articleId)
+            if nextIndex == index, currentPageUrl.map(pageKey) == sessionPageUrl { return }
+            markArticleRead(currentPageArticleId)
             pause()
             index = nextIndex
             resetPage()
             return
         }
         guard let nextIndex = readingListItems.firstIndex(where: { $0.articleId == articleId }) else { return }
-        markArticleRead(currentItem?.articleId)
+        markArticleRead(currentPageArticleId)
         pause()
         items = readingListItems
         index = nextIndex
@@ -306,13 +384,16 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     func addCurrentPageToReadingList() {
-        guard !isAddingToReadingList, let item = currentItem, let url = item.article.canonicalUrl else { return }
+        guard !isAddingToReadingList, let item = currentItem, let url = currentPageUrl else { return }
         let pageId = browserPageId
+        let version = pageVersion
+        let sessionPage = pageKey(url) == sessionPageUrl
+        let title = sessionPage && item.articleId > 0 ? item.article.title : pageTitle
         isAddingToReadingList = true
         Task {
             defer { isAddingToReadingList = false }
             do {
-                let saved = try await APIClient.shared.importArticle(url: url, title: item.articleId > 0 ? item.article.title : nil)
+                let saved = try await APIClient.shared.importArticle(url: url, title: title)
                 let existing = (items + readingListItems).first { $0.articleId == saved.articleId }
                 let savedItem = ReadingSessionItem(
                     articleId: saved.articleId,
@@ -320,13 +401,13 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                     article: ReadingSessionArticle(
                         id: saved.articleId,
                         title: saved.title,
-                        sourceLanguage: existing?.article.sourceLanguage ?? item.article.sourceLanguage,
+                        sourceLanguage: existing?.article.sourceLanguage ?? (sessionPage ? item.article.sourceLanguage : nil),
                         canonicalUrl: saved.url,
-                        publishedAt: existing?.article.publishedAt ?? item.article.publishedAt,
-                        feed: existing?.article.feed ?? item.article.feed,
+                        publishedAt: existing?.article.publishedAt ?? (sessionPage ? item.article.publishedAt : nil),
+                        feed: existing?.article.feed ?? (sessionPage ? item.article.feed : .init(id: 0, title: L10n.string("共有ページ"))),
                     ),
-                    createdAt: existing?.createdAt ?? item.createdAt,
-                    isRead: existing?.isRead ?? item.isRead,
+                    createdAt: existing?.createdAt ?? (sessionPage ? item.createdAt : nil),
+                    isRead: existing?.isRead ?? (sessionPage && item.isRead),
                 )
                 removedReadingListArticleIds.remove(saved.articleId)
                 if let listIndex = readingListItems.firstIndex(where: { $0.articleId == saved.articleId }) {
@@ -335,8 +416,9 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                     readingListItems.append(savedItem)
                 }
                 // Saving updates metadata without replacing the browser or the session snapshot.
-                if browserPageId == pageId, currentItem?.articleId == item.articleId {
-                    items[index] = savedItem
+                if browserPageId == pageId { pageArticles[pageKey(url)] = saved.articleId }
+                if browserPageId == pageId, pageVersion == version, currentPageUrl == url {
+                    if sessionPage, currentItem?.articleId == item.articleId { items[index] = savedItem }
                     if playbackKind == .page, isPlaying || isPreparing {
                         playbackArticleId = saved.articleId
                         playbackArticleTitle = saved.title
@@ -387,8 +469,14 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
 
     private func resetPage() {
         browserPageId += 1
+        currentPageUrl = nil
+        pageTitle = nil
+        sessionPageUrl = nil
+        pageArticles.removeAll()
+        pageVersion += 1
         isPageLoaded = false
         hasSelection = false
+        pageEditing = false
         chunks = []
         chunkIndex = 0
     }
@@ -510,9 +598,12 @@ struct ReadingSessionScreen: View {
                         ReadingWebView(
                             url: url,
                             captureRequest: player.captureRequest,
+                            onLoading: player.pageLoading,
                             onLoaded: player.pageLoaded,
+                            onLocationChanged: player.pageLocationChanged,
                             onCaptured: player.receiveCapture,
                             onSelectionChanged: { player.hasSelection = $0 },
+                            onEditingChanged: { player.pageEditing = $0 },
                         )
                         .id(player.browserPageId)
                     } else {
@@ -544,7 +635,7 @@ struct ReadingSessionScreen: View {
         .sheet(isPresented: $isReadingListPresented) {
             ReadingListView(
                 items: player.visibleReadingListItems,
-                currentArticleId: player.currentItem?.articleId ?? -1,
+                currentArticleId: player.currentPageArticleId ?? -1,
                 onSelect: { articleId in
                     player.select(articleId: articleId)
                     isReadingListPresented = false
@@ -568,13 +659,14 @@ struct ReadingSessionScreen: View {
                 Button("", action: player.selectPrevious).keyboardShortcut("k", modifiers: [])
                 Button("", action: player.addCurrentPageToReadingList).keyboardShortcut("s", modifiers: [])
                 Button("", action: {
-                    if let urlString = player.currentItem?.article.canonicalUrl, let url = URL(string: urlString) { openURL(url) }
+                    if let urlString = player.currentPageUrl, let url = URL(string: urlString) { openURL(url) }
                 }).keyboardShortcut("v", modifiers: [])
                 Button("", action: { dismiss() }).keyboardShortcut(.escape, modifiers: [])
                 Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
             }
             .frame(width: 1, height: 1)
             .opacity(0)
+            .disabled(player.pageEditing)
             .accessibilityHidden(true)
         )
         .sheet(isPresented: $showShortcutHelp) { ShortcutHelpView() }
@@ -797,17 +889,22 @@ private struct ReadingListView: View {
 private struct ReadingWebView: UIViewRepresentable {
     let url: String
     let captureRequest: ReadingCaptureRequest?
-    let onLoaded: () -> Void
+    let onLoading: () -> Void
+    let onLoaded: (String?, String?) -> Void
+    let onLocationChanged: (String, String) -> Void
     let onCaptured: (ReadingCaptureRequest, String?, String?) -> Void
     let onSelectionChanged: (Bool) -> Void
+    let onEditingChanged: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLoaded: onLoaded, onCaptured: onCaptured, onSelectionChanged: onSelectionChanged)
+        Coordinator(onLoading: onLoading, onLoaded: onLoaded, onLocationChanged: onLocationChanged, onCaptured: onCaptured, onSelectionChanged: onSelectionChanged, onEditingChanged: onEditingChanged)
     }
 
     func makeUIView(context: Context) -> WKWebView {
         let controller = WKUserContentController()
         controller.add(context.coordinator, name: "filoSelection")
+        controller.add(context.coordinator, name: "filoLocation")
+        controller.add(context.coordinator, name: "filoEditing")
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -827,12 +924,16 @@ private struct ReadingWebView: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var webView: WKWebView?
-        private let onLoaded: () -> Void
+        private let onLoading: () -> Void
+        private let onLoaded: (String?, String?) -> Void
+        private let onLocationChanged: (String, String) -> Void
         private let onCaptured: (ReadingCaptureRequest, String?, String?) -> Void
         private let onSelectionChanged: (Bool) -> Void
+        private let onEditingChanged: (Bool) -> Void
         private var loaded = false
         private var pending: ReadingCaptureRequest?
         private var handledId: Int?
+        private var navigationVersion = 0
 
         private static let scripts: String = ["Readability", "FiloCapture"]
             .compactMap { name in
@@ -841,13 +942,19 @@ private struct ReadingWebView: UIViewRepresentable {
             .joined(separator: ";\n")
 
         init(
-            onLoaded: @escaping () -> Void,
+            onLoading: @escaping () -> Void,
+            onLoaded: @escaping (String?, String?) -> Void,
+            onLocationChanged: @escaping (String, String) -> Void,
             onCaptured: @escaping (ReadingCaptureRequest, String?, String?) -> Void,
             onSelectionChanged: @escaping (Bool) -> Void,
+            onEditingChanged: @escaping (Bool) -> Void,
         ) {
+            self.onLoading = onLoading
             self.onLoaded = onLoaded
+            self.onLocationChanged = onLocationChanged
             self.onCaptured = onCaptured
             self.onSelectionChanged = onSelectionChanged
+            self.onEditingChanged = onEditingChanged
         }
 
         // Capture when asked, once the page has loaded.
@@ -880,23 +987,54 @@ private struct ReadingWebView: UIViewRepresentable {
         }
 
         private func finishLoading(_ webView: WKWebView) {
+            let version = navigationVersion
             let script = Self.scripts + """
             ;(() => {
               const report = () => window.webkit.messageHandlers.filoSelection.postMessage(window.__filoHasSelection());
               document.addEventListener('selectionchange', report);
               report();
+              const editing = () => {
+                const e = document.activeElement;
+                window.webkit.messageHandlers.filoEditing.postMessage(!!e && (e.matches('input, textarea, select') || e.isContentEditable));
+              };
+              document.addEventListener('focusin', editing);
+              document.addEventListener('focusout', () => setTimeout(editing, 0));
+              editing();
+              if (!window.__filoLocationHook) {
+                window.__filoLocationHook = true;
+                let last = location.href;
+                const changed = () => {
+                  if (last === location.href) return;
+                  last = location.href;
+                  window.webkit.messageHandlers.filoLocation.postMessage({url: last, title: document.title || ''});
+                };
+                for (const name of ['pushState', 'replaceState']) {
+                  const original = history[name];
+                  history[name] = function(...args) { const result = original.apply(this, args); changed(); return result; };
+                }
+                addEventListener('popstate', changed);
+                addEventListener('hashchange', changed);
+              }
             })();
             """
             webView.evaluateJavaScript(script) { [weak self] _, _ in
                 guard let self else { return }
+                guard version == navigationVersion else { return }
                 loaded = true
-                onLoaded()
+                onLoaded(webView.url?.absoluteString, webView.title)
                 capturePending()
             }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             finishLoading(webView)
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            navigationVersion += 1
+            loaded = false
+            pending = nil
+            onLoading()
         }
 
         // A failed load still lets the reader fall back to the server's extraction.
@@ -909,7 +1047,13 @@ private struct ReadingWebView: UIViewRepresentable {
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            onSelectionChanged(message.body as? Bool ?? false)
+            if message.name == "filoLocation", let body = message.body as? [String: String], let url = body["url"] {
+                onLocationChanged(url, body["title"] ?? "")
+            } else if message.name == "filoSelection" {
+                onSelectionChanged(message.body as? Bool ?? false)
+            } else if message.name == "filoEditing" {
+                onEditingChanged(message.body as? Bool ?? false)
+            }
         }
     }
 }

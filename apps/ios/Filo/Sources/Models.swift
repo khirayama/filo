@@ -310,3 +310,19 @@ enum DateFormatting {
         return formatter.string(from: date)
     }
 }
+
+// Roll back only the failed bulk read change, preserving other row edits.
+func restoringArticleReadStates(_ current: [ArticleListItem], from previous: [ArticleListItem], restoreHidden: Bool = true) -> [ArticleListItem] {
+    let states = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0.userState.isRead) })
+    var restored = current.map { article in
+        var article = article
+        if let isRead = states[article.id] { article.userState.isRead = isRead }
+        return article
+    }
+    guard restoreHidden else { return restored }
+    var ids = Set(restored.map(\.id))
+    for (index, article) in previous.enumerated() where ids.insert(article.id).inserted {
+        restored.insert(article, at: min(index, restored.count))
+    }
+    return restored
+}
