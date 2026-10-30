@@ -100,7 +100,6 @@ fun ArticlesScreen(
     DisposableEffect(Unit) {
         onDispose {
             vm.saveListPosition(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
-            vm.resetLoadState()
         }
     }
     LaunchedEffect(initialSelectedTagId) {
@@ -124,6 +123,7 @@ fun ArticlesScreen(
     }
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
+        if (articles.isNotEmpty()) vm.refreshUnreadCounts()
         snapshotFlow { isLoading to articles.isNotEmpty() }
             .first { (loading, hasArticles) -> !loading && hasArticles }
         val (index, offset) = vm.listPositionForCurrentFilter()
@@ -229,8 +229,6 @@ fun ArticlesScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .focusRequester(focusRequester)
-            .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
@@ -314,7 +312,9 @@ fun ArticlesScreen(
                         else -> false
                     }
                 }
-            },
+            }
+            .focusRequester(focusRequester)
+            .focusable(),
     ) {
         Column(Modifier.fillMaxSize()) {
             FiloHeader(
@@ -369,15 +369,17 @@ fun ArticlesScreen(
                 ) {
                     if (isLoading && articles.isEmpty()) {
                         item { FiloSpinner() }
-                    } else if (errorMessage != null) {
-                        item {
-                            FiloErrorBox(
-                                tr(errorMessage),
-                                modifier = Modifier.padding(Filo.Gutter),
-                                onRetry = { scope.launch { vm.reload() } },
-                            )
+                    } else {
+                        if (errorMessage != null) {
+                            item {
+                                FiloErrorBox(
+                                    tr(errorMessage),
+                                    modifier = Modifier.padding(Filo.Gutter),
+                                    onRetry = { scope.launch { vm.reload() } },
+                                )
+                            }
                         }
-                    } else if (articles.isEmpty()) {
+                        if (articles.isEmpty() && errorMessage == null) {
                         item {
                             when {
                                 subscriptions.isEmpty() && selectedTagId == null && readFilter == null && !readingListOnly && !bookmarkedOnly ->
@@ -400,7 +402,7 @@ fun ArticlesScreen(
                                 else -> FiloEmptyState(tr("表示できる記事がありません。"), FiloIconName.Inbox)
                             }
                         }
-                    } else {
+                        } else {
                         itemsIndexed(articles, key = { _, article -> article.id }) { index, article ->
                             ArticleRow(
                                 article = article,
@@ -419,12 +421,13 @@ fun ArticlesScreen(
                                 onToggleBookmark = { vm.patchState(article, isBookmarked = !article.userState.isBookmarked) },
                             )
                             // Feedly-style infinite scroll: fetch the next page near the end.
-                            if (index >= (articles.size - 4).coerceAtLeast(0) && nextCursor != null) {
+                            if (index >= (articles.size - 4).coerceAtLeast(0) && nextCursor != null && errorMessage == null) {
                                 LaunchedEffect(article.id) { vm.loadMore() }
                             }
                         }
                         if (isLoadingMore) {
                             item { FiloSpinner() }
+                        }
                         }
                     }
                 }

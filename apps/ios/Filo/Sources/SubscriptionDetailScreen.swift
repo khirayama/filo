@@ -31,6 +31,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
         didSet { if readOrder != oldValue { invalidateArticleRequests() } }
     }
 
+    private var pendingArticles: Set<Int> = []
     private var articleGeneration = 0
     private var selectedSort: String?
     private var applyingDefaultSort = false
@@ -126,7 +127,14 @@ final class SubscriptionDetailViewModel: ObservableObject {
     // Apply the change before the request so the row answers the tap at once;
     // the response then confirms it, and a failure puts the old state back.
     func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
-        guard let article = articles.first(where: { $0.id == articleId }) else { return }
+        guard isRead != nil || inReadingList != nil || isBookmarked != nil,
+              !pendingArticles.contains(articleId),
+              let originalIndex = articles.firstIndex(where: { $0.id == articleId }) else { return }
+        let article = articles[originalIndex]
+        let requestFilters = filters
+        pendingArticles.insert(articleId)
+        defer { pendingArticles.remove(articleId) }
+        errorMessage = nil
         let before = article.userState
         applyState(before.applying(isRead: isRead, inReadingList: inReadingList, isBookmarked: isBookmarked), to: articleId)
         do {
@@ -140,13 +148,16 @@ final class SubscriptionDetailViewModel: ObservableObject {
             } else {
                 return
             }
-            applyState(state, to: articleId)
+            if requestFilters == filters { applyState(state, to: articleId) }
         } catch {
-            // A row the optimistic change removed comes back with the reload.
-            if let index = articles.firstIndex(where: { $0.id == articleId }) {
-                articles[index].userState = before
+            if requestFilters == filters {
+                if let index = articles.firstIndex(where: { $0.id == articleId }) {
+                    articles[index].userState = before
+                } else {
+                    articles.insert(article, at: min(originalIndex, articles.count))
+                }
+                errorMessage = ErrorMessages.message(for: error)
             }
-            errorMessage = ErrorMessages.message(for: error)
         }
     }
 
@@ -186,6 +197,8 @@ final class SubscriptionDetailViewModel: ObservableObject {
         markAllReadNotice = nil
         errorMessage = nil
         defer { isMarkingAllRead = false }
+        let previousArticles = articles
+        let requestFilters = filters
         // Show the result at once; the reload below brings the server's order.
         withAnimation(.easeOut(duration: 0.2)) {
             if readFilter == false {
@@ -200,8 +213,10 @@ final class SubscriptionDetailViewModel: ObservableObject {
             await reloadArticles()
             markAllReadNotice = L10n.string("既読への変更が完了しました。")
         } catch {
-            await reloadArticles()
-            errorMessage = ErrorMessages.message(for: error)
+            if requestFilters == filters {
+                articles = restoringArticleReadStates(articles, from: previousArticles, restoreHidden: requestFilters.read == false)
+                errorMessage = ErrorMessages.message(for: error)
+            }
         }
     }
 
@@ -235,7 +250,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
         do {
             let result = try await APIClient.shared.refreshFeed(feedId, waitForCompletion: true)
             FiloAnalytics.track("refresh_feed", parameters: ["feed_id": feedId])
-            if result.enqueued > 0 { refreshNotice = L10n.string("フィードを更新しました。") }
+            if result.enqueued > 0 { refreshNotice = L10n.format("%ld件のフィードを更新しました。", result.enqueued) }
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
         }
@@ -255,10 +270,15 @@ struct SubscriptionDetailScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var scrollToTopToken = 0
+    @State private var didLoad = false
     @State private var showRename = false
     @State private var renameText = ""
     @State private var showUnsubscribeConfirm = false
     @State private var showFeedUrl = false
+    @State private var selectedArticleIndex: Int?
+    @State private var visibleArticleIds: Set<Int> = []
+    @State private var showShortcutHelp = false
+    @FocusState private var isKeyboardFocused: Bool
 
     init(
         subscriptionId: Int,
@@ -301,7 +321,23 @@ struct SubscriptionDetailScreen: View {
                 }
             }
         }
-        .task { await model.load() }
+        .focusable()
+        .focused($isKeyboardFocused)
+        .focusEffectDisabled()
+        .onAppear { isKeyboardFocused = true }
+        .onKeyPress(keys: [KeyEquivalent("j"), .downArrow, KeyEquivalent("k"), .upArrow], phases: [.down, .repeat]) { press in
+            guard press.modifiers.isEmpty else { return .ignored }
+            moveSelection(press.key == .downArrow || press.key == KeyEquivalent("j") ? 1 : -1)
+            return .handled
+        }
+        .background(shortcutButtons)
+        .sheet(isPresented: $showShortcutHelp) { ShortcutHelpView() }
+        .task {
+            if !didLoad {
+                await model.load()
+                if !Task.isCancelled { didLoad = true }
+            }
+        }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
@@ -314,6 +350,9 @@ struct SubscriptionDetailScreen: View {
         .onChange(of: model.readOrder) { Task { await model.reloadArticles() } }
         // 翻訳トグルが ON の間は、表示された記事を翻訳対象にする
         .onChange(of: model.articles, initial: true) { translations.register(model.articles) }
+        .onChange(of: model.articles) { _, articles in
+            if let index = selectedArticleIndex { selectedArticleIndex = articles.isEmpty ? nil : min(index, articles.count - 1) }
+        }
         .onChange(of: translations.isEnabled) { translations.register(model.articles) }
         .overlay(alignment: .bottom) {
             if let notice = model.markAllReadNotice ?? model.refreshNotice {
@@ -398,6 +437,7 @@ struct SubscriptionDetailScreen: View {
                     ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
                         ArticleRowView(
                             article: article,
+                            selected: selectedArticle?.id == article.id,
                             showFeed: false,
                             onOpen: {
                                 guard let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
@@ -418,11 +458,14 @@ struct SubscriptionDetailScreen: View {
                             },
                         )
                         .filoListRow()
+                        .id(article.id)
                         .onAppear {
+                            visibleArticleIds.insert(article.id)
                             if index >= max(model.articles.count - 4, 0) {
                                 Task { await model.loadMore() }
                             }
                         }
+                        .onDisappear { visibleArticleIds.remove(article.id) }
                     }
                     if model.isLoadingMore {
                         FiloSpinner().filoListRow()
@@ -434,8 +477,54 @@ struct SubscriptionDetailScreen: View {
             .background(FiloPalette.background)
             .environment(\.defaultMinListRowHeight, 0)
             .refreshable { await model.refreshFeedAndReload() }
+            .onChange(of: selectedArticleIndex) { _, index in
+                if let index, model.articles.indices.contains(index) {
+                    withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(model.articles[index].id, anchor: .center) }
+                }
+            }
             .onChange(of: scrollToTopToken) { proxy.scrollTo("articles-top", anchor: .top) }
         }
+    }
+
+    private var selectedArticle: ArticleListItem? {
+        guard let index = selectedArticleIndex, model.articles.indices.contains(index) else { return nil }
+        return model.articles[index]
+    }
+
+    private func moveSelection(_ offset: Int) {
+        guard !model.articles.isEmpty else { return }
+        let visible = selectedArticleIndex.map { model.articles.indices.contains($0) && visibleArticleIds.contains(model.articles[$0].id) } ?? false
+        let start = visible ? selectedArticleIndex! : model.articles.firstIndex(where: { visibleArticleIds.contains($0.id) }) ?? 0
+        selectedArticleIndex = min(max(visible ? start + offset : start, 0), model.articles.count - 1)
+    }
+
+    private func openSelected(external: Bool) {
+        guard let article = keyboardArticle(), let value = article.canonicalUrl, let url = URL(string: value) else { return }
+        if external || model.openInBrowserByDefault { openURL(url) } else { onOpenArticle(article) }
+    }
+
+    private func keyboardArticle() -> ArticleListItem? {
+        guard !model.articles.isEmpty else { return nil }
+        let index = min(selectedArticleIndex ?? 0, model.articles.count - 1)
+        selectedArticleIndex = index
+        return model.articles[index]
+    }
+
+    private var shortcutButtons: some View {
+        VStack(spacing: 0) {
+            Button("", action: { openSelected(external: false) }).keyboardShortcut(.return, modifiers: [])
+            Button("", action: { openSelected(external: false) }).keyboardShortcut("o", modifiers: [])
+            Button("", action: { openSelected(external: true) }).keyboardShortcut("v", modifiers: [])
+            Button("", action: { if let article = keyboardArticle() { Task { await model.patchState(article.id, isRead: !article.userState.isRead) } } }).keyboardShortcut("m", modifiers: [])
+            Button("", action: { if let article = keyboardArticle() { Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) } } }).keyboardShortcut("s", modifiers: [])
+            Button("", action: { if let article = keyboardArticle() { Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) } } }).keyboardShortcut("b", modifiers: [])
+            Button("", action: { Task { await model.refreshFeedAndReload() } }).keyboardShortcut("r", modifiers: [])
+            Button("", action: { Task { await model.markAllRead() } }).keyboardShortcut("a", modifiers: [.shift])
+            Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
+        }
+        .frame(width: 1, height: 1)
+        .opacity(0)
+        .accessibilityHidden(true)
     }
 
     private var subscriptionActionsMenu: some View {

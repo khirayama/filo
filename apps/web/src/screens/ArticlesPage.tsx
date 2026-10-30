@@ -13,6 +13,7 @@ import { errorMessage } from "../lib/messages";
 import { enqueueFeedRefresh } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
 import { useBackOr } from "../lib/navigation";
+import { firstUnreadReadingArticle } from "../lib/readingStart";
 
 function isArticleVisibleInViewport(articleId: number): boolean {
   const row = document.getElementById(`filo-article-${articleId}`);
@@ -90,11 +91,6 @@ function ArticlesListPage() {
 
   const list = useArticleList(api, apiFilters);
 
-  // Native apps also start a reading session at the first unread item. Keep
-  // the Web entry point independent from the keyboard-selected row.
-  const readingArticle = list.articles.find((article) => !article.userState.isRead && article.canonicalUrl)
-    ?? list.articles.find((article) => article.canonicalUrl);
-
   const hasSubscriptions = subscriptions.length > 0;
   const hasArticleFilter = tagId !== undefined || read !== undefined || readingListOnly || bookmarkedOnly;
   const hasFetchingSubscription = read === undefined && !readingListOnly && !bookmarkedOnly && subscriptions.some(
@@ -162,7 +158,7 @@ function ArticlesListPage() {
     setMarkingAllRead(true);
     setMarkAllNotice(null);
     setMarkAllError(null);
-    list.markAllReadLocally();
+    const rollback = list.markAllReadLocally();
     try {
       await api.markAllArticlesRead(tagId);
       trackEvent("mark_all_articles_read", { scope: selectedTag ? "tag" : "all_articles" });
@@ -172,8 +168,8 @@ function ArticlesListPage() {
       scrollArticlesToTop();
       setMarkAllNotice(t("既読への変更が完了しました。"));
     } catch (e) {
+      rollback();
       setMarkAllError(errorMessage(e, language));
-      void list.reload();
     } finally {
       setMarkingAllRead(false);
     }
@@ -195,10 +191,17 @@ function ArticlesListPage() {
   };
 
   const startReading = async (autoplay: boolean) => {
-    if (!readingArticle?.canonicalUrl || startingReading) return;
+    if (startingReading) return;
     setStartingReading(true);
     setMarkAllError(null);
     try {
+      // The visible list can be filtered or only partly loaded. The session
+      // starts from the same complete, unfiltered reading list as the apps.
+      const readingArticle = await firstUnreadReadingArticle(api.listArticles);
+      if (!readingArticle?.canonicalUrl) {
+        setMarkAllError(t("未読の記事がありません。"));
+        return;
+      }
       await launchReadingExtension(
         { id: readingArticle.id, url: readingArticle.canonicalUrl, title: readingArticle.title },
         { autoplay, targetLanguage: settings?.language ?? language },
@@ -244,7 +247,7 @@ function ArticlesListPage() {
         return;
       }
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, button, [contenteditable='true']")) return;
+      if (target?.closest("input, textarea, select, button, [contenteditable]:not([contenteditable='false'])")) return;
       const key = event.key.toLowerCase();
       const modifier = event.ctrlKey || event.metaKey || event.altKey;
       if (event.shiftKey && key === "a" && !modifier) {
@@ -312,7 +315,7 @@ function ArticlesListPage() {
     if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "center" });
   }, [activeArticleIndex, list.articles]);
 
-  const readingDisabled = !extensionReady || startingReading || !readingArticle;
+  const readingDisabled = !extensionReady || startingReading || list.articles.length === 0;
   const headerActions = (
     <>
       {readingListOnly ? (

@@ -59,6 +59,7 @@ class ArticlesViewModel : ViewModel() {
 
     private var lastLoadedFilters = ""
     private var articleGeneration = 0L
+    private val pendingArticles = mutableSetOf<Int>()
 
     private fun filters() = ArticleListFilters(
         tagId = selectedTagId,
@@ -84,10 +85,6 @@ class ArticlesViewModel : ViewModel() {
         } else {
             0 to 0
         }
-    }
-
-    fun resetLoadState() {
-        lastLoadedFilters = ""
     }
 
     fun loadIfNeeded() {
@@ -213,6 +210,8 @@ class ArticlesViewModel : ViewModel() {
         markAllReadNotice = null
         errorMessage = null
         com.filo.app.Analytics.track("mark_all_articles_read")
+        val previousArticles = articles
+        val requestFilters = filters()
         // Show the result at once; the reload below brings the server's order.
         articles = if (readFilter == false) {
             emptyList()
@@ -225,8 +224,10 @@ class ArticlesViewModel : ViewModel() {
             markAllReadNotice = AppText("既読への変更が完了しました。")
             return true
         } catch (e: Exception) {
-            reload()
-            errorMessage = ErrorMessages.forErrorText(e)
+            if (requestFilters == filters()) {
+                articles = restoringArticleReadStates(articles, previousArticles, restoreHidden = requestFilters.read == false)
+                errorMessage = ErrorMessages.forErrorText(e)
+            }
             return false
         } finally {
             isMarkingAllRead = false
@@ -251,6 +252,10 @@ class ArticlesViewModel : ViewModel() {
     // the response then confirms it, and a failure puts the old state back.
     fun patchState(article: ArticleListItem, isRead: Boolean? = null, inReadingList: Boolean? = null, isBookmarked: Boolean? = null) {
         if (isRead == null && inReadingList == null && isBookmarked == null) return
+        if (!pendingArticles.add(article.id)) return
+        val originalIndex = articles.indexOfFirst { it.id == article.id }
+        if (originalIndex < 0) { pendingArticles.remove(article.id); return }
+        val requestFilters = filters()
         val before = article.userState
         val optimistic = before.copy(
             isRead = isRead ?: before.isRead,
@@ -275,13 +280,20 @@ class ArticlesViewModel : ViewModel() {
                     inReadingList != null -> ApiClient.setReadingListMembership(article.id, inReadingList)
                     else -> ApiClient.setBookmarkMembership(article.id, isBookmarked == true)
                 }
-                applyState(article.id, state)
+                if (requestFilters == filters()) applyState(article.id, state)
                 applyUnreadDelta(before = optimistic, after = state, isSubscribed = isSubscribed)
             } catch (e: Exception) {
-                // A row the optimistic change removed comes back with the reload.
-                articles = articles.map { if (it.id == article.id) it.copy(userState = before) else it }
+                if (requestFilters == filters()) {
+                    articles = if (articles.any { it.id == article.id }) {
+                        articles.map { if (it.id == article.id) it.copy(userState = before) else it }
+                    } else {
+                        articles.toMutableList().apply { add(originalIndex.coerceAtMost(size), article) }
+                    }
+                    errorMessage = ErrorMessages.forErrorText(e)
+                }
                 applyUnreadDelta(before = optimistic, after = before, isSubscribed = isSubscribed)
-                errorMessage = ErrorMessages.forErrorText(e)
+            } finally {
+                pendingArticles.remove(article.id)
             }
         }
     }

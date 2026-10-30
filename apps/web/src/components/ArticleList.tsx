@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { ApiClient } from "../api/client";
 import type { ArticleListFilters, ArticleListItem, ArticleUserState } from "../api/types";
 import { errorMessage } from "../lib/messages";
+import { restoreArticleReadStates } from "../lib/articleReadState";
 import { articleItem, trackEvent } from "../lib/analytics";
 import { useIsDesktop } from "./AppShell";
 import { useAppData } from "./AppDataContext";
@@ -23,6 +24,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   const [error, setError] = useState<string | null>(null);
   const filtersKey = JSON.stringify(filters);
   const generation = useRef(0);
+  const pendingArticles = useRef(new Set<number>());
   const [hasNewArticles, setHasNewArticles] = useState(false);
   const watermark = useRef<{ api: ApiClient; filtersKey: string; id: number } | null>(null);
   const viewIdentity = useRef({ api, filtersKey });
@@ -96,6 +98,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
     if (!nextCursor || loadingMore) return;
     const gen = generation.current;
     setLoadingMore(true);
+    setError(null);
     try {
       const parsed = JSON.parse(filtersKey) as ArticleListFilters;
       const result = await api.listArticles({ ...parsed, cursor: nextCursor });
@@ -114,8 +117,12 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   // the response then confirms it, and a failure puts the old state back.
   const updateState = useCallback(
     async (articleId: number, patch: ArticleStateMutation) => {
+      if (pendingArticles.current.has(articleId)) return;
       const article = articles.find((candidate) => candidate.id === articleId);
       if (!article) return;
+      pendingArticles.current.add(articleId);
+      setError(null);
+      const originalIndex = articles.findIndex((candidate) => candidate.id === articleId);
       const isSubscribed = article.subscriptionContext.subscriptionIds.length > 0;
       const adjustCounts = (from: ArticleUserState, to: ArticleUserState) => {
         adjustUnreadCounts({
@@ -164,10 +171,18 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
       } catch (e) {
         adjustCounts(optimistic, before);
         if (isCurrentView()) {
-          // A row the optimistic change removed comes back with the reload.
           setError(errorMessage(e, language));
-          setArticles((prev) => prev.map((a) => (a.id === articleId ? { ...a, userState: before } : a)));
+          setArticles((prev) => {
+            if (prev.some((a) => a.id === articleId)) {
+              return prev.map((a) => (a.id === articleId ? { ...a, userState: before } : a));
+            }
+            const restored = [...prev];
+            restored.splice(Math.min(originalIndex, restored.length), 0, article);
+            return restored;
+          });
         }
+      } finally {
+        pendingArticles.current.delete(articleId);
       }
     },
     [api, articles, filtersKey, language, adjustUnreadCounts],
@@ -175,11 +190,16 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
 
   // "Mark all as read" shows its result at once; the caller reloads afterwards.
   const markAllReadLocally = useCallback(() => {
+    const previous = articles;
+    const isCurrentView = () => viewIdentity.current.api === api && viewIdentity.current.filtersKey === filtersKey;
     const hidesRead = (JSON.parse(filtersKey) as ArticleListFilters).read === false;
     setArticles((prev) =>
       hidesRead ? [] : prev.map((a) => (a.userState.isRead ? a : { ...a, userState: { ...a.userState, isRead: true } })),
     );
-  }, [filtersKey]);
+    return () => {
+      if (isCurrentView()) setArticles((current) => restoreArticleReadStates(current, previous, hidesRead));
+    };
+  }, [api, articles, filtersKey]);
 
   return { articles, nextCursor, loading, loadingMore, error, hasNewArticles, reload: load, loadMore, updateState, markAllReadLocally };
 }
@@ -241,7 +261,7 @@ export function ArticleRows({
   // Feedly-style infinite scroll: load the next page as the end of the list nears.
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !nextCursor) return;
+    if (!el || !nextCursor || error) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
@@ -250,13 +270,13 @@ export function ArticleRows({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [nextCursor, onLoadMore]);
+  }, [nextCursor, onLoadMore, error]);
 
   if (loading && articles.length === 0) return <Spinner />;
-  if (error) return <div style={{ padding: "16px var(--fl-page-gutter)" }}><ErrorBox message={error} onRetry={onRetry} /></div>;
-  if (articles.length === 0) return <>{emptyContent}</>;
+  if (articles.length === 0 && !error) return <>{emptyContent}</>;
   return (
     <>
+      {error ? <div style={{ padding: "16px var(--fl-page-gutter)" }}><ErrorBox message={error} onRetry={onRetry} /></div> : null}
       <ul aria-label={t("記事一覧")} className="fl-article-list">
         {articles.map((article) => (
           <ArticleRow key={article.id} article={article} onUpdateState={onUpdateState} active={article.id === activeArticleId} showFeed={showFeed} />
@@ -264,6 +284,7 @@ export function ArticleRows({
       </ul>
       <div ref={sentinelRef} aria-hidden="true" />
       {loadingMore ? <Spinner /> : null}
+      {nextCursor && !loadingMore && !error ? <div className="fl-article-more"><button type="button" className="fl-btn fl-btn--secondary" onClick={onLoadMore}>{t("もっと読み込む")}</button></div> : null}
     </>
   );
 }
@@ -288,6 +309,11 @@ function ArticleRow({
   const isTranslated = translatedTitle != null;
   const displayTitle = showOriginal || !isTranslated ? article.title : translatedTitle;
   const subscriptionId = article.subscriptionContext.subscriptionIds[0];
+  const openRow = (event: React.MouseEvent<HTMLLIElement>) => {
+    if (!article.canonicalUrl || (event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
+    trackEvent("select_item", { items: [articleItem(article)] });
+    window.open(article.canonicalUrl, "_blank", "noopener,noreferrer");
+  };
 
   const titleEl = article.canonicalUrl ? (
     <a
@@ -392,6 +418,7 @@ function ArticleRow({
         className="fl-article-row fl-article-row--desktop"
         data-read={isRead}
         data-active={active}
+        onClick={openRow}
       >
         {showFeed ? feedEl : null}
         <div className="fl-article-main">
@@ -414,6 +441,7 @@ function ArticleRow({
       className="fl-article-row fl-article-row--mobile"
       data-read={isRead}
       data-active={active}
+      onClick={openRow}
     >
       <div className="fl-article-head">
         {showFeed ? feedEl : null}

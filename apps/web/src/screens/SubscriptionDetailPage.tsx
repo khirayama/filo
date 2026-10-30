@@ -10,12 +10,13 @@ import { ArticleListControls } from "../components/ArticleListControls";
 import { PullToRefresh } from "../components/PullToRefresh";
 import { SubscriptionHealth } from "../components/SubscriptionHealth";
 import { TagPicker } from "../components/TagPicker";
-import { Button, EmptyState, ErrorBox, IconButton, MenuItem, Spinner, Toast, palette, usePopover } from "../components/ui";
+import { Button, EmptyState, ErrorBox, IconButton, MenuItem, Spinner, Toast, palette, useDialogFocus, usePopover } from "../components/ui";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { errorMessage } from "../lib/messages";
 import { enqueueFeedRefresh } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
 import { useBackOr } from "../lib/navigation";
+import { articleShortcut } from "../lib/articleShortcuts";
 
 export function SubscriptionDetailPage() {
   const api = useApi();
@@ -34,6 +35,10 @@ export function SubscriptionDetailPage() {
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
   const [markAllNotice, setMarkAllNotice] = useState<string | null>(null);
+  const [activeArticleIndex, setActiveArticleIndex] = useState<number | null>(null);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
+  useDialogFocus(showShortcutHelp, "filo-subscription-shortcuts", closeShortcutHelp);
   const { read, sort, readOrder, setRead, setSort, setReadOrder } = useArticleFilterParams();
   const filters = useMemo(
     () => ({
@@ -117,7 +122,7 @@ export function SubscriptionDetailPage() {
     setMarkingAllRead(true);
     setMarkAllNotice(null);
     setError(null);
-    list.markAllReadLocally();
+    const rollback = list.markAllReadLocally();
     try {
       const result = await api.markAllRead(subscription.id);
       setSubscription({ ...subscription, unreadCount: result.unreadCount });
@@ -125,8 +130,8 @@ export function SubscriptionDetailPage() {
       void refreshAppData();
       setMarkAllNotice(t("既読への変更が完了しました。"));
     } catch (e) {
+      rollback();
       setError(errorMessage(e, language));
-      void list.reload();
     } finally {
       setMarkingAllRead(false);
     }
@@ -153,7 +158,7 @@ export function SubscriptionDetailPage() {
         timed_out: outcome.timedOut,
       });
       if (outcome.timedOut) setRefreshNotice(t("取得に時間がかかっています。あとで再度更新してください。"));
-      else if (outcome.enqueued > 0) setRefreshNotice(t("フィードを更新しました。"));
+      else if (outcome.enqueued > 0) setRefreshNotice(`${outcome.enqueued}${t("件のフィードを更新しました。")}`);
       await load();
       await list.reload();
       void refreshAppData();
@@ -163,6 +168,60 @@ export function SubscriptionDetailPage() {
       setRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (showShortcutHelp) {
+        if (event.key === "Escape") { event.preventDefault(); setShowShortcutHelp(false); }
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, button, [contenteditable]:not([contenteditable='false'])")) return;
+      const action = articleShortcut(event);
+      if (action === "markAll") { event.preventDefault(); void markAllRead(); return; }
+      if (action === "next" || action === "previous") {
+        event.preventDefault();
+        if (!list.articles.length) return;
+        const step = action === "next" ? 1 : -1;
+        setActiveArticleIndex((current) => {
+          const visible = (index: number) => {
+            const row = document.getElementById(`filo-article-${list.articles[index]?.id}`);
+            const rect = row?.getBoundingClientRect();
+            const header = document.querySelector<HTMLElement>("[data-filo-page-header]")?.getBoundingClientRect().bottom ?? 0;
+            return !!rect && rect.bottom > header && rect.top < window.innerHeight;
+          };
+          if (current != null && visible(current)) return Math.max(0, Math.min(list.articles.length - 1, current + step));
+          const first = list.articles.findIndex((_, index) => visible(index));
+          return first < 0 ? 0 : first;
+        });
+      } else if (action === "open" || action === "external" || action === "read" || action === "list" || action === "bookmark") {
+        event.preventDefault();
+        const index = activeArticleIndex ?? 0;
+        const article = list.articles[index];
+        if (!article) return;
+        setActiveArticleIndex(index);
+        if (action === "open" || action === "external") {
+          if (article.canonicalUrl) window.open(article.canonicalUrl, "_blank", "noopener,noreferrer");
+        } else {
+          const patch = action === "read" ? { isRead: !article.userState.isRead }
+            : action === "list" ? { inReadingList: !article.userState.inReadingList }
+              : { isBookmarked: !article.userState.isBookmarked };
+          void list.updateState(article.id, patch);
+        }
+      } else if (action === "refresh") { event.preventDefault(); void refreshFeed(); }
+      else if (action === "help") { event.preventDefault(); setShowShortcutHelp(true); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  useEffect(() => {
+    setActiveArticleIndex((index) => index == null || list.articles.length === 0 ? null : Math.min(index, list.articles.length - 1));
+  }, [list.articles.length]);
+  useEffect(() => {
+    const article = activeArticleIndex == null ? undefined : list.articles[activeArticleIndex];
+    if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "center" });
+  }, [activeArticleIndex, list.articles]);
 
   if (gone) {
     return (
@@ -326,6 +385,7 @@ export function SubscriptionDetailPage() {
               onRetry={() => void list.reload()}
               onLoadMore={() => void list.loadMore()}
               onUpdateState={(id, patch) => void list.updateState(id, patch)}
+              activeArticleId={activeArticleIndex == null ? undefined : list.articles[activeArticleIndex]?.id}
               showFeed={false}
               emptyContent={
                 subscription.initialFetchStatus === "fetching" ? (
@@ -341,6 +401,17 @@ export function SubscriptionDetailPage() {
         ) : null}
       </main>
       {markAllNotice ? <Toast message={markAllNotice} /> : null}
+      {showShortcutHelp ? (
+        <div role="dialog" id="filo-subscription-shortcuts" aria-modal="true" aria-labelledby="filo-subscription-shortcuts-title" onClick={closeShortcutHelp} className="fl-dialog-scrim">
+          <section onClick={(event) => event.stopPropagation()} className="fl-dialog" style={{ maxWidth: "360px" }}>
+            <div className="fl-dialog-header">
+              <h2 id="filo-subscription-shortcuts-title">{t("ショートカット")}</h2>
+              <IconButton icon="close" label={t("閉じる")} onClick={closeShortcutHelp} />
+            </div>
+            <pre style={{ fontFamily: "inherit", fontSize: "14px", lineHeight: 1.8, margin: 0, whiteSpace: "pre-wrap" }}>{t("ショートカットヘルプ")}</pre>
+          </section>
+        </div>
+      ) : null}
     </AppShell>
   );
 }

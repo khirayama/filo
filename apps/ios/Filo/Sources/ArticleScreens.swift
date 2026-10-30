@@ -41,6 +41,7 @@ final class ArticlesViewModel: ObservableObject {
     @Published var markAllReadNotice: String?
 
     private var articleGeneration = 0
+    private var pendingArticles = Set<Int>()
     private var loadGeneration = 0
     private var selectedSort: String?
     private var applyingDefaultSort = false
@@ -193,6 +194,8 @@ final class ArticlesViewModel: ObservableObject {
         errorMessage = nil
         defer { isMarkingAllRead = false }
         FiloAnalytics.track("mark_all_articles_read")
+        let previousArticles = articles
+        let requestFilters = filters
         // Show the result at once; the reload below brings the server's order.
         withAnimation(.easeOut(duration: 0.2)) {
             if readFilter == false {
@@ -209,8 +212,10 @@ final class ArticlesViewModel: ObservableObject {
             markAllReadNotice = L10n.string("既読への変更が完了しました。")
             return true
         } catch {
-            await reloadArticles()
-            errorMessage = ErrorMessages.message(for: error)
+            if requestFilters == filters {
+                articles = restoringArticleReadStates(articles, from: previousArticles, restoreHidden: requestFilters.read == false)
+                errorMessage = ErrorMessages.message(for: error)
+            }
             return false
         }
     }
@@ -229,7 +234,13 @@ final class ArticlesViewModel: ObservableObject {
     // Apply the change before the request so the row answers the tap at once;
     // the response then confirms it, and a failure puts the old state back.
     func patchState(_ articleId: Int, isRead: Bool? = nil, inReadingList: Bool? = nil, isBookmarked: Bool? = nil) async {
-        guard let article = articles.first(where: { $0.id == articleId }) else { return }
+        guard isRead != nil || inReadingList != nil || isBookmarked != nil,
+              !pendingArticles.contains(articleId),
+              let originalIndex = articles.firstIndex(where: { $0.id == articleId }) else { return }
+        let article = articles[originalIndex]
+        let requestFilters = filters
+        pendingArticles.insert(articleId)
+        defer { pendingArticles.remove(articleId) }
         let before = article.userState
         let optimistic = before.applying(isRead: isRead, inReadingList: inReadingList, isBookmarked: isBookmarked)
         let isSubscribed = !article.subscriptionContext.subscriptionIds.isEmpty
@@ -253,15 +264,18 @@ final class ArticlesViewModel: ObservableObject {
             } else {
                 return
             }
-            applyState(state, to: articleId)
+            if requestFilters == filters { applyState(state, to: articleId) }
             applyUnreadDelta(before: optimistic, after: state, isSubscribed: isSubscribed)
         } catch {
-            // A row the optimistic change removed comes back with the reload.
-            if let index = articles.firstIndex(where: { $0.id == articleId }) {
-                articles[index].userState = before
+            if requestFilters == filters {
+                if let index = articles.firstIndex(where: { $0.id == articleId }) {
+                    articles[index].userState = before
+                } else {
+                    articles.insert(article, at: min(originalIndex, articles.count))
+                }
+                errorMessage = ErrorMessages.message(for: error)
             }
             applyUnreadDelta(before: optimistic, after: before, isSubscribed: isSubscribed)
-            errorMessage = ErrorMessages.message(for: error)
         }
     }
 
@@ -309,6 +323,7 @@ struct ArticlesScreen: View {
     @State private var scrollToTopToken = 0
     @State private var visibleArticleIds: Set<Int> = []
     @State private var viewedArticleIds = ""
+    @State private var didLoad = false
     @State private var showShortcutHelp = false
     @FocusState private var isKeyboardFocused: Bool
     @Environment(\.filoIsDesktop) private var isDesktop
@@ -348,7 +363,10 @@ struct ArticlesScreen: View {
             }
         }
         .task {
-            await model.load()
+            if !didLoad {
+                await model.load()
+                if !Task.isCancelled { didLoad = true }
+            }
             registerTitlesForTranslation()
             await translations.refreshLanguages()
         }
@@ -500,13 +518,15 @@ struct ArticlesScreen: View {
     private var articleSection: some View {
         if model.isLoading, model.articles.isEmpty {
             FiloSpinner().filoListRow()
-        } else if let error = model.errorMessage {
-            FiloErrorBox(message: error) { Task { await model.load() } }
-                .padding(FiloMetrics.gutter)
-                .filoListRow()
-        } else if model.articles.isEmpty {
-            emptyState.filoListRow()
         } else {
+            if let error = model.errorMessage {
+                FiloErrorBox(message: error) { Task { await model.load() } }
+                    .padding(FiloMetrics.gutter)
+                    .filoListRow()
+            }
+            if model.articles.isEmpty && model.errorMessage == nil {
+                emptyState.filoListRow()
+            }
             ForEach(Array(model.articles.enumerated()), id: \.element.id) { index, article in
                 ArticleRowView(
                     article: article,
@@ -529,7 +549,7 @@ struct ArticlesScreen: View {
                 .id(article.id)
                 .onAppear {
                     visibleArticleIds.insert(article.id)
-                    if index >= max(model.articles.count - 4, 0) {
+                    if model.errorMessage == nil && index >= max(model.articles.count - 4, 0) {
                         Task { await model.loadMore() }
                     }
                 }
@@ -571,8 +591,15 @@ struct ArticlesScreen: View {
     }
 
     private func openSelectedArticle(external: Bool) {
-        guard let article = selectedArticle else { return }
+        guard let article = keyboardArticle() else { return }
         open(article, external: external)
+    }
+
+    private func keyboardArticle() -> ArticleListItem? {
+        guard !model.articles.isEmpty else { return nil }
+        let index = min(selectedArticleIndex ?? 0, model.articles.count - 1)
+        selectedArticleIndex = index
+        return model.articles[index]
     }
 
     private var shortcutButtons: some View {
@@ -581,15 +608,15 @@ struct ArticlesScreen: View {
             Button("", action: { openSelectedArticle(external: false) }).keyboardShortcut("o", modifiers: [])
             Button("", action: { openSelectedArticle(external: true) }).keyboardShortcut("v", modifiers: [])
             Button("", action: {
-                guard let article = selectedArticle else { return }
+                guard let article = keyboardArticle() else { return }
                 Task { await model.patchState(article.id, isRead: !article.userState.isRead) }
             }).keyboardShortcut("m", modifiers: [])
             Button("", action: {
-                guard let article = selectedArticle else { return }
+                guard let article = keyboardArticle() else { return }
                 Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) }
             }).keyboardShortcut("s", modifiers: [])
             Button("", action: {
-                guard let article = selectedArticle else { return }
+                guard let article = keyboardArticle() else { return }
                 Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
             }).keyboardShortcut("b", modifiers: [])
             Button("", action: { Task { await model.refreshFeedsAndReload() } }).keyboardShortcut("r", modifiers: [])
