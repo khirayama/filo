@@ -499,11 +499,11 @@ async function startFromWeb(command: Extract<ReaderCommand, { type: "startFromWe
   try {
     items = await api.listReadingList();
   } catch (cause) {
-    if (cause instanceof ExtensionApiError && cause.status === 401) throw new Error("拡張機能にログインしてください。");
+    if (cause instanceof ExtensionApiError && cause.status === 401) throw new Error("拡張機能にサインインしてください。");
     throw cause;
   }
   const index = items.findIndex((item) => item.articleId === command.articleId);
-  if (index < 0) throw new Error("拡張機能で同じアカウントにログインし、記事がリーディングリストにあることを確認してください。");
+  if (index < 0) throw new Error("拡張機能で同じアカウントにサインインし、記事がリーディングリストにあることを確認してください。");
   await stop();
   const tab = await chrome.tabs.create({ url: items[index].url, active: true });
   if (tab.id === undefined) throw new Error("記事を開けませんでした。");

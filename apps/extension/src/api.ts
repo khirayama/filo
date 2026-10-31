@@ -25,7 +25,7 @@ export class ExtensionApiError extends Error {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = await getToken();
-  if (!token) throw new ExtensionApiError(401, "ログインが必要です。");
+  if (!token) throw new ExtensionApiError(401, "サインインが必要です。");
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers: {
@@ -39,7 +39,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     | null;
   if (response.status === 401) {
     await clearToken();
-    throw new ExtensionApiError(401, "ログインが必要です。");
+    throw new ExtensionApiError(401, "サインインが必要です。");
   }
   if (!response.ok) throw new ExtensionApiError(response.status, json?.error?.message ?? "APIへの接続に失敗しました。");
   return json as T;

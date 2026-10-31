@@ -5,6 +5,7 @@ import { webAppPath } from "./config";
 import { trackEvent } from "./analytics";
 import { Icon } from "./icons";
 import { speech, type Voice } from "./speech";
+import { isShortcutIgnoredFor } from "../../web/src/lib/articleShortcuts";
 import { LANGUAGE_NAMES, normalizeLanguage, SUPPORTED_LANGUAGES, translate, type SupportedLanguage } from "../../web/src/lib/messages";
 import {
   baseLanguage,
@@ -270,8 +271,7 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, button, [contenteditable]:not([contenteditable='false'])")) return;
+      if (isShortcutIgnoredFor(event.target as Element | null, event.key)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const key = event.key.toLowerCase();
       if (event.key === "?") {
@@ -311,7 +311,7 @@ export function App() {
       : null;
   const shownError = error ?? reader.error;
 
-  if (!authChecked) return <main className="empty-view">{t("ログイン状態を確認しています…")}</main>;
+  if (!authChecked) return <main className="empty-view">{t("サインイン状態を確認しています…")}</main>;
 
   return (
     <main className="popup">
@@ -324,25 +324,30 @@ export function App() {
             <button className="text-button" onClick={() => void chrome.tabs.create({ url: webAppPath("/articles?readingList=1") })}>
               <Icon name="externalLink" size={14} />{t("Webを開く")}
             </button>
-            <button className="text-button" onClick={() => void signOut()}>{t("ログアウト")}</button>
+            <button className="text-button" onClick={() => void signOut()}>{t("サインアウト")}</button>
           </>
         ) : (
           <button className="text-button" onClick={() => { setAuthError(null); setAuthOpen((open) => !open); }}>
-            {authOpen ? t("閉じる") : t("ログイン")}
+            {authOpen ? t("閉じる") : t("サインイン")}
           </button>
         )}
       </header>
 
       {!isSignedIn && authOpen ? (
         <form className="auth-panel" onSubmit={(event) => { event.preventDefault(); void submitAuth(); }}>
-          <p className="section-label">{authMode === "sign-in" ? t("ログイン") : t("アカウント作成")}</p>
+          <p className="section-label">{authMode === "sign-in" ? t("サインイン") : t("アカウント作成")}</p>
           <input aria-label={t("メールアドレス")} type="email" required autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder={t("メールアドレス")} />
           <input aria-label={t("パスワード")} type="password" required minLength={8} autoComplete={authMode === "sign-in" ? "current-password" : "new-password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder={t("8文字以上のパスワード")} />
-          <button className="button button-primary" disabled={authBusy} type="submit">{authBusy ? t("処理中…") : authMode === "sign-in" ? t("ログイン") : t("登録")}</button>
+          <button className="button button-primary" disabled={authBusy} type="submit">{authBusy ? t("処理中…") : authMode === "sign-in" ? t("サインイン") : t("登録")}</button>
           {authError ? <p className="message message-error">{t(authError)}</p> : null}
           <button className="text-button auth-switch" type="button" onClick={() => { setAuthError(null); setAuthMode(authMode === "sign-in" ? "sign-up" : "sign-in"); }}>
-            {authMode === "sign-in" ? t("アカウントを作成") : t("ログインへ戻る")}
+            {authMode === "sign-in" ? t("アカウントを作成") : t("サインインへ戻る")}
           </button>
+          {authMode === "sign-in" ? (
+            <button className="text-button auth-switch" type="button" onClick={() => void chrome.tabs.create({ url: webAppPath("/forgot-password") })}>
+              {t("パスワードをお忘れですか？")}
+            </button>
+          ) : null}
         </form>
       ) : null}
 
