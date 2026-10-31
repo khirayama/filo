@@ -263,6 +263,7 @@ fun FiloHeader(
     modifier: Modifier = Modifier,
     lead: HeaderLead = HeaderLead.None,
     onLead: () -> Unit = {},
+    onClose: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val colors = Filo.colors
@@ -280,6 +281,7 @@ fun FiloHeader(
             HeaderLead.Back -> FiloIconButton(FiloIconName.Back, tr("戻る"), onLead)
             HeaderLead.None -> Unit
         }
+        onClose?.let { FiloIconButton(FiloIconName.Close, tr("閉じる"), it) }
         Text(
             title,
             style = MaterialTheme.typography.titleLarge,

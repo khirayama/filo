@@ -12,6 +12,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,7 @@ import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
@@ -95,6 +97,8 @@ class ReadingPlayerController(
     var index by mutableStateOf(-1)
         private set
     var isLoading by mutableStateOf(false)
+        private set
+    var isReadingListLoading by mutableStateOf(false)
         private set
     var isPlaying by mutableStateOf(false)
         private set
@@ -133,6 +137,8 @@ class ReadingPlayerController(
     private var speechLanguage: String? = null
     private var playbackKind = CaptureKind.Page
     private var autoplayWhenReady = false
+    private var startSession = 0
+    private var settingsLoad: Job? = null
     private var nextCaptureId = 0L
     private var playbackGeneration = 0
     private var playbackArticleId: Int? = null
@@ -171,56 +177,87 @@ class ReadingPlayerController(
         }
     }
 
+    // The page never waits for the API: a known URL opens at once, and a list
+    // session opens as soon as its first unread article is known. Later pages
+    // only extend the list.
     suspend fun start(
         autoplay: Boolean,
         temporaryUrl: String? = null,
         article: ReadingSessionArticle? = null,
     ) {
-        if (isLoading) return
+        val session = ++startSession
         pause()
         dismissMedia()
-        isLoading = true
         errorMessage = null
         autoplayWhenReady = autoplay
         removedReadingListArticleIds = emptySet()
-        runCatching {
-            runCatching { ApiClient.getSettings() }.getOrNull()?.let { applyLanguage(it.language) }
-            if (article != null) {
-                items = listOf(
-                    ReadingSessionItem(
-                        articleId = article.id,
-                        sortOrder = 0,
-                        article = article,
-                    ),
-                )
-                index = 0
-                readingListItems = runCatching { loadReadingList() }.getOrDefault(emptyList())
-            } else if (temporaryUrl != null) {
-                readingListItems = runCatching { loadReadingList() }.getOrDefault(emptyList())
-                items = listOf(
-                    ReadingSessionItem(
-                        articleId = 0,
-                        sortOrder = 0,
-                        article = ReadingSessionArticle(
-                            id = 0,
-                            title = temporaryUrl,
-                            sourceLanguage = null,
-                            canonicalUrl = temporaryUrl,
-                            feedTitle = AppStrings.get("共有ページ"),
-                        ),
-                    ),
-                )
-                index = 0
-            } else {
-                val readingList = loadReadingList()
-                items = readingList
-                readingListItems = readingList
-                index = items.indexOfFirst { !it.isRead }
-                if (index < 0) errorMessage = AppText("未読の記事がありません。")
+        readingListItems = emptyList()
+        isReadingListLoading = true
+        settingsLoad = scope.launch {
+            runCatching { ApiClient.getSettings() }.getOrNull()?.let {
+                if (session == startSession) applyLanguage(it.language)
             }
+        }
+        val directItem = when {
+            article != null -> ReadingSessionItem(
+                articleId = article.id,
+                sortOrder = 0,
+                article = article,
+            )
+            temporaryUrl != null -> ReadingSessionItem(
+                articleId = 0,
+                sortOrder = 0,
+                article = ReadingSessionArticle(
+                    id = 0,
+                    title = temporaryUrl,
+                    sourceLanguage = null,
+                    canonicalUrl = temporaryUrl,
+                    feedTitle = AppStrings.get("共有ページ"),
+                ),
+            )
+            else -> null
+        }
+        var opened = directItem != null
+        if (directItem != null) {
+            items = listOf(directItem)
+            index = 0
             resetPage()
-        }.onFailure { errorMessage = AppText("リーディングリストを開始できませんでした。") }
+        } else {
+            items = emptyList()
+            index = -1
+            isLoading = true
+        }
+        runCatching {
+            loadReadingList(session) { pageItems ->
+                readingListItems = readingListItems.plusNew(pageItems)
+                if (directItem == null) items = items.plusNew(pageItems)
+                if (!opened) {
+                    index = items.indexOfFirst { !it.isRead }
+                    if (index >= 0) {
+                        opened = true
+                        resetPage()
+                        isLoading = false
+                    }
+                }
+                matchPageToReadingList()
+            }
+        }.onFailure {
+            if (!opened && session == startSession) errorMessage = AppText("リーディングリストを開始できませんでした。")
+        }
+        if (session != startSession) return
+        if (!opened && errorMessage == null) errorMessage = AppText("未読の記事がありません。")
         isLoading = false
+        isReadingListLoading = false
+    }
+
+    // Links the shown page to its reading-list article. The list can arrive
+    // after the page has loaded.
+    private fun matchPageToReadingList() {
+        val url = page.url ?: return
+        if (page.articleId != null) return
+        val match = readingListItems.firstOrNull { sameArticleUrl(it.article.canonicalUrl, url) } ?: return
+        page.saved(url, page.version, match.articleId)
+        if (playbackKind == CaptureKind.Page && (isPlaying || isPreparing)) playbackArticleId = match.articleId
     }
 
     fun pageLoading() {
@@ -233,10 +270,7 @@ class ReadingPlayerController(
     fun pageLoaded(url: String?, title: String?) {
         page.loaded(url, currentItem?.articleId)
         pageTitle = title
-        if (page.articleId == null) {
-            val match = readingListItems.firstOrNull { sameArticleUrl(it.article.canonicalUrl, page.url) }
-            if (match != null && page.url != null) page.saved(page.url!!, page.version, match.articleId)
-        }
+        matchPageToReadingList()
         isPageLoaded = true
         if (autoplayWhenReady) {
             autoplayWhenReady = false
@@ -313,6 +347,9 @@ class ReadingPlayerController(
         playbackKind = kind
         val generation = playbackGeneration
         scope.launch {
+            // The reading language comes from the settings that start() loads beside the page.
+            settingsLoad?.join()
+            if (generation != playbackGeneration) return@launch
             val identifier = LanguageIdentification.getClient()
             val detected = try {
                 identifier.identifyLanguage(source.take(3000)).awaitReading().takeUnless { it == "und" }
@@ -457,28 +494,37 @@ class ReadingPlayerController(
         }
     }
 
-    private suspend fun loadReadingList(): List<ReadingSessionItem> {
-        val result = mutableListOf<ReadingSessionItem>()
+    private suspend fun loadReadingList(session: Int, onPage: (List<ReadingSessionItem>) -> Unit) {
+        var count = 0
         var cursor: String? = null
         do {
             val page = ApiClient.listArticles(ArticleListFilters(readingList = true), cursor, 100)
-            page.articles.forEach { article ->
-                result += ReadingSessionItem(
-                    articleId = article.id,
-                    sortOrder = result.size,
-                    article = ReadingSessionArticle(
-                        id = article.id,
-                        title = article.title,
-                        sourceLanguage = article.sourceLanguage,
-                        canonicalUrl = article.canonicalUrl,
-                        feedTitle = article.feedTitle,
-                    ),
-                    isRead = article.userState.isRead,
-                )
-            }
+            if (session != startSession) return
+            val first = count
+            count += page.articles.size
+            onPage(
+                page.articles.mapIndexed { offset, article ->
+                    ReadingSessionItem(
+                        articleId = article.id,
+                        sortOrder = first + offset,
+                        article = ReadingSessionArticle(
+                            id = article.id,
+                            title = article.title,
+                            sourceLanguage = article.sourceLanguage,
+                            canonicalUrl = article.canonicalUrl,
+                            feedTitle = article.feedTitle,
+                        ),
+                        isRead = article.userState.isRead,
+                    )
+                },
+            )
             cursor = page.nextCursor
         } while (cursor != null)
-        return result
+    }
+
+    private fun List<ReadingSessionItem>.plusNew(other: List<ReadingSessionItem>): List<ReadingSessionItem> {
+        val known = mapTo(mutableSetOf()) { it.articleId }
+        return this + other.filter { it.articleId !in known }
     }
 
     fun shutdown() {
@@ -623,6 +669,12 @@ private suspend fun <T> Task<T>.awaitReading(): T = suspendCancellableCoroutine 
     addOnFailureListener { continuation.resumeWithException(it) }
 }
 
+// The WebView's page history, for the header and the system back gesture.
+private class ReadingPageHistory {
+    var canGoBack by mutableStateOf(false)
+    var goBack: () -> Unit = {}
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingSessionScreen(
@@ -636,9 +688,12 @@ fun ReadingSessionScreen(
     var showReadingSettings by remember { mutableStateOf(false) }
     var showShortcutHelp by remember { mutableStateOf(false) }
     var pageEditing by remember(player.browserPageId) { mutableStateOf(false) }
+    val history = remember(player.browserPageId) { ReadingPageHistory() }
     val context = LocalContext.current
     val busy = player.isPlaying || player.isPreparing
     LaunchedEffect(autoplay, temporaryUrl, directArticle) { player.start(autoplay, temporaryUrl, directArticle) }
+    // Back walks the page history first; the first page closes the screen.
+    BackHandler(enabled = history.canGoBack) { history.goBack() }
 
     Column(
         modifier = Modifier
@@ -694,7 +749,8 @@ fun ReadingSessionScreen(
         FiloHeader(
             title = player.currentItem?.article?.title ?: tr("リーディングリスト"),
             lead = HeaderLead.Back,
-            onLead = onBack,
+            onLead = { if (history.canGoBack) history.goBack() else onBack() },
+            onClose = onBack.takeIf { history.canGoBack },
         ) {
             FiloIconButton(
                 if (busy) FiloIconName.Pause else FiloIconName.Play,
@@ -713,6 +769,7 @@ fun ReadingSessionScreen(
                 currentItem != null && currentUrl != null -> ReadingWebView(
                     url = currentUrl,
                     pageId = player.browserPageId,
+                    history = history,
                     captureRequest = player.captureRequest,
                     pageLoaded = player.isPageLoaded,
                     onPageLoading = player::pageLoading,
@@ -915,7 +972,11 @@ private fun ReadingListSheet(
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 24.dp)) {
         SheetTitle(tr("リーディングリスト"))
         if (player.visibleReadingListItems.isEmpty()) {
-            FiloEmptyState(tr("リーディングリストに記事がありません。"), FiloIconName.Playlist)
+            if (player.isReadingListLoading) {
+                FiloSpinner()
+            } else {
+                FiloEmptyState(tr("リーディングリストに記事がありません。"), FiloIconName.Playlist)
+            }
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -977,6 +1038,7 @@ private fun ReadingListSheet(
 private fun ReadingWebView(
     url: String,
     pageId: Int,
+    history: ReadingPageHistory,
     captureRequest: ReadingCaptureRequest?,
     pageLoaded: Boolean,
     onPageLoading: () -> Unit,
@@ -998,9 +1060,13 @@ private fun ReadingWebView(
                 settings.domStorageEnabled = true
                 isVerticalScrollBarEnabled = true
                 overScrollMode = WebView.OVER_SCROLL_IF_CONTENT_SCROLLS
+                history.goBack = ::goBack
                 addJavascriptInterface(SelectionBridge(onSelectionChanged, onEditingChanged, onPageLocationChanged), "FiloReader")
                 webViewClient = object : WebViewClient() {
                     private var navigationVersion = 0
+                    override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                        history.canGoBack = view.canGoBack()
+                    }
                     override fun onPageStarted(view: WebView, startedUrl: String?, favicon: android.graphics.Bitmap?) {
                         navigationVersion += 1
                         onPageLoading()
