@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from "react-router-dom";
 import type { Subscription } from "../api/types";
 import { groupSubscriptionsByTag } from "../lib/grouping";
@@ -25,6 +25,32 @@ function isDrawerHistoryEntry(location: ReturnType<typeof useLocation>): boolean
 }
 
 const DRAWER_ANIMATION_MS = 200;
+
+// Every screen mounts its own shell, so what the sidebar remembers lives
+// outside it: opening a feed must not collapse its group or scroll back up.
+const SIDEBAR_EXPANDED_KEY = "filo:sidebar-expanded";
+let sidebarScrollTop = 0;
+const rememberSidebarScroll = (event: UIEvent<HTMLElement>) => { sidebarScrollTop = event.currentTarget.scrollTop; };
+const restoreSidebarScroll = (element: HTMLElement | null) => { if (element) element.scrollTop = sidebarScrollTop; };
+
+type SidebarGroupKey = number | "untagged";
+
+function loadExpandedGroups(): Set<SidebarGroupKey> {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(SIDEBAR_EXPANDED_KEY) ?? "[]");
+    return new Set(Array.isArray(stored) ? stored.filter((key): key is SidebarGroupKey => typeof key === "number" || key === "untagged") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function storeExpandedGroups(groups: Set<SidebarGroupKey>): void {
+  try {
+    localStorage.setItem(SIDEBAR_EXPANDED_KEY, JSON.stringify([...groups]));
+  } catch {
+    // Still expanded for this visit.
+  }
+}
 
 // Every signed-in screen shares one header: an optional back button (task
 // screens), the title, and trailing actions. On mobile the header is the app
@@ -154,6 +180,8 @@ export function AppShell({
     return (
       <div style={{ minHeight: "100vh" }}>
         <aside
+          ref={restoreSidebarScroll}
+          onScroll={rememberSidebarScroll}
           aria-label={t("サイドバー")}
           className="fl-sidebar"
           style={{
@@ -210,6 +238,8 @@ export function AppShell({
             }}
           />
           <aside
+            ref={restoreSidebarScroll}
+            onScroll={rememberSidebarScroll}
             aria-label={t("サイドバー")}
             data-filo-drawer-panel="true"
             className="fl-sidebar"
@@ -265,15 +295,14 @@ function AddMenu() {
 
 function SidebarNav({ trailing }: { trailing?: ReactNode }) {
   const { tags, subscriptions, unreadCounts, t } = useAppData();
-  const [expandedTags, setExpandedTags] = useState<Set<number | "untagged">>(new Set());
+  const [expandedTags, setExpandedTags] = useState(loadExpandedGroups);
 
-  const toggleExpand = (key: number | "untagged") => {
-    setExpandedTags((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const toggleExpand = (key: SidebarGroupKey) => {
+    const next = new Set(expandedTags);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setExpandedTags(next);
+    storeExpandedGroups(next);
   };
 
   const groups = groupSubscriptionsByTag(tags, subscriptions);
@@ -318,10 +347,10 @@ function SidebarNav({ trailing }: { trailing?: ReactNode }) {
               {group.tag !== undefined ? (
                 <SidebarRowLink to={`/articles?tagId=${group.tag.id}`} label={label} count={unreadCount} />
               ) : (
-                <span className="fl-nav-row" style={{ color: "var(--fl-muted)" }}>
+                <button type="button" className="fl-nav-row" style={{ color: "var(--fl-muted)" }} aria-expanded={expanded} aria-controls={groupId} onClick={() => toggleExpand(group.key)}>
                   <span className="fl-nav-label">{label}</span>
                   {unreadCount > 0 ? <span className="fl-nav-count">{unreadCount}</span> : null}
-                </span>
+                </button>
               )}
             </div>
             {expanded ? (
@@ -351,14 +380,31 @@ function useIsActive(to: string): boolean {
   const [path, query] = to.split("?");
   if (location.pathname !== path) return false;
   const target = new URLSearchParams(query ?? "");
-  const keys = ["read", "readingList", "bookmarked", "tagId"];
+  const keys = ["readingList", "bookmarked", "tagId"];
   return keys.every((key) => (target.get(key) ?? null) === (searchParams.get(key) ?? null));
+}
+
+// Switching between article views keeps the read filter and order, as the
+// iOS and Android apps do.
+function useArticleViewHref(to: string): string {
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const [path, query] = to.split("?");
+  if (path !== "/articles" || location.pathname !== "/articles") return to;
+  const next = new URLSearchParams(query ?? "");
+  for (const key of ["read", "sort", "readOrder"]) {
+    const value = searchParams.get(key);
+    if (value !== null) next.set(key, value);
+  }
+  const search = next.toString();
+  return search ? `${path}?${search}` : path;
 }
 
 function SidebarLink({ to, icon, label, count }: { to: string; icon: IconName; label: string; count?: number }) {
   const active = useIsActive(to);
+  const href = useArticleViewHref(to);
   return (
-    <Link to={to} aria-current={active ? "page" : undefined} className="fl-nav-row">
+    <Link to={href} aria-current={active ? "page" : undefined} className="fl-nav-row">
       <span className="fl-nav-icon"><Icon name={icon} size={16} /></span>
       <span className="fl-nav-label">{label}</span>
       {count ? <span className="fl-nav-count">{count}</span> : null}
@@ -368,8 +414,9 @@ function SidebarLink({ to, icon, label, count }: { to: string; icon: IconName; l
 
 function SidebarRowLink({ to, label, count }: { to: string; label: string; count?: number }) {
   const active = useIsActive(to);
+  const href = useArticleViewHref(to);
   return (
-    <Link to={to} aria-current={active ? "page" : undefined} className="fl-nav-row">
+    <Link to={href} aria-current={active ? "page" : undefined} className="fl-nav-row">
       <span className="fl-nav-label">{label}</span>
       {count ? <span className="fl-nav-count">{count}</span> : null}
     </Link>

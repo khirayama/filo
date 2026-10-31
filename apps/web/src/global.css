@@ -250,6 +250,15 @@ textarea {
   background: var(--fl-hover);
 }
 
+button.fl-nav-row {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+}
+
 .fl-nav-row[aria-current="page"] {
   background: var(--fl-accent-soft);
   font-weight: 600;
