@@ -3,6 +3,7 @@ import { useApi } from "../api/useApi";
 import type { Tag } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
+import { useDialogs } from "../components/Dialogs";
 import {
   Button,
   EmptyState,
@@ -18,6 +19,7 @@ export function TagsPage() {
   const api = useApi();
   const appData = useAppData();
   const { t, language } = appData;
+  const { confirm } = useDialogs();
   // Local copy allows optimistic reordering; refreshed from context after
   // every successful mutation.
   const [tags, setTags] = useState<Tag[]>(appData.tags);
@@ -79,7 +81,12 @@ export function TagsPage() {
   };
 
   const remove = async (tag: Tag) => {
-    if (!window.confirm(t("タグ「{name}」を削除しますか？購読は削除されません。", { name: tag.name }))) return;
+    const confirmed = await confirm({
+      title: t("タグ「{name}」を削除しますか？購読は削除されません。", { name: tag.name }),
+      confirmLabel: t("削除"),
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       await api.deleteTag(tag.id);
       await load();
@@ -127,14 +134,14 @@ export function TagsPage() {
               {t("追加")}
             </Button>
           </form>
-          {error ? <ErrorBox message={error} onRetry={() => void load()} /> : null}
+          {error ? <ErrorBox message={error} onRetry={() => { setError(null); void load(); }} /> : null}
           {loading ? (
             <Spinner />
           ) : tags.length === 0 ? (
             <EmptyState icon="tag">{t("タグがありません。上の入力欄から作成できます。")}</EmptyState>
           ) : (
             <ul className="fl-list" style={{ borderTop: `1px solid ${palette.mutedBorder}` }}>
-              {tags.map((tag) => (
+              {tags.map((tag, index) => (
                 <li key={tag.id} className="fl-list-row fl-reveal-host" style={{ padding: "8px 0 8px 4px" }}>
                   {editingTag?.id === tag.id ? (
                     <form
@@ -186,8 +193,8 @@ export function TagsPage() {
                         </span>
                       </div>
                       <div className="fl-reveal" style={{ alignItems: "center", display: "flex", gap: "2px" }}>
-                        <IconButton icon="chevronUp" label={t("上へ")} size={16} onClick={() => void move(tag.id, -1)} />
-                        <IconButton icon="chevronDown" label={t("下へ")} size={16} onClick={() => void move(tag.id, 1)} />
+                        <IconButton icon="chevronUp" label={t("上へ")} size={16} disabled={index === 0} onClick={() => void move(tag.id, -1)} />
+                        <IconButton icon="chevronDown" label={t("下へ")} size={16} disabled={index === tags.length - 1} onClick={() => void move(tag.id, 1)} />
                         <IconButton icon="pencil" label={t("編集")} size={16} onClick={() => startEdit(tag)} />
                         <IconButton icon="trash" label={t("削除")} size={16} danger onClick={() => void remove(tag)} />
                       </div>

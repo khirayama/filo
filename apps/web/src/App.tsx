@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppDataProvider, useAppData } from "./components/AppDataContext";
+import { DialogsProvider } from "./components/Dialogs";
 import { TitleTranslationProvider } from "./components/TitleTranslationContext";
 import { TitleTranslationSetup } from "./components/TitleTranslationSetup";
 import { AccountDeletionPage } from "./screens/AccountDeletionPage";
@@ -122,6 +123,7 @@ export function App() {
       <RouteScrollManager />
       <AppDataProvider>
       <TitleTranslationProvider>
+      <DialogsProvider>
       <Routes>
         <Route path="/" element={<RootRedirect />} />
         <Route
@@ -171,6 +173,7 @@ export function App() {
       </Routes>
       {/* 翻訳の準備はアプリ全体で 1 箇所。どのトグルからでも開ける */}
       <TitleTranslationSetup />
+      </DialogsProvider>
       </TitleTranslationProvider>
       </AppDataProvider>
     </BrowserRouter>

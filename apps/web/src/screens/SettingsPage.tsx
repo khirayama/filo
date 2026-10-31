@@ -5,6 +5,7 @@ import { useApi } from "../api/useApi";
 import type { OpmlImportJob, Settings } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
+import { useDialogs } from "../components/Dialogs";
 import { useTitleTranslation } from "../components/TitleTranslationContext";
 import {
   Badge,
@@ -12,7 +13,6 @@ import {
   ErrorBox,
   FilterChip,
   Spinner,
-  Switch,
   palette,
 } from "../components/ui";
 import { errorMessage, LANGUAGE_NAMES, SUPPORTED_LANGUAGES } from "../lib/messages";
@@ -23,6 +23,7 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const { settings, loading, error: loadError, refresh, setSettings, language, t } = useAppData();
   const { supported: translationSupported, setShowSetup } = useTitleTranslation();
+  const { confirm } = useDialogs();
   const [error, setError] = useState<string | null>(null);
   const [importJob, setImportJob] = useState<OpmlImportJob | null>(null);
   const [importing, setImporting] = useState(false);
@@ -106,7 +107,13 @@ export function SettingsPage() {
   };
 
   const deleteAccount = async () => {
-    if (!window.confirm(t("アカウントを削除しますか？この操作は取り消せません。"))) return;
+    const confirmed = await confirm({
+      title: t("アカウントを削除しますか？"),
+      message: t("この操作は取り消せません。"),
+      confirmLabel: t("削除する"),
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       const accepted = await api.deleteAccount();
       sessionStorage.setItem("filo:deletionToken", accepted.deletionToken);
@@ -161,13 +168,6 @@ export function SettingsPage() {
                     <option value="published_at_desc">{t("公開日時が新しい順")}</option>
                     <option value="fetched_at_desc">{t("取得日時が新しい順")}</option>
                   </select>
-                </SettingRow>
-                <SettingRow label={t("リンクを常にブラウザで開く")} htmlFor="setting-open-in-browser" inline>
-                  <Switch
-                    id="setting-open-in-browser"
-                    checked={settings.openInBrowserByDefault}
-                    onChange={(checked) => void update({ openInBrowserByDefault: checked })}
-                  />
                 </SettingRow>
               </SettingSection>
 
@@ -242,12 +242,6 @@ export function SettingsPage() {
                     )}
                   </div>
                 ) : null}
-              </SettingSection>
-
-              <SettingSection title={t("既読履歴について")}>
-                <p className="fl-card-row" style={{ color: palette.muted, fontSize: "13px", lineHeight: 1.6, margin: 0 }}>
-                  {t("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。")}
-                </p>
               </SettingSection>
 
               <SettingSection title={t("セッション")}>

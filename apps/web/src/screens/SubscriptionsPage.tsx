@@ -4,6 +4,7 @@ import { useApi } from "../api/useApi";
 import type { Subscription, Tag } from "../api/types";
 import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
+import { useDialogs } from "../components/Dialogs";
 import { SubscriptionHealth } from "../components/SubscriptionHealth";
 import { TagPicker } from "../components/TagPicker";
 import {
@@ -25,6 +26,7 @@ export function SubscriptionsPage() {
   const isDesktop = useIsDesktop();
   const appData = useAppData();
   const { t, language } = appData;
+  const { prompt } = useDialogs();
   // Local copies allow optimistic reordering; the context stays the source
   // of truth and is refreshed after every successful mutation.
   const [subscriptions, setSubscriptions] = useState<Subscription[]>(appData.subscriptions);
@@ -66,7 +68,7 @@ export function SubscriptionsPage() {
   };
 
   const renameTag = async (tag: Tag) => {
-    const name = window.prompt(t("タグ名を変更"), tag.name);
+    const name = await prompt({ title: t("タグ名を変更"), initialValue: tag.name, confirmLabel: t("変更") });
     if (!name || name === tag.name) return;
     try {
       await api.updateTag(tag.id, { name });
@@ -128,10 +130,13 @@ export function SubscriptionsPage() {
       }
     >
       <main className="fl-page fl-page--narrow">
+        {error ? (
+          <div style={{ marginBottom: "16px" }}>
+            <ErrorBox message={error} onRetry={() => { setError(null); void load(); }} />
+          </div>
+        ) : null}
         {loading ? (
           <Spinner />
-        ) : error ? (
-          <ErrorBox message={error} onRetry={() => void load()} />
         ) : subscriptions.length === 0 ? (
           <EmptyState icon="rss">
             <p>{t("まだ購読がありません。")}</p>
@@ -183,20 +188,22 @@ export function SubscriptionsPage() {
                     </div>
                     {group.tag ? (
                       <div className="fl-reveal" style={{ display: "flex", gap: "2px" }}>
-                        <IconButton icon="chevronUp" label={t("タグを上へ")} size={16} onClick={() => void moveTag(group.tag!.id, -1)} />
-                        <IconButton icon="chevronDown" label={t("タグを下へ")} size={16} onClick={() => void moveTag(group.tag!.id, 1)} />
+                        <IconButton icon="chevronUp" label={t("タグを上へ")} size={16} disabled={tags[0]?.id === group.tag.id} onClick={() => void moveTag(group.tag!.id, -1)} />
+                        <IconButton icon="chevronDown" label={t("タグを下へ")} size={16} disabled={tags[tags.length - 1]?.id === group.tag.id} onClick={() => void moveTag(group.tag!.id, 1)} />
                         <IconButton icon="pencil" label={t("名前変更")} size={16} onClick={() => void renameTag(group.tag!)} />
                       </div>
                     ) : null}
                   </div>
                   {!collapsed ? (
                     <ul id={`subscription-group-items-${String(group.key)}`} className="fl-list">
-                      {group.items.map((subscription) => (
+                      {group.items.map((subscription, index) => (
                         <SubscriptionRow
                           key={subscription.id}
                           subscription={subscription}
                           allTags={tags}
                           busy={busy}
+                          isFirst={index === 0}
+                          isLast={index === group.items.length - 1}
                           onMoveUp={() => void moveSubscription(subscription.id, -1, group.items)}
                           onMoveDown={() => void moveSubscription(subscription.id, 1, group.items)}
                           onTagsChange={(tagIds) => void updateSubscriptionTags(subscription.id, tagIds)}
@@ -218,6 +225,8 @@ function SubscriptionRow({
   subscription,
   allTags,
   busy,
+  isFirst,
+  isLast,
   onMoveUp,
   onMoveDown,
   onTagsChange,
@@ -225,6 +234,8 @@ function SubscriptionRow({
   subscription: Subscription;
   allTags: Tag[];
   busy: boolean;
+  isFirst: boolean;
+  isLast: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onTagsChange: (tagIds: number[]) => void;
@@ -261,8 +272,8 @@ function SubscriptionRow({
           selectedIds={subscription.tagIds}
           onToggle={toggleTag}
         />
-        <IconButton icon="chevronUp" label={t("上へ")} size={16} disabled={busy} onClick={onMoveUp} />
-        <IconButton icon="chevronDown" label={t("下へ")} size={16} disabled={busy} onClick={onMoveDown} />
+        <IconButton icon="chevronUp" label={t("上へ")} size={16} disabled={busy || isFirst} onClick={onMoveUp} />
+        <IconButton icon="chevronDown" label={t("下へ")} size={16} disabled={busy || isLast} onClick={onMoveDown} />
       </div>
     </li>
   );
