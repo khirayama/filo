@@ -1,5 +1,6 @@
 package com.filo.app.ui
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -108,7 +110,9 @@ fun SidebarNav(
     onOpenSettings: () -> Unit,
 ) {
     val colors = Filo.colors
-    var expandedTags by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    val context = LocalContext.current
+    // The drawer's content can leave composition; what is expanded outlives it.
+    var expandedTags by remember { mutableStateOf(loadExpandedGroups(context)) }
     var addMenuOpen by remember { mutableStateOf(false) }
     val onArticles = activeRoute == "articles"
     val allArticles = onArticles && selectedTagId == null && !readingListOnly && !bookmarkedOnly
@@ -190,7 +194,10 @@ fun SidebarNav(
                 count = items.sumOf { it.unreadCount },
                 expanded = expanded,
                 active = onArticles && tag != null && selectedTagId == tag.id,
-                onToggle = { expandedTags = if (expanded) expandedTags - key else expandedTags + key },
+                onToggle = {
+                    expandedTags = if (expanded) expandedTags - key else expandedTags + key
+                    storeExpandedGroups(context, expandedTags)
+                },
                 onClick = tag?.let { { onSelectView(it.id, false, false) } },
             )
             if (expanded) {
@@ -212,6 +219,15 @@ fun SidebarNav(
         NavRow(tr("処理ステータス"), FiloIconName.Activity, active = activeRoute == "status", onClick = onOpenStatus)
         NavRow(tr("設定"), FiloIconName.Gear, active = activeRoute == "settings", onClick = onOpenSettings)
     }
+}
+
+private fun sidebarPrefs(context: Context) = context.getSharedPreferences("filo_sidebar", Context.MODE_PRIVATE)
+
+private fun loadExpandedGroups(context: Context): Set<Int> =
+    sidebarPrefs(context).getString("expanded", "").orEmpty().split(",").mapNotNull { it.toIntOrNull() }.toSet()
+
+private fun storeExpandedGroups(context: Context, groups: Set<Int>) {
+    sidebarPrefs(context).edit().putString("expanded", groups.joinToString(",")).apply()
 }
 
 // Rows are 40dp for touch (web rows are 32px for the pointer); labels of every
@@ -286,7 +302,8 @@ private fun NavGroupRow(
     onToggle: () -> Unit,
     onClick: (() -> Unit)?,
 ) {
-    Box(navRowModifier(active, onClick)) {
+    // The untagged group has no list of its own: the whole row expands.
+    Box(navRowModifier(active, onClick ?: onToggle)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
