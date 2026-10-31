@@ -36,6 +36,7 @@
     "wrangler": "^4.152.0"
   },
   "overrides": {
-    "@huggingface/transformers": { "sharp": "^0.35.5" }
+    "@huggingface/transformers": { "sharp": "^0.35.5" },
+    "minimatch": "^11.0.3"
   }
 }
