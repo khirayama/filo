@@ -85,7 +85,7 @@ feed fetch:
   - 最新記事からの経過時間の半分を下限として併用する（更新が途絶えた feed を旧ペースで叩き続けない。朝にまとめて投稿する feed が終日 `60m` で叩かれるのも同時に防ぐ）
   - `published_at` を持つ記事が `4` 件未満でペースを判定できない場合のみ、`success` は `now+60m`、`not_modified` は `now+120m` にフォールバックする
 - `error` の `next_fetch_after` backoff は `60m -> 360m -> 1440m`
-- `3` 回連続 `error` で `feeds.status=paused` に遷移し、admin が戻すまで refresh 対象から外れる
+- `3` 回連続 `error` で `feeds.status=paused` に遷移し、利用者の単体更新（`POST /status/refresh/{feedId}`）か admin が戻すまで一括 refresh の対象から外れる
 - `feedHealthStatus`: `paused` は `feeds.status=paused`、`stale` は `last_success_fetched_at` が `72h` を超過した active feed、`healthy` はそれ以外
 - `feed_fetch_states` 未作成または `last_success_fetched_at IS NULL` の新規購読は、`initial_fetch_status=fetching` の間 `healthy` として扱う
 - `stale` は更新異常の断定ではなく「しばらく更新がない」通知として扱い、user-facing copy もそれに合わせる
@@ -131,7 +131,7 @@ cron（毎時）は due な active feed の refresh、失敗した account delet
 
 ユーザー起点の fetch は enqueue 前に `feed_jobs`（`user_id + feed_id`）へ `pending` 行を記録し、worker が `running -> completed | failed` へ確定する。status 画面はこのジョブ状態を購読行ごとに可視化する。
 
-- 起動経路は 3 つだけ: 新規購読（`initial`）、手動更新（`refresh`）、初回失敗リトライ（`retry_initial`）
+- 起動経路は 4 つだけ: 新規購読（`initial`）、手動更新（`refresh`）、初回失敗リトライ（`retry_initial`）、停止中 feed の単体更新（`manual_recovery`）
 - `feedId` 単位で実行する。1 メッセージがその feed を待つ全ユーザーの行を確定させる
 - `http_etag` / `http_last_modified` による条件付き fetch を行う
 - 新着記事は `feed_id + dedupe_key` で upsert する
@@ -216,7 +216,7 @@ Workers Free では row read / row write の日次上限（`500万` / `10万`）
 2. `GET /api/v1/admin/feeds/{feedId}/logs` で fetch log を確認する。
 3. feed URL の到達性、HTTP status、redirect、SSRF 拒否、parser error を切り分ける。
 4. 一時障害なら `next_fetch_after` を調整して再試行する。
-5. `3` 回連続失敗で `paused` になった feed は、原因解消後に `PATCH /api/v1/admin/feeds/{feedId}` で `active` に戻す。
+5. `3` 回連続失敗で `paused` になった feed は、原因解消後に利用者の「更新を再開」か `PATCH /api/v1/admin/feeds/{feedId}` で `active` に戻す。
 6. failed subscription の user retry で復旧した場合は、`feeds.status` と `consecutive_failures` の回復も確認する。
 
 ### OPML import failures

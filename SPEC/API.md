@@ -156,7 +156,7 @@ Returns current user's settings.
 - `subscription.feed.language`: サーバーが決めた feed の言語（`null` になりうる）。クライアントは購読全体の distinct な言語を翻訳の準備画面の候補に使う
 - `readableLanguages`: optional, 表示言語としてサポートする `ja | en | zh | ko | es` の配列。ユーザーが原文のまま読みたい言語。クライアントは端末内翻訳の対象をこの配列で絞り込む（判定した原文言語が含まれる記事は翻訳しない）。`sourceLanguage` 自体は他の言語コードも返りうる
 - `articleSortOrder`: optional, `published_at_desc | fetched_at_desc`
-- `openInBrowserByDefault`: optional boolean
+- `openInBrowserByDefault`: optional boolean。アプリ内ブラウザを持つ iOS / Android だけが使う。Web は常に新しいタブで開くため、この設定を表示しない
 
 ## Subscriptions
 
@@ -198,7 +198,7 @@ Returns current user's settings.
 ### POST /api/v1/subscriptions
 
 - request: `feedUrl`, `customTitle`, `tagIds`, `tagNames`
-- `feedUrl` は RSS/Atom URL またはサイト URL を受け付ける
+- `feedUrl` は RSS/Atom URL またはサイト URL を受け付ける。スキームがない入力（`example.com`）は `https://` を補う
 - サイト URL の場合は feed discovery を先に実行し、確定した feed URL を canonical lookup key とする
 - successful response は subscription 作成完了のみを保証し、初回 article fetch 完了は保証しない
 - 初回 article fetch は非同期 job で後続実行してよく、作成直後の一覧が空でも整合とみなす
@@ -246,8 +246,8 @@ Returns a single subscription owned by the current user.
 
 - request: `{ upToArticleId?: number }`（body は省略可）
 - `upToArticleId` 省略時は対象 feed の最大 article id までを既読化する
-- `upToArticleId` 指定時はその article id までを既読化する。client が表示済みの最新記事 id を渡すことで、表示後に取得された記事の誤既読化を避けられる
-- `upToArticleId` が対象 feed の article でない場合は `validation_error`
+- `upToArticleId` 指定時は対象 feed のその id 以下の最大 article id までを既読化する。client は表示中の一覧の `meta.latestArticleId` を渡し、表示後に取得された記事を未読のまま残す
+- `upToArticleId` は 0 以上の整数（それ以外は `validation_error`）。範囲内に article がない場合は何も変更しない
 - カーソルは前進のみとし、現在値より小さい値の要求は no-op（応答は現在のカーソルを返す）
 - カーソル前進に加え、対象範囲内の既存 `article_read_states` の未読 row も既読化する
 - 記事単位の既読・未読操作は従来どおり `PATCH /articles/{articleId}/state` で行い、カーソル既読の記事も未読へ戻せる
@@ -411,14 +411,14 @@ current user のリーディングリストから、実効既読状態のすべ�
 
 ### POST /api/v1/articles/mark-all-read
 
-購読フィード全体（またはタグ配下のフィード群）の一括全既読。対象となる各 feed の既読カーソル（`feed_read_cursors`）をその feed の最大 article id まで前進させる。
+購読フィード全体（またはタグ配下のフィード群）の一括全既読。対象となる各 feed の既読カーソル（`feed_read_cursors`）をその feed の最大 article id（`upToArticleId` 指定時はその id 以下の最大）まで前進させる。
 
-- request: `{ tagId?: number }`（body は省略可）
+- request: `{ tagId?: number, upToArticleId?: number }`（body は省略可）
 - `tagId` 省略時は current user の全購読 feed を対象とする
 - `tagId` 指定時はその tag が付いた subscription の feed のみを対象とする
 - `tagId` が current user から不可視の場合は `tag_not_found`
-- feed ごとの挙動は `POST /subscriptions/{id}/mark-all-read`（`upToArticleId` 省略時）と同じ: カーソルは前進のみ、対象範囲内の既存 `article_read_states` の未読 row も既読化する
-- article が1件もない feed はカーソルを作成しない
+- feed ごとの挙動は `POST /subscriptions/{id}/mark-all-read` と同じ: `upToArticleId` の扱いも同じで、カーソルは前進のみ、対象範囲内の既存 `article_read_states` の未読 row も既読化する
+- 範囲内に article が1件もない feed はカーソルを作成しない
 
 ```json
 {
@@ -641,18 +641,20 @@ the same effective read-state rules as `GET /api/v1/articles?read=false`.
 - current user の購読 feed の fetch job を enqueue する（202）。対象 feed ごとに `feed_jobs` 行を `pending` にする
 - request: `{ force?: boolean }`
 - `force=false` の場合は `nextFetchAfter <= now` かつ `status = active` の feed のみを対象にする（記事一覧の pull-to-refresh 用）。処理ステータス画面の「すべて取得」は `force=true` で全 active feed を対象にする
-- response: `{ accepted, enqueued, skipped, queuedAt }`。`skipped` はクールダウン中で対象外になった active feed 数
+- response: `{ accepted, enqueued, enqueuedFeedIds, skipped, queuedAt }`。`enqueuedFeedIds` は今回投入した feed の ID で、client は完了後にこの feed の `fetchJob.status = failed` を数えて取得失敗を伝える。`skipped` はクールダウン中で対象外になった active feed 数
 - refresh worker は `consecutive_failures` を更新し、`3` 回連続 `error` で `feeds.status=paused` に遷移させる
 - `error` 時の `nextFetchAfter` backoff は `60m -> 360m -> 1440m` とする
 - `success` と `not_modified` は成功扱いとし、`consecutive_failures=0` に reset する
 - `success` / `not_modified` 時の `nextFetchAfter` は feed 自身の投稿ペースから算出する（手動更新の連打防止クールダウンとして扱う）
   - 直近 `20` 件の `published_at` の連続間隔の中央値を基準に `60m`〜`1440m` にクランプし、最新記事からの経過時間の半分を下限として併用する
   - `published_at` を持つ記事が `4` 件未満の場合のみ、`success` は `now+60m`、`not_modified` は `now+120m` にフォールバックする
-- worker は処理開始時に `feed_jobs` を `running`、確定時に `completed | failed` にする。`success/not_modified` は `completed`、fetch error・feed 削除済み・paused skip は `failed` とする
+- worker は処理開始時に `feed_jobs` を `running`、確定時に `completed | failed` にする。`success/not_modified` は `completed`、fetch error・feed 削除済み・一括 refresh の paused skip は `failed` とする
 
 ### POST /api/v1/status/refresh/{feedId}
 
 - 購読中 feed 単体の fetch job を enqueue する（202）。`feed_jobs` 行を `pending` にする
+- response は `POST /status/refresh` と同じ形。処理中のジョブがあれば `enqueued=0, skipped=1` を返す
+- `paused` の feed にも受け付け、user 主導の one-shot recovery として取得する。成功（`not_modified` を含む）すれば `feeds.status=active` に戻し、失敗すれば `paused` のまま job を `failed` にする。一括の `POST /status/refresh` は `paused` feed を含めない
 
 処理ステータス API は本文抽出の手動起点を持たない。本文抽出が必要な場合は `POST /api/v1/articles/{articleId}/content` を使う。
 
@@ -673,7 +675,7 @@ the same effective read-state rules as `GET /api/v1/articles?read=false`.
 - `status`: `active | paused`
 - `paused -> active` に戻す場合は `consecutive_failures=0` とし、`next_fetch_after=now` に更新する
 - `POST /api/v1/status/refresh` の `force=true` は `nextFetchAfter` を無視するが、`paused` feed は含めない
-- `POST /api/v1/subscriptions/{subscriptionId}/retry-initial-fetch` による user 主導の one-shot recovery は admin refresh とは別経路で、failed subscription の自己救済に限って `paused` feed でも許可する
+- `POST /api/v1/subscriptions/{subscriptionId}/retry-initial-fetch` と `POST /api/v1/status/refresh/{feedId}` による user 主導の one-shot recovery は admin refresh とは別経路で、`paused` feed でも許可する
 
 ### GET /api/v1/admin/feeds/{feedId}/logs
 
