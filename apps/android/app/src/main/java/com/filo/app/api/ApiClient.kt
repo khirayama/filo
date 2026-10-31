@@ -176,29 +176,36 @@ object ApiClient {
         val body = JSONObject().put("force", force)
         val result = parseRefreshResult(JSONObject(sendJson("POST", "/api/v1/status/refresh", body)).getJSONObject("data"))
         invalidateCache()
-        if (waitForCompletion) waitForFeedRefresh(result)
-        return result
+        return if (waitForCompletion) result.copy(failed = waitForFeedRefresh(result)) else result
     }
 
     suspend fun refreshFeed(feedId: Int, waitForCompletion: Boolean = false): RefreshResult {
         val result = parseRefreshResult(JSONObject(sendJson("POST", "/api/v1/status/refresh/$feedId", JSONObject())).getJSONObject("data"))
         invalidateCache()
-        if (waitForCompletion) waitForFeedRefresh(result, feedId)
-        return result
+        return if (waitForCompletion) result.copy(failed = waitForFeedRefresh(result, feedId)) else result
     }
 
-    private suspend fun waitForFeedRefresh(result: RefreshResult, feedId: Int? = null) {
-        if (result.enqueued == 0 && result.skipped == 0) return
+    // A background job finished: anything read while it ran is older than its result.
+    fun invalidateFeedData() = invalidateCache()
+
+    // Returns how many of the feeds this refresh asked for failed.
+    private suspend fun waitForFeedRefresh(result: RefreshResult, feedId: Int? = null): Int {
+        if (result.enqueued == 0 && result.skipped == 0) return 0
         try {
             repeat(11) { attempt ->
                 val status = parseStatusOverview(getData("/api/v1/status"))
                 val active = status.subscriptionStatuses.any {
                     (feedId == null || it.feedId == feedId) && it.fetchJob?.isActive == true
                 }
-                if (!active) return
+                if (!active) {
+                    return status.subscriptionStatuses.count {
+                        it.feedId in result.enqueuedFeedIds && it.fetchJob?.status == "failed"
+                    }
+                }
                 if (attempt == 10) throw ApiException(0, "feed_refresh_timeout")
                 delay(3000)
             }
+            return 0
         } finally {
             invalidateCache()
         }
@@ -259,8 +266,8 @@ object ApiClient {
         invalidateCache()
     }
 
-    suspend fun markAllRead(id: Int): MarkAllReadResult =
-        parseMarkAllReadResult(JSONObject(sendJson("POST", "/api/v1/subscriptions/$id/mark-all-read", JSONObject())).getJSONObject("data"))
+    suspend fun markAllRead(id: Int, upToArticleId: Int): MarkAllReadResult =
+        parseMarkAllReadResult(JSONObject(sendJson("POST", "/api/v1/subscriptions/$id/mark-all-read", JSONObject().put("upToArticleId", upToArticleId))).getJSONObject("data"))
             .also { invalidateCache() }
 
     suspend fun retryInitialFetch(id: Int): Subscription =
@@ -305,16 +312,17 @@ object ApiClient {
 
     // Articles
 
-    suspend fun markAllArticlesRead(tagId: Int? = null) {
-        val body = JSONObject()
+    suspend fun markAllArticlesRead(upToArticleId: Int, tagId: Int? = null) {
+        val body = JSONObject().put("upToArticleId", upToArticleId)
         tagId?.let { body.put("tagId", it) }
         sendJson("POST", "/api/v1/articles/mark-all-read", body)
         invalidateCache()
     }
 
-    suspend fun removeReadArticlesFromReadingList() {
-        sendJson("DELETE", "/api/v1/articles/reading-list/read")
+    suspend fun removeReadArticlesFromReadingList(): Int {
+        val removed = JSONObject(sendJson("DELETE", "/api/v1/articles/reading-list/read")).getJSONObject("data").optInt("removedCount", 0)
         invalidateCache()
+        return removed
     }
 
     suspend fun listArticles(filters: ArticleListFilters, cursor: String? = null, limit: Int = 20, checkNew: Boolean = false, afterId: Int? = null): ArticlePage {

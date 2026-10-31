@@ -1,5 +1,6 @@
 package com.filo.app.api
 
+import com.filo.app.ui.AppText
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -162,7 +163,25 @@ data class StatusOverview(
     val subscriptionStatuses: List<StatusSubscription>,
 )
 
-data class RefreshResult(val accepted: Boolean, val enqueued: Int, val skipped: Int, val queuedAt: String)
+data class RefreshResult(
+    val accepted: Boolean,
+    val enqueued: Int,
+    val enqueuedFeedIds: List<Int>,
+    val skipped: Int,
+    val queuedAt: String,
+    // Of the feeds this refresh asked for, how many ended in a failed job.
+    // Known only after waiting for completion; not part of the response.
+    val failed: Int = 0,
+) {
+    // The sentence that closes a refresh.
+    val notice: AppText
+        get() = when {
+            failed > 0 -> AppText("%d件のフィードを取得できませんでした。処理ステータスで確認できます。", listOf(failed))
+            enqueued > 0 -> AppText("%d件のフィードを更新しました。", listOf(enqueued))
+            skipped > 0 -> AppText("最近取得済みのため、今回の取得対象はありませんでした。")
+            else -> AppText("取得対象のフィードがありません。")
+        }
+}
 
 data class ArticleListFilters(
     val subscriptionId: Int? = null,
@@ -323,6 +342,7 @@ internal fun parseRefreshResult(json: JSONObject): RefreshResult =
     RefreshResult(
         accepted = json.optBoolean("accepted", false),
         enqueued = json.optInt("enqueued", 0),
+        enqueuedFeedIds = json.optJSONArray("enqueuedFeedIds")?.let { ids -> List(ids.length()) { ids.getInt(it) } }.orEmpty(),
         skipped = json.optInt("skipped", 0),
         queuedAt = json.optString("queuedAt", ""),
     )

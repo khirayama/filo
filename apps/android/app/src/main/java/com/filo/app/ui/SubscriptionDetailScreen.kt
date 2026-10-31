@@ -53,6 +53,7 @@ import com.filo.app.api.ArticleListItem
 import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import java.util.concurrent.atomic.AtomicLong
@@ -112,6 +113,7 @@ fun SubscriptionDetailScreen(
     var showRename by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
     var showUnsubscribe by remember { mutableStateOf(false) }
+    var showMarkAllConfirm by remember { mutableStateOf(false) }
     var showFeedUrl by remember { mutableStateOf(false) }
     var subscriptionActionsMenuOpen by remember { mutableStateOf(false) }
     var showShortcutHelp by remember { mutableStateOf(false) }
@@ -128,6 +130,9 @@ fun SubscriptionDetailScreen(
         sort = sort,
         readOrder = readOrder,
     )
+
+    // "Mark all as read" covers what this list has loaded, never what arrived after.
+    val markAllUpToArticleId = newArticleBaseline?.takeIf { it.first == filters() }?.second
 
     suspend fun reloadArticles() {
         val requestGeneration = articleGeneration.incrementAndGet()
@@ -176,7 +181,8 @@ fun SubscriptionDetailScreen(
     }
 
     fun markAllRead() {
-        if (isMarkingAllRead) return
+        val upToArticleId = markAllUpToArticleId
+        if (isMarkingAllRead || upToArticleId == null) return
         scope.launch {
             isMarkingAllRead = true
             markAllReadNotice = null
@@ -190,7 +196,7 @@ fun SubscriptionDetailScreen(
                 articles.map { if (it.userState.isRead) it else it.copy(userState = it.userState.copy(isRead = true)) }
             }
             try {
-                val result = ApiClient.markAllRead(subscriptionId)
+                val result = ApiClient.markAllRead(subscriptionId, upToArticleId)
                 subscription = subscription?.copy(unreadCount = result.unreadCount)
                 reloadArticles()
                 markAllReadNotice = AppText("既読への変更が完了しました。")
@@ -292,13 +298,30 @@ fun SubscriptionDetailScreen(
                 "refresh_feed",
                 mapOf("feed_id" to feedId, "source" to "subscription_detail"),
             )
-            if (result.enqueued > 0) refreshNotice = AppText("%d件のフィードを更新しました。", listOf(result.enqueued))
+            refreshNotice = result.notice
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forErrorText(e)
         }
         runCatching { subscription = ApiClient.getSubscription(subscriptionId) }
         reloadArticles()
         isRefreshingFeed = false
+    }
+
+    // A new subscription fetches its first articles in the background. Follow
+    // it so the screen shows the result without the user having to reload.
+    LaunchedEffect(subscription?.initialFetchStatus) {
+        if (subscription?.initialFetchStatus != "fetching") return@LaunchedEffect
+        // The job gives up long before this; stop rather than poll a lost job forever.
+        repeat(60) {
+            delay(3000)
+            val next = runCatching { ApiClient.getSubscription(subscriptionId) }.getOrNull()
+            if (next != null && next.initialFetchStatus != "fetching") {
+                subscription = next
+                ApiClient.invalidateFeedData()
+                reloadArticles()
+                return@LaunchedEffect
+            }
+        }
     }
 
     PollForNewArticles {
@@ -354,9 +377,9 @@ fun SubscriptionDetailScreen(
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     Box(modifier = Modifier.fillMaxSize().onPreviewKeyEvent { event ->
         if (event.type != KeyEventType.KeyDown || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed ||
-            showRename || showFeedUrl || showUnsubscribe || subscriptionActionsMenuOpen || showShortcutHelp) return@onPreviewKeyEvent false
+            showRename || showFeedUrl || showUnsubscribe || showMarkAllConfirm || subscriptionActionsMenuOpen || showShortcutHelp) return@onPreviewKeyEvent false
         if (event.isShiftPressed && event.key == Key.A) {
-            if (event.nativeKeyEvent.repeatCount == 0) markAllRead()
+            if (event.nativeKeyEvent.repeatCount == 0 && markAllUpToArticleId != null) showMarkAllConfirm = true
             return@onPreviewKeyEvent true
         }
         val navigation = event.key == Key.J || event.key == Key.K || event.key == Key.DirectionDown || event.key == Key.DirectionUp
@@ -410,8 +433,8 @@ fun SubscriptionDetailScreen(
                     FiloIconButton(
                         FiloIconName.CheckAll,
                         tr("すべて既読にする"),
-                        ::markAllRead,
-                        enabled = !isMarkingAllRead,
+                        { showMarkAllConfirm = true },
+                        enabled = !isMarkingAllRead && markAllUpToArticleId != null,
                     )
                     Box {
                         FiloIconButton(
@@ -492,6 +515,13 @@ fun SubscriptionDetailScreen(
                                             }
                                         }
                                     }, small = true)
+                                } else if (sub.feedHealthStatus == "paused") {
+                                    FiloButton(
+                                        tr("更新を再開"),
+                                        { scope.launch { refreshFeedAndReload() } },
+                                        small = true,
+                                        enabled = !isRefreshingFeed,
+                                    )
                                 }
                                 allTags.filter { sub.tagIds.contains(it.id) }.forEach { tag ->
                                     FiloChip(
@@ -519,6 +549,13 @@ fun SubscriptionDetailScreen(
                         item {
                             if (readFilter == null && subscription?.initialFetchStatus == "fetching") {
                                 FiloEmptyState(tr("記事を取得しています…"), FiloIconName.Refresh)
+                            } else if (readFilter != null) {
+                                FiloEmptyState(
+                                    if (readFilter == true) tr("既読の記事はありません。") else tr("未読の記事はありません。"),
+                                    FiloIconName.Sliders,
+                                ) {
+                                    FiloButton(tr("絞り込みを解除"), { readFilter = null })
+                                }
                             } else {
                                 FiloEmptyState(tr("表示できる記事がありません。"), FiloIconName.Inbox)
                             }
@@ -572,6 +609,18 @@ fun SubscriptionDetailScreen(
         }
         FiloToast(refreshNotice?.let { tr(it) }, onDismiss = { refreshNotice = null })
         FiloToast(markAllReadNotice?.let { tr(it) }, onDismiss = { markAllReadNotice = null }, durationMillis = 3000)
+    }
+
+    if (showMarkAllConfirm) {
+        FiloConfirmDialog(
+            title = trf("「%s」の記事をすべて既読にしますか？", subscription?.displayTitle.orEmpty()),
+            confirmLabel = tr("すべて既読にする"),
+            onConfirm = {
+                showMarkAllConfirm = false
+                markAllRead()
+            },
+            onDismiss = { showMarkAllConfirm = false },
+        )
     }
 
     if (showShortcutHelp) {

@@ -43,6 +43,7 @@ import com.filo.app.api.ApiClient
 import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // Rows nested under a group's disclosure button start where the group label
@@ -147,10 +148,14 @@ fun SubscriptionsScreen(
             FiloIconButton(FiloIconName.Plus, tr("フィードを追加"), onOpenAddFeed)
         }
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PagePadding) {
+            errorMessage?.let { message ->
+                item {
+                    FiloErrorBox(tr(message), modifier = Modifier.padding(bottom = 16.dp)) { scope.launch { reload() } }
+                }
+            }
             when {
                 isLoading -> item { FiloSpinner() }
-                errorMessage != null -> item { FiloErrorBox(tr(errorMessage!!)) { scope.launch { reload() } } }
-                subscriptions.isEmpty() -> item {
+                subscriptions.isEmpty() && errorMessage == null -> item {
                     FiloEmptyState(tr("まだ購読がありません。"), FiloIconName.Rss) {
                         FiloButton(tr("フィードを追加"), onOpenAddFeed, kind = ButtonKind.Primary)
                     }
@@ -204,8 +209,8 @@ fun SubscriptionsScreen(
                                 }
                                 if (tag != null) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        FiloIconButton(FiloIconName.ChevronUp, tr("タグを上へ"), { moveTag(tag.id, -1) }, size = 16.dp)
-                                        FiloIconButton(FiloIconName.ChevronDown, tr("タグを下へ"), { moveTag(tag.id, 1) }, size = 16.dp)
+                                        FiloIconButton(FiloIconName.ChevronUp, tr("タグを上へ"), { moveTag(tag.id, -1) }, size = 16.dp, enabled = tags.firstOrNull()?.id != tag.id)
+                                        FiloIconButton(FiloIconName.ChevronDown, tr("タグを下へ"), { moveTag(tag.id, 1) }, size = 16.dp, enabled = tags.lastOrNull()?.id != tag.id)
                                         FiloIconButton(FiloIconName.Pencil, tr("名前変更"), {
                                             renameText = tag.name
                                             renamingTag = tag
@@ -221,6 +226,8 @@ fun SubscriptionsScreen(
                                     allTags = tags,
                                     onOpen = { onOpenSubscription(subscription.id) },
                                     moveEnabled = !isReordering,
+                                    isFirst = items.firstOrNull()?.id == subscription.id,
+                                    isLast = items.lastOrNull()?.id == subscription.id,
                                     onMove = { direction -> move(subscription.id, direction, items.map { it.id }) },
                                     onTagsChange = { updateSubscriptionTags(subscription.id, it) },
                                 )
@@ -263,6 +270,8 @@ private fun SubscriptionListRow(
     allTags: List<Tag>,
     onOpen: () -> Unit,
     moveEnabled: Boolean,
+    isFirst: Boolean,
+    isLast: Boolean,
     onMove: (Int) -> Unit,
     onTagsChange: (List<Int>) -> Unit,
 ) {
@@ -302,8 +311,8 @@ private fun SubscriptionListRow(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             TagPicker(allTags, subscription.tagIds, onTagsChange)
-            FiloIconButton(FiloIconName.ChevronUp, tr("上へ"), { onMove(-1) }, size = 16.dp, enabled = moveEnabled)
-            FiloIconButton(FiloIconName.ChevronDown, tr("下へ"), { onMove(1) }, size = 16.dp, enabled = moveEnabled)
+            FiloIconButton(FiloIconName.ChevronUp, tr("上へ"), { onMove(-1) }, size = 16.dp, enabled = moveEnabled && !isFirst)
+            FiloIconButton(FiloIconName.ChevronDown, tr("下へ"), { onMove(1) }, size = 16.dp, enabled = moveEnabled && !isLast)
         }
     }
 }
@@ -362,7 +371,7 @@ fun TagPicker(
 @Composable
 fun AddFeedScreen(
     onBack: () -> Unit,
-    onOpenArticles: () -> Unit = {},
+    onOpenSubscription: (Int) -> Unit = {},
     onCreated: suspend () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -377,6 +386,22 @@ fun AddFeedScreen(
 
     LaunchedEffect(Unit) {
         runCatching { tags = ApiClient.listTags() }
+    }
+
+    // Follow the first fetch so the card shows how it ended.
+    LaunchedEffect(created?.id, created?.initialFetchStatus) {
+        val id = created?.id ?: return@LaunchedEffect
+        if (created?.initialFetchStatus != "fetching") return@LaunchedEffect
+        repeat(60) {
+            delay(3000)
+            val next = runCatching { ApiClient.getSubscription(id) }.getOrNull()
+            if (next != null && next.initialFetchStatus != "fetching") {
+                created = next
+                ApiClient.invalidateFeedData()
+                onCreated()
+                return@LaunchedEffect
+            }
+        }
     }
 
     fun submit() {
@@ -400,6 +425,10 @@ fun AddFeedScreen(
                         "tag_count" to (selectedTagIds.size + newTagCount),
                     ),
                 )
+                // Ready for the next feed; the card below reports this one.
+                url = ""
+                newTagNames = ""
+                selectedTagIds = emptySet()
             } catch (e: Exception) {
                 errorMessage = ErrorMessages.forErrorText(e)
             }
@@ -509,7 +538,7 @@ fun AddFeedScreen(
                                         }
                                     }, enabled = !isRetrying)
                                 }
-                                FiloButton(tr("記事一覧へ"), onOpenArticles)
+                                FiloButton(tr("記事を見る"), { onOpenSubscription(subscription.id) })
                             }
                         }
                     }
@@ -662,8 +691,8 @@ fun TagsScreen(onOpenMenu: (() -> Unit)?) {
                                 Text(trf("%d件の購読", tag.subscriptionCount), fontSize = 12.sp, color = Filo.colors.muted)
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                FiloIconButton(FiloIconName.ChevronUp, tr("上へ"), { move(tag.id, -1) }, size = 16.dp)
-                                FiloIconButton(FiloIconName.ChevronDown, tr("下へ"), { move(tag.id, 1) }, size = 16.dp)
+                                FiloIconButton(FiloIconName.ChevronUp, tr("上へ"), { move(tag.id, -1) }, size = 16.dp, enabled = tags.firstOrNull()?.id != tag.id)
+                                FiloIconButton(FiloIconName.ChevronDown, tr("下へ"), { move(tag.id, 1) }, size = 16.dp, enabled = tags.lastOrNull()?.id != tag.id)
                                 FiloIconButton(FiloIconName.Pencil, tr("編集"), {
                                     editingTagId = tag.id
                                     editName = tag.name

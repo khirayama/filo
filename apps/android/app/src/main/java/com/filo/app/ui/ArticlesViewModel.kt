@@ -20,7 +20,9 @@ import kotlinx.coroutines.ensureActive
 class ArticlesViewModel : ViewModel() {
     var articles by mutableStateOf<List<ArticleListItem>>(emptyList())
     var hasNewArticles by mutableStateOf(false)
-    private var newArticleBaseline: Pair<ArticleListFilters, Int>? = null
+    private var newArticleBaseline by mutableStateOf<Pair<ArticleListFilters, Int>?>(null)
+    // "Mark all as read" covers what this list has loaded, never what arrived after.
+    val markAllUpToArticleId: Int? get() = newArticleBaseline?.takeIf { it.first == filters() }?.second
     var nextCursor by mutableStateOf<String?>(null)
     var tags by mutableStateOf<List<Tag>>(emptyList())
     var subscriptions by mutableStateOf<List<Subscription>>(emptyList())
@@ -98,6 +100,27 @@ class ArticlesViewModel : ViewModel() {
         viewModelScope.launch { reload() }
     }
 
+    // Screens above this one change settings, tags and subscriptions, and
+    // articles read there change the counts. Bring the shell back in step.
+    suspend fun refreshAppData() {
+        val bootstrap = runCatching { ApiClient.getBootstrap() }.getOrNull() ?: return
+        applyBootstrap(bootstrap)
+    }
+
+    private fun applyBootstrap(bootstrap: com.filo.app.api.BootstrapData) {
+        tags = bootstrap.tags
+        subscriptions = bootstrap.subscriptions
+        unreadCounts = bootstrap.unreadCounts
+        openInBrowserByDefault = bootstrap.settings.openInBrowserByDefault
+        theme = bootstrap.settings.theme
+        language = bootstrap.settings.language
+        LanguagePreference.set(FiloApplication.context, bootstrap.settings.language)
+        readableLanguages = bootstrap.settings.readableLanguages
+        // The server setting is the default; an explicit list selection
+        // remains in effect when refreshing or changing other filters.
+        sortValue = selectedSort ?: bootstrap.settings.articleSortOrder
+    }
+
     suspend fun reload() {
         val requestGeneration = ++articleGeneration
         if (newArticleBaseline?.first != filters()) hasNewArticles = false
@@ -109,19 +132,7 @@ class ArticlesViewModel : ViewModel() {
         try {
             val bootstrap = runCatching { ApiClient.getBootstrap() }.getOrNull()
             if (requestGeneration != articleGeneration || requestFilters != filters()) return
-            if (bootstrap != null) {
-                tags = bootstrap.tags
-                subscriptions = bootstrap.subscriptions
-                unreadCounts = bootstrap.unreadCounts
-                openInBrowserByDefault = bootstrap.settings.openInBrowserByDefault
-                theme = bootstrap.settings.theme
-                language = bootstrap.settings.language
-                LanguagePreference.set(FiloApplication.context, bootstrap.settings.language)
-                readableLanguages = bootstrap.settings.readableLanguages
-                // The server setting is the default; an explicit list selection
-                // remains in effect when refreshing or changing other filters.
-                sortValue = selectedSort ?: bootstrap.settings.articleSortOrder
-            }
+            if (bootstrap != null) applyBootstrap(bootstrap)
             requestFilters = filters()
             lastLoadedFilters = listPositionFilterKey()
             val page = ApiClient.listArticles(requestFilters)
@@ -191,11 +202,7 @@ class ArticlesViewModel : ViewModel() {
         try {
             val result = if (feedId != null) ApiClient.refreshFeed(feedId, waitForCompletion = true)
                 else ApiClient.refreshFeeds(force = false, waitForCompletion = true)
-            if (result.enqueued == 0 && result.skipped > 0) {
-                refreshNotice = AppText("最近取得済みのため、今回の取得対象はありませんでした。")
-            } else if (result.enqueued > 0) {
-                refreshNotice = AppText("%d件のフィードを更新しました。", listOf(result.enqueued))
-            }
+            refreshNotice = result.notice
         } catch (e: Exception) {
             refreshNotice = ErrorMessages.forErrorText(e)
         }
@@ -205,7 +212,8 @@ class ArticlesViewModel : ViewModel() {
 
     // 表示中スコープ(全購読 or 選択タグ配下)の既読カーソルを一括前進させる
     suspend fun markAllRead(): Boolean {
-        if (isMarkingAllRead) return false
+        val upToArticleId = markAllUpToArticleId
+        if (isMarkingAllRead || upToArticleId == null) return false
         isMarkingAllRead = true
         markAllReadNotice = null
         errorMessage = null
@@ -219,7 +227,7 @@ class ArticlesViewModel : ViewModel() {
             articles.map { if (it.userState.isRead) it else it.copy(userState = it.userState.copy(isRead = true)) }
         }
         try {
-            ApiClient.markAllArticlesRead(selectedTagId)
+            ApiClient.markAllArticlesRead(upToArticleId, selectedTagId)
             reload()
             markAllReadNotice = AppText("既読への変更が完了しました。")
             return true
@@ -241,8 +249,13 @@ class ArticlesViewModel : ViewModel() {
     suspend fun removeReadArticlesFromReadingList() {
         com.filo.app.Analytics.track("remove_read_articles_from_reading_list")
         try {
-            ApiClient.removeReadArticlesFromReadingList()
+            val removed = ApiClient.removeReadArticlesFromReadingList()
             reload()
+            markAllReadNotice = if (removed > 0) {
+                AppText("%d件の既読記事を削除しました。", listOf(removed))
+            } else {
+                AppText("削除できる既読記事はありません。")
+            }
         } catch (e: Exception) {
             errorMessage = ErrorMessages.forErrorText(e)
         }
@@ -262,7 +275,6 @@ class ArticlesViewModel : ViewModel() {
             inReadingList = inReadingList ?: before.inReadingList,
             isBookmarked = isBookmarked ?: before.isBookmarked,
         )
-        val isSubscribed = article.subscriptionIds.isNotEmpty()
         com.filo.app.Analytics.track(
             when {
                 isRead != null -> if (isRead) "mark_article_read" else "mark_article_unread"
@@ -272,7 +284,7 @@ class ArticlesViewModel : ViewModel() {
             mapOf("article_id" to article.id),
         )
         applyState(article.id, optimistic)
-        applyUnreadDelta(before = before, after = optimistic, isSubscribed = isSubscribed)
+        applyUnreadDelta(before = before, after = optimistic, subscriptionIds = article.subscriptionIds)
         viewModelScope.launch {
             try {
                 val state = when {
@@ -281,7 +293,7 @@ class ArticlesViewModel : ViewModel() {
                     else -> ApiClient.setBookmarkMembership(article.id, isBookmarked == true)
                 }
                 if (requestFilters == filters()) applyState(article.id, state)
-                applyUnreadDelta(before = optimistic, after = state, isSubscribed = isSubscribed)
+                applyUnreadDelta(before = optimistic, after = state, subscriptionIds = article.subscriptionIds)
             } catch (e: Exception) {
                 if (requestFilters == filters()) {
                     articles = if (articles.any { it.id == article.id }) {
@@ -291,7 +303,7 @@ class ArticlesViewModel : ViewModel() {
                     }
                     errorMessage = ErrorMessages.forErrorText(e)
                 }
-                applyUnreadDelta(before = optimistic, after = before, isSubscribed = isSubscribed)
+                applyUnreadDelta(before = optimistic, after = before, subscriptionIds = article.subscriptionIds)
             } finally {
                 pendingArticles.remove(article.id)
             }
@@ -313,18 +325,23 @@ class ArticlesViewModel : ViewModel() {
     private fun applyUnreadDelta(
         before: com.filo.app.api.ArticleUserState,
         after: com.filo.app.api.ArticleUserState,
-        isSubscribed: Boolean,
+        subscriptionIds: List<Int>,
     ) {
         val beforeUnread = if (!before.isRead) 1 else 0
         val afterUnread = if (!after.isRead) 1 else 0
         val beforeReadingListUnread = if (!before.isRead && before.inReadingList) 1 else 0
         val afterReadingListUnread = if (!after.isRead && after.inReadingList) 1 else 0
-        val allDelta = if (isSubscribed) afterUnread - beforeUnread else 0
+        val allDelta = if (subscriptionIds.isNotEmpty()) afterUnread - beforeUnread else 0
         val readingListDelta = afterReadingListUnread - beforeReadingListUnread
         unreadCounts = unreadCounts.copy(
             allArticles = maxOf(0, unreadCounts.allArticles + allDelta),
             readingList = maxOf(0, unreadCounts.readingList + readingListDelta),
         )
+        if (allDelta == 0) return
+        // The sidebar's feed and tag counts follow the same read state.
+        subscriptions = subscriptions.map {
+            if (it.id in subscriptionIds) it.copy(unreadCount = maxOf(0, it.unreadCount + allDelta)) else it
+        }
     }
 
     suspend fun refreshUnreadCounts() {

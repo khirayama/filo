@@ -41,6 +41,7 @@ import com.filo.app.api.StatusOverview
 import com.filo.app.api.StatusSubscription
 import java.text.NumberFormat
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class StatusFilter { All, Attention, Fetching, Paused }
@@ -108,6 +109,17 @@ fun StatusScreen(onOpenMenu: (() -> Unit)?, onOpenSubscription: (Int) -> Unit) {
     }
 
     LaunchedEffect(Unit) { load(showSpinner = true) }
+
+    // Follow running jobs so a fetch started here settles on screen.
+    val hasActiveJob = status?.subscriptionStatuses?.any { it.fetchJob?.isActive == true } == true
+    LaunchedEffect(hasActiveJob) {
+        // Anything read while the jobs ran is older than their results.
+        if (!hasActiveJob) ApiClient.invalidateFeedData()
+        while (hasActiveJob) {
+            delay(3000)
+            load()
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {

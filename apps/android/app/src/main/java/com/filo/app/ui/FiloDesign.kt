@@ -324,6 +324,8 @@ fun FiloIconButton(
     tint: Color? = null,
     // A menu trigger keeps the pressed background while its menu is open.
     expanded: Boolean = false,
+    // A dot on the icon: something behind this button is not at its default.
+    indicator: Boolean = false,
 ) {
     val colors = Filo.colors
     Box(
@@ -342,6 +344,16 @@ fun FiloIconButton(
             filled = filled,
             modifier = Modifier.alpha(if (enabled) 1f else 0.4f),
         )
+        if (indicator) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 10.dp, end = 10.dp)
+                    .size(8.dp)
+                    .background(colors.accent, CircleShape)
+                    .border(1.dp, colors.bg, CircleShape),
+            )
+        }
     }
 }
 

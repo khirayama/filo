@@ -565,10 +565,10 @@ private fun RssNavigation(
     LaunchedEffect(currentBackStackEntry?.destination?.route) {
         currentBackStackEntry?.destination?.route?.let { route ->
             Analytics.screen(route.substringBefore('/').substringBefore('?'))
-            // The article screen loads unread counts as part of its initial
-            // request. Refresh on return from another screen, but do not race
-            // that first load with a duplicate request.
-            if (route == "articles" && articlesModel.articles.isNotEmpty()) articlesModel.refreshUnreadCounts()
+            // The article screen loads this as part of its initial request. On
+            // return from another screen, pick up what it changed, but do not
+            // race that first load with a duplicate request.
+            if (route == "articles" && articlesModel.articles.isNotEmpty()) articlesModel.refreshAppData()
         }
     }
 
@@ -729,7 +729,7 @@ private fun RssNavigation(
                     screen("addFeed") {
                         com.filo.app.ui.AddFeedScreen(
                             onBack = { navController.navigateUp() },
-                            onOpenArticles = { navController.popBackStack("articles", false) },
+                            onOpenSubscription = { navigateFromSidebar("subscription/$it") },
                             onCreated = { articlesModel.reload() },
                         )
                     }

@@ -89,6 +89,7 @@ fun ArticlesScreen(
     var bookmarkedOnly by vm::bookmarkedOnly
 
     var showRemoveReadArticles by remember { mutableStateOf(false) }
+    var showMarkAllConfirm by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var selectedArticleIndex by remember { mutableStateOf<Int?>(null) }
     var showShortcutHelp by remember { mutableStateOf(false) }
@@ -233,7 +234,7 @@ fun ArticlesScreen(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val hasModifier = event.isCtrlPressed || event.isAltPressed || event.isMetaPressed
                 if (event.isShiftPressed && event.key == Key.A && !hasModifier) {
-                    if (!bookmarkedOnly && !readingListOnly) scope.launch { markAllReadAndResetList() }
+                    if (!bookmarkedOnly && !readingListOnly && vm.markAllUpToArticleId != null) showMarkAllConfirm = true
                     true
                 } else if (hasModifier) {
                     false
@@ -337,8 +338,8 @@ fun ArticlesScreen(
                     FiloIconButton(
                         FiloIconName.CheckAll,
                         tr("すべて既読にする"),
-                        { scope.launch { markAllReadAndResetList() } },
-                        enabled = !vm.isMarkingAllRead,
+                        { showMarkAllConfirm = true },
+                        enabled = !vm.isMarkingAllRead && vm.markAllUpToArticleId != null,
                     )
                 }
                 ArticleListControls(
@@ -390,6 +391,13 @@ fun ArticlesScreen(
                                     FiloEmptyState(tr("記事を取得しています…"), FiloIconName.Refresh) {
                                         FiloButton(tr("更新"), { scope.launch { vm.reload() } })
                                     }
+                                readFilter != null ->
+                                    FiloEmptyState(
+                                        if (readFilter == true) tr("既読の記事はありません。") else tr("未読の記事はありません。"),
+                                        FiloIconName.Sliders,
+                                    ) {
+                                        FiloButton(tr("絞り込みを解除"), { readFilter = null })
+                                    }
                                 readingListOnly ->
                                     FiloEmptyState(tr("リーディングリストに保存した記事はありません。"), FiloIconName.Playlist) {
                                         FiloButton(tr("全ての記事"), {
@@ -398,7 +406,7 @@ fun ArticlesScreen(
                                             bookmarkedOnly = false
                                         })
                                     }
-                                bookmarkedOnly -> FiloEmptyState(tr("表示できる記事がありません。"), FiloIconName.Bookmark)
+                                bookmarkedOnly -> FiloEmptyState(tr("ブックマークした記事はありません。"), FiloIconName.Bookmark)
                                 else -> FiloEmptyState(tr("表示できる記事がありません。"), FiloIconName.Inbox)
                             }
                         }
@@ -449,6 +457,18 @@ fun ArticlesScreen(
         }
         FiloToast(vm.refreshNotice?.let { tr(it) }, onDismiss = { vm.refreshNotice = null })
         FiloToast(vm.markAllReadNotice?.let { tr(it) }, onDismiss = vm::clearMarkAllReadNotice, durationMillis = 3000)
+    }
+
+    if (showMarkAllConfirm) {
+        FiloConfirmDialog(
+            title = trf("「%s」の記事をすべて既読にしますか？", viewTitle),
+            confirmLabel = tr("すべて既読にする"),
+            onConfirm = {
+                showMarkAllConfirm = false
+                scope.launch { markAllReadAndResetList() }
+            },
+            onDismiss = { showMarkAllConfirm = false },
+        )
     }
 
     if (showRemoveReadArticles) {
@@ -526,7 +546,13 @@ fun ArticleListControls(
         open = false
     }
     Box {
-        FiloIconButton(FiloIconName.Sliders, tr("表示設定"), { open = true }, expanded = open)
+        FiloIconButton(
+            FiloIconName.Sliders,
+            if (readFilter == null) tr("表示設定") else tr("表示設定（絞り込み中）"),
+            { open = true },
+            expanded = open,
+            indicator = readFilter != null,
+        )
         FiloMenu(expanded = open, onDismiss = { open = false }, modifier = Modifier.width(300.dp)) {
             Column(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 10.dp)) {
                 if (translations.isSupported) {
@@ -549,7 +575,7 @@ fun ArticleListControls(
                     FiloDivider(Modifier.padding(bottom = 4.dp))
                 }
                 ControlSection(tr("既読状態"), top = 8.dp) {
-                    FiloChip(tr("全ての記事"), readFilter == null, { choose { onReadFilter(null) } })
+                    FiloChip(tr("すべて"), readFilter == null, { choose { onReadFilter(null) } })
                     FiloChip(tr("未読"), readFilter == false, { choose { onReadFilter(false) } })
                     FiloChip(tr("既読"), readFilter == true, { choose { onReadFilter(true) } })
                 }

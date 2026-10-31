@@ -279,17 +279,6 @@ fun SettingsScreen(
                 }
             }
 
-            SettingSection(tr("既読履歴について")) {
-                SettingBlock {
-                    Text(
-                        tr("閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。"),
-                        fontSize = 13.sp,
-                        lineHeight = 21.sp,
-                        color = Filo.colors.muted,
-                    )
-                }
-            }
-
             SettingSection(tr("セッション")) {
                 SettingBlock { FiloButton(tr("サインアウト"), onSignOut) }
             }
