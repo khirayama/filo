@@ -1,3 +1,5 @@
+import { errors } from "./errors";
+
 // Per-feed read cursors: a feed_read_cursors row marks every article with
 // id <= last_read_article_id as read for that user, unless an explicit
 // article_read_states row exists — an existing row's is_read always wins.
@@ -50,6 +52,17 @@ const READING_LIST_UNREAD_COUNT = `(
   LEFT JOIN feed_read_cursors frc ON frc.user_id = rli.user_id AND frc.feed_id = a.feed_id
   WHERE rli.user_id = ? AND rli.kind = 'reading_list' AND (${EFFECTIVE_IS_READ}) = 0
 )`;
+
+// The optional upper bound of a mark-all-read request: the list watermark the
+// client displayed, so articles fetched after that render stay unread. Empty
+// lists send 0, which matches no article.
+export function parseUpToArticleId(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw errors.validation("invalid upToArticleId");
+  }
+  return value;
+}
 
 export interface UnreadCounts {
   all_articles: number;
@@ -126,6 +139,31 @@ export function recountSubscriptionUnreadMutation(
          updated_at = ?
      WHERE subscription_id = ?`,
   ).bind(now, subscriptionId);
+}
+
+// Recounts the user's subscriptions matching `filter` on the row `s`. Batch it
+// after the bulk read-state change it accounts for; the advanced cursors keep
+// each per-feed scan short.
+export function recountSubscriptionsUnreadMutation(
+  db: D1Database,
+  userId: number,
+  filter: string,
+  filterBinds: unknown[],
+  now: string,
+): D1PreparedStatement {
+  return db.prepare(
+    `UPDATE subscription_unread_counts
+     SET unread_count = (
+           SELECT ${SUBSCRIPTION_UNREAD_COUNT}
+           FROM subscriptions s WHERE s.id = subscription_unread_counts.subscription_id
+         ),
+         updated_at = ?
+     WHERE user_id = ?
+       AND subscription_id IN (
+         SELECT s.id FROM subscriptions s
+         WHERE s.user_id = ?${filter}
+       )`,
+  ).bind(now, userId, userId, ...filterBinds);
 }
 
 // Recounts the user's reading list from the source-of-truth rows. Batch it

@@ -220,6 +220,53 @@ describe("derived unread counters", () => {
     expectCountersMatchSourceOfTruth(t);
   });
 
+  it("keeps articles fetched after the list watermark unread on bulk mark-all-read", async () => {
+    const shownA = addArticles(t, feedA, nArticles(2));
+    const [shownB] = addArticles(t, feedB, nArticles(1));
+    await createSubscription(t.db, noopJobs, bob.id, feedA, { customTitle: null });
+    await createSubscription(t.db, noopJobs, bob.id, feedB, { customTitle: null });
+    const client = createClient(t, bob);
+    // An explicit unread override inside the range becomes read as well.
+    await client("PATCH", `/articles/${shownA[0]}/state`, { isRead: true });
+    await client("PATCH", `/articles/${shownA[0]}/state`, { isRead: false });
+    const watermark = shownB!;
+
+    const [newA] = addArticles(t, feedA, nArticles(1));
+    addArticles(t, feedB, nArticles(2));
+    await client("PUT", `/articles/${shownA[1]}/reading-list`);
+    await client("PUT", `/articles/${newA}/reading-list`);
+
+    await client("POST", "/articles/mark-all-read", { upToArticleId: watermark });
+    expect(unreadCount(t, bob.id, feedA)).toBe(1);
+    expect(unreadCount(t, bob.id, feedB)).toBe(2);
+    expect(readingListCount(t, bob.id)).toBe(1);
+    expectCountersMatchSourceOfTruth(t);
+
+    // A list that showed nothing has nothing to mark.
+    await client("POST", "/articles/mark-all-read", { upToArticleId: 0 });
+    expect(unreadCount(t, bob.id, feedA)).toBe(1);
+    expectCountersMatchSourceOfTruth(t);
+
+    const invalid = await client("POST", "/articles/mark-all-read", { upToArticleId: -1 });
+    expect(invalid.status).toBe(400);
+  });
+
+  it("marks a subscription read up to a watermark from another feed", async () => {
+    const [a1] = addArticles(t, feedA, nArticles(1));
+    const [b1] = addArticles(t, feedB, nArticles(1));
+    addArticles(t, feedA, nArticles(1));
+    const subscriptionId = await createSubscription(t.db, noopJobs, alice.id, feedA, { customTitle: null });
+    const client = createClient(t, alice);
+
+    const partial = await client<{ data: { unreadCount: number; lastReadArticleId: number } }>(
+      "POST",
+      `/subscriptions/${subscriptionId}/mark-all-read`,
+      { upToArticleId: b1 },
+    );
+    expect(partial.body.data).toMatchObject({ unreadCount: 1, lastReadArticleId: a1 });
+    expectCountersMatchSourceOfTruth(t);
+  });
+
   it("counts a saved page once and keeps retained reading-list articles after unsubscribe", async () => {
     const [a1] = addArticles(t, feedA, nArticles(2));
     const subscriptionId = await createSubscription(t.db, noopJobs, alice.id, feedA, { customTitle: null });

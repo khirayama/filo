@@ -8,7 +8,7 @@ import {
   type SubscriptionRow,
 } from "../lib/serialize";
 import { withDefaultScheme } from "../lib/net";
-import { recountReadingListUnreadMutation, recountSubscriptionUnreadMutation } from "../lib/readCursor";
+import { parseUpToArticleId, recountReadingListUnreadMutation, recountSubscriptionUnreadMutation } from "../lib/readCursor";
 import { createSubscription, findOrCreateFeed } from "../lib/subscriptions";
 import { attachTagsStatement, ownedTagIds, tagIdsForSubscriptions } from "../lib/tagops";
 import { nowIso, parseId, parseLimit, toIso } from "../lib/util";
@@ -179,22 +179,13 @@ export const subscriptionRoutes = new Hono<AppContext>()
     // Body is optional; upToArticleId lets the client mark only what it has
     // displayed, avoiding races with articles fetched after render.
     const body = await c.req.json<{ upToArticleId?: unknown }>().catch(() => ({}) as { upToArticleId?: unknown });
-    let target: number | null;
-    if (body.upToArticleId !== undefined) {
-      if (typeof body.upToArticleId !== "number" || !Number.isInteger(body.upToArticleId) || body.upToArticleId <= 0) {
-        throw errors.validation("invalid upToArticleId");
-      }
-      const article = await c.env.DB.prepare("SELECT id FROM articles WHERE id = ? AND feed_id = ?")
-        .bind(body.upToArticleId, row.feed_id)
-        .first<{ id: number }>();
-      if (!article) throw errors.validation("upToArticleId must be an article of this feed");
-      target = article.id;
-    } else {
-      const max = await c.env.DB.prepare("SELECT MAX(id) AS max_id FROM articles WHERE feed_id = ?")
-        .bind(row.feed_id)
-        .first<{ max_id: number | null }>();
-      target = max?.max_id ?? null;
-    }
+    const upToArticleId = parseUpToArticleId(body.upToArticleId);
+    const max = await c.env.DB.prepare(
+      `SELECT MAX(id) AS max_id FROM articles WHERE feed_id = ?${upToArticleId === undefined ? "" : " AND id <= ?"}`,
+    )
+      .bind(row.feed_id, ...(upToArticleId === undefined ? [] : [upToArticleId]))
+      .first<{ max_id: number | null }>();
+    const target = max?.max_id ?? null;
 
     if (target !== null) {
       const now = nowIso();

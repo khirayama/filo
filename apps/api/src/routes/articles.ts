@@ -9,7 +9,9 @@ import { normalizeSourceLanguage } from "../lib/languages";
 import { canonicalizeUrl } from "../lib/net";
 import {
   EFFECTIVE_IS_READ,
+  parseUpToArticleId,
   recountReadingListUnreadMutation,
+  recountSubscriptionsUnreadMutation,
   unreadCountsForUser,
   type UnreadCountScope,
 } from "../lib/readCursor";
@@ -629,8 +631,12 @@ export const articleRoutes = new Hono<AppContext>()
 
     // Bulk variant of POST /subscriptions/{id}/mark-all-read: advances the
     // per-feed read cursor of every subscribed feed (or the feeds under a
-    // tag) to its latest article.
-    const body = await c.req.json<{ tagId?: unknown }>().catch(() => ({}) as { tagId?: unknown });
+    // tag) to its latest article, or its latest one up to upToArticleId.
+    const body = await c.req.json<{ tagId?: unknown; upToArticleId?: unknown }>()
+      .catch(() => ({}) as { tagId?: unknown; upToArticleId?: unknown });
+    const upToArticleId = parseUpToArticleId(body.upToArticleId);
+    const upToFilter = upToArticleId === undefined ? "" : " AND a.id <= ?";
+    const upToBinds = upToArticleId === undefined ? [] : [upToArticleId];
     let tagFilter = "";
     const tagBinds: unknown[] = [];
     if (body.tagId !== undefined) {
@@ -655,7 +661,7 @@ export const articleRoutes = new Hono<AppContext>()
            s.feed_id,
            (SELECT a.id
             FROM articles a
-            WHERE a.feed_id = s.feed_id
+            WHERE a.feed_id = s.feed_id${upToFilter}
             ORDER BY a.id DESC
             LIMIT 1),
            ?
@@ -663,13 +669,13 @@ export const articleRoutes = new Hono<AppContext>()
          WHERE s.user_id = ?${tagFilter}
            AND (SELECT a.id
                 FROM articles a
-                WHERE a.feed_id = s.feed_id
+                WHERE a.feed_id = s.feed_id${upToFilter}
                 ORDER BY a.id DESC
                 LIMIT 1) IS NOT NULL
          ON CONFLICT (user_id, feed_id) DO UPDATE SET
            last_read_article_id = excluded.last_read_article_id, updated_at = excluded.updated_at
          WHERE excluded.last_read_article_id > feed_read_cursors.last_read_article_id`
-      ).bind(now, user.id, ...tagBinds),
+      ).bind(...upToBinds, now, user.id, ...tagBinds, ...upToBinds),
       // Explicit rows override the cursor, so flip the unread ones too.
       c.env.DB.prepare(
         `UPDATE article_read_states AS ars SET is_read = 1, read_at = ?, updated_at = ?
@@ -679,21 +685,12 @@ export const articleRoutes = new Hono<AppContext>()
              FROM articles a
              JOIN subscriptions s ON s.feed_id = a.feed_id
              WHERE a.id = ars.article_id
-               AND s.user_id = ?${tagFilter}
+               AND s.user_id = ?${tagFilter}${upToFilter}
            )`
-      ).bind(now, now, user.id, user.id, ...tagBinds),
-      // The cursor and explicit-state update above make every current article
-      // in the selected subscriptions read. Reset the derived counters in
-      // the same batch instead of rescanning each feed independently.
-      c.env.DB.prepare(
-        `UPDATE subscription_unread_counts
-         SET unread_count = 0, updated_at = ?
-         WHERE user_id = ?
-           AND subscription_id IN (
-             SELECT s.id FROM subscriptions s
-             WHERE s.user_id = ?${tagFilter}
-           )`,
-      ).bind(now, user.id, user.id, ...tagBinds),
+      ).bind(now, now, user.id, user.id, ...tagBinds, ...upToBinds),
+      // upToArticleId can leave newer articles unread, so recount instead of
+      // resetting to zero.
+      recountSubscriptionsUnreadMutation(c.env.DB, user.id, tagFilter, tagBinds, now),
       recountReadingListUnreadMutation(c.env.DB, user.id, now),
     ]);
 
