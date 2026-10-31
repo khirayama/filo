@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { safeFetch } from "../src/lib/net";
+import { safeFetch, withDefaultScheme } from "../src/lib/net";
 
 describe("safeFetch URL policy", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -47,4 +47,15 @@ describe("safeFetch URL policy", () => {
       expect(fetch).toHaveBeenCalledTimes(1);
     },
   );
+});
+
+describe("withDefaultScheme", () => {
+  it.each([
+    ["example.com", "https://example.com"],
+    ["  example.com/feed.xml\n", "https://example.com/feed.xml"],
+    ["http://example.com", "http://example.com"],
+    ["HTTPS://example.com", "HTTPS://example.com"],
+  ])("normalizes %s", (input, expected) => {
+    expect(withDefaultScheme(input)).toBe(expected);
+  });
 });

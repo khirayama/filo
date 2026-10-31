@@ -7,6 +7,7 @@ import {
   serializeSubscription,
   type SubscriptionRow,
 } from "../lib/serialize";
+import { withDefaultScheme } from "../lib/net";
 import { recountReadingListUnreadMutation, recountSubscriptionUnreadMutation } from "../lib/readCursor";
 import { createSubscription, findOrCreateFeed } from "../lib/subscriptions";
 import { attachTagsStatement, ownedTagIds, tagIdsForSubscriptions } from "../lib/tagops";
@@ -80,7 +81,7 @@ export const subscriptionRoutes = new Hono<AppContext>()
       if (!owned.has(tagId)) throw errors.validation(`tag ${tagId} not found`);
     }
 
-    const discovered = await discoverFeed(body.feedUrl.trim());
+    const discovered = await discoverFeed(withDefaultScheme(body.feedUrl));
     const feedId = await findOrCreateFeed(c.env.DB, discovered);
     const subscriptionId = await createSubscription(c.env.DB, c.env.JOBS, user.id, feedId, {
       customTitle: (body.customTitle as string | null | undefined)?.trim() || null,

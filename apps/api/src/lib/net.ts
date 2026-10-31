@@ -180,6 +180,12 @@ function canonicalizeUrlWithOptions(rawUrl: string, stripTrailingSlash: boolean)
 
 // Article URLs use a trailing-slash-insensitive dedupe key. Feed endpoints do
 // not: /feed and /feed/ can be different resources on a publisher's server.
+// People type "example.com"; a URL without a scheme is assumed to be HTTPS.
+export function withDefaultScheme(input: string): string {
+  const trimmed = input.trim();
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 export function canonicalizeUrl(rawUrl: string): string {
   return canonicalizeUrlWithOptions(rawUrl, true);
 }
