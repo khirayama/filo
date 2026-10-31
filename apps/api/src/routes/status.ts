@@ -52,15 +52,19 @@ function jobFromColumns(
 
 // Resolve a :feedId path param, rejecting any feed the current user does not
 // subscribe to. Every per-feed operation below is scoped this way.
-async function subscribedFeedId(c: Context<AppContext>): Promise<{ userId: number; feedId: number }> {
+async function subscribedFeed(c: Context<AppContext>): Promise<{ userId: number; feedId: number; feedStatus: string }> {
   const user = c.get("user");
   const feedId = parseId(c.req.param("feedId") ?? "");
   const subscribed = await c.env.DB
-    .prepare("SELECT id FROM subscriptions WHERE user_id = ? AND feed_id = ?")
+    .prepare(
+      `SELECT f.status FROM subscriptions s
+       JOIN feeds f ON f.id = s.feed_id
+       WHERE s.user_id = ? AND s.feed_id = ?`,
+    )
     .bind(user.id, feedId)
-    .first();
+    .first<{ status: string }>();
   if (!subscribed) throw errors.notFound("feed_not_found", "Feed not found in your subscriptions");
-  return { userId: user.id, feedId };
+  return { userId: user.id, feedId, feedStatus: subscribed.status };
 }
 
 export const statusRoutes = new Hono<AppContext>()
@@ -167,17 +171,21 @@ export const statusRoutes = new Hono<AppContext>()
     // Surface how many active feeds were not enqueued so clients can explain
     // a no-op refresh instead of failing silently.
     const skipped = results.length - queueRows.length;
-    return c.json({ data: { accepted: true, enqueued: queueRows.length, skipped, queuedAt: now } }, 202);
+    return c.json({
+      data: { accepted: true, enqueued: queueRows.length, enqueuedFeedIds: queueRows.map((row) => row.id), skipped, queuedAt: now },
+    }, 202);
   })
   .post("/refresh/:feedId", async (c) => {
-    const { userId, feedId } = await subscribedFeedId(c);
+    const { userId, feedId, feedStatus } = await subscribedFeed(c);
     const existing = await c.env.DB.prepare(
       "SELECT status, updated_at FROM feed_jobs WHERE user_id = ? AND feed_id = ?",
     ).bind(userId, feedId).first<{ status: string; updated_at: string | null }>();
     if (!shouldEnqueueFeedJob(existing?.status, existing?.updated_at)) {
-      return c.json({ data: { accepted: true, enqueued: 0, skipped: 1, queuedAt: nowIso() } }, 202);
+      return c.json({ data: { accepted: true, enqueued: 0, enqueuedFeedIds: [], skipped: 1, queuedAt: nowIso() } }, 202);
     }
     await upsertFeedJobs(c.env.DB, userId, [feedId]);
-    await c.env.JOBS.sendBatch([{ body: { jobType: "fetch_feed", feedId, reason: "refresh", attempt: 1 } }]);
-    return c.json({ data: { accepted: true, enqueued: 1, skipped: 0, queuedAt: nowIso() } }, 202);
+    // Asking for one feed is the way back for a paused one; the bulk refresh skips them.
+    const reason = feedStatus === "paused" ? "manual_recovery" : "refresh";
+    await c.env.JOBS.sendBatch([{ body: { jobType: "fetch_feed", feedId, reason, attempt: 1 } }]);
+    return c.json({ data: { accepted: true, enqueued: 1, enqueuedFeedIds: [feedId], skipped: 0, queuedAt: nowIso() } }, 202);
   });

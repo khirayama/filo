@@ -15,8 +15,11 @@ export interface Env {
   CORS_ALLOWED_ORIGINS: string;
 }
 
+// `manual_recovery` is one user asking to fetch a paused feed again.
+export type FetchFeedReason = "initial" | "refresh" | "retry_initial" | "manual_recovery";
+
 export type JobMessage =
-  | { jobType: "fetch_feed"; feedId: number; reason: "initial" | "refresh" | "retry_initial"; attempt: number }
+  | { jobType: "fetch_feed"; feedId: number; reason: FetchFeedReason; attempt: number }
   | { jobType: "extract_content"; articleId: number }
   | { jobType: "opml_import"; opmlJobId: number; attempt: number }
   | { jobType: "account_deletion"; deletionJobId: number; attempt: number };

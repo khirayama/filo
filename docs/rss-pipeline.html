@@ -473,6 +473,11 @@
           <td><code>retry_initial</code></td>
           <td><code>POST /subscriptions/:id/retry-initial-fetch</code>。<code>paused</code> でも受け付ける one-shot 復旧</td>
         </tr>
+        <tr>
+          <td><span class="badge api">API</span> 停止中フィードの単体更新</td>
+          <td><code>manual_recovery</code></td>
+          <td><code>POST /status/refresh/:feedId</code> を <code>paused</code> のフィードに送ったとき。one-shot 復旧</td>
+        </tr>
       </tbody>
     </table>
 
@@ -512,7 +517,7 @@
     <ol class="steps">
       <li>
         <div class="step-title">スキップ判定</div>
-        <div class="step-desc"><code>paused</code> フィードの <code>refresh</code> は即 <code>failed</code> で終了。<code>retry_initial</code> だけは通し、成功すれば <code>active</code> に戻す。</div>
+        <div class="step-desc"><code>paused</code> フィードの <code>refresh</code> は即 <code>failed</code> で終了。<code>retry_initial</code> と <code>manual_recovery</code> は通し、成功（304 を含む）すれば <code>active</code> に戻す。</div>
       </li>
       <li>
         <div class="step-title">条件付き GET</div>
@@ -627,7 +632,7 @@
       <div class="error-card warn">
         <div class="ec-title">paused からの復帰</div>
         <div class="ec-desc">
-          <code>retry-initial-fetch</code> の成功、または admin の <code>PATCH /admin/feeds/:id</code>。<br>
+          <code>retry-initial-fetch</code> か単体更新（<code>/status/refresh/:feedId</code>）の成功、または admin の <code>PATCH /admin/feeds/:id</code>。<br>
           復帰時に <code>consecutive_failures = 0</code>。
         </div>
       </div>

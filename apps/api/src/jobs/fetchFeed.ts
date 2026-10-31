@@ -1,4 +1,4 @@
-import type { Env } from "../env";
+import type { Env, FetchFeedReason } from "../env";
 import { faviconUrlFor, resolveCanonicalFeedUrl } from "../lib/discovery";
 import { dedupeKeyFor, parseFeed, type ParsedFeed } from "../lib/feed";
 import { settleFetchJobs } from "../lib/feedJobs";
@@ -381,7 +381,7 @@ async function ingestArticles(
 export async function runFetchFeed(
   env: Env,
   feedId: number,
-  reason: "initial" | "refresh" | "retry_initial"
+  reason: FetchFeedReason
 ): Promise<void> {
   const feed = await env.DB.prepare("SELECT id, feed_url, status, language, language_source FROM feeds WHERE id = ?")
     .bind(feedId)
@@ -397,6 +397,12 @@ export async function runFetchFeed(
   }
 
   await settleFetchJobs(env.DB, feedId, "running", { startedAt: nowIso() });
+
+  // user-driven one-shot recovery reactivates a paused feed on success
+  const reactivateIfRecovering = async (now: string) => {
+    if (feed.status !== "paused" || (reason !== "retry_initial" && reason !== "manual_recovery")) return;
+    await env.DB.prepare("UPDATE feeds SET status = 'active', updated_at = ? WHERE id = ?").bind(now, feedId).run();
+  };
 
   const state = await env.DB.prepare(
     "SELECT http_etag, http_last_modified, consecutive_failures FROM feed_fetch_states WHERE feed_id = ?"
@@ -434,6 +440,7 @@ export async function runFetchFeed(
       // a 304 means the feed was fetched successfully before; waiting subscriptions are ready
       await markWaitingSubscriptions(env, feedId, "ready", null);
       await settleFetchJobs(env.DB, feedId, "completed", { finishedAt: now });
+      await reactivateIfRecovering(now);
       // a permanently redirected feed has moved; follow it so refreshes stop
       if (fetched.permanentRedirect) {
         await updateFeedUrl(env, feedId, fetched.finalUrl, now);
@@ -529,10 +536,7 @@ export async function runFetchFeed(
     await markWaitingSubscriptions(env, feedId, "ready", null);
     await settleFetchJobs(env.DB, feedId, "completed", { finishedAt: now });
 
-    // user-driven one-shot recovery reactivates a paused feed on success
-    if (feed.status === "paused" && reason === "retry_initial") {
-      await env.DB.prepare("UPDATE feeds SET status = 'active', updated_at = ? WHERE id = ?").bind(now, feedId).run();
-    }
+    await reactivateIfRecovering(now);
 
     if (canonicalFeedUrl !== feed.feed_url) {
       await updateFeedUrl(env, feedId, canonicalFeedUrl, now);
