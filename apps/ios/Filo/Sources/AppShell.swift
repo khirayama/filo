@@ -9,7 +9,18 @@ private struct FiloOpenDrawerKey: EnvironmentKey {
     static let defaultValue: (() -> Void)? = nil
 }
 
+// Set while a screen has its own history: back steps through it, and a close
+// button leaves the screen directly.
+private struct FiloHistoryBackKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
 extension EnvironmentValues {
+    var filoHistoryBack: (() -> Void)? {
+        get { self[FiloHistoryBackKey.self] }
+        set { self[FiloHistoryBackKey.self] = newValue }
+    }
+
     // Set by the app shell on mobile; nil where there is no drawer (desktop).
     var filoOpenDrawer: (() -> Void)? {
         get { self[FiloOpenDrawerKey.self] }
@@ -54,13 +65,17 @@ struct FiloPageHeader<Actions: View>: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.filoOpenDrawer) private var openDrawer
+    @Environment(\.filoHistoryBack) private var historyBack
     @Environment(\.filoIsDesktop) private var isDesktop
 
     var body: some View {
         let gutter = isDesktop ? FiloMetrics.desktopGutter : FiloMetrics.gutter
         let hasLead = showsBack || (!isDesktop && openDrawer != nil)
         HStack(spacing: 4) {
-            if showsBack {
+            if showsBack, let historyBack {
+                FiloIconButton(.back, label: "戻る", action: historyBack)
+                FiloIconButton(.close, label: "閉じる") { dismiss() }
+            } else if showsBack {
                 FiloIconButton(.back, label: "戻る") { dismiss() }
             } else if !isDesktop, let openDrawer {
                 FiloIconButton(.menu, label: "メニュー", action: openDrawer)
@@ -106,9 +121,20 @@ struct SidebarNav: View {
     let onSelectView: () -> Void
     let onRoute: (AppRoute) -> Void
     var onClose: (() -> Void)?
-    @State private var expanded: Set<Int> = []
+    // The drawer is rebuilt each time it opens; what is expanded outlives it.
+    @AppStorage("filo:sidebar-expanded") private var expandedStorage = ""
 
     private static let untaggedKey = -1
+
+    private var expanded: Set<Int> {
+        Set(expandedStorage.split(separator: ",").compactMap { Int($0) })
+    }
+
+    private func toggleExpanded(_ key: Int) {
+        var next = expanded
+        if next.contains(key) { next.remove(key) } else { next.insert(key) }
+        expandedStorage = next.map(String.init).joined(separator: ",")
+    }
 
     var body: some View {
         ScrollView {
@@ -231,12 +257,16 @@ struct SidebarNav: View {
                 }
                 .buttonStyle(NavRowStyle(isActive: isActive))
             } else {
-                NavRowLabel(title: label, count: unread, isActive: false, leading: NavRowLabel.childIndent, muted: true)
+                // The untagged group has no list of its own: the whole row expands.
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { toggleExpanded(key) }
+                } label: {
+                    NavRowLabel(title: label, count: unread, isActive: false, leading: NavRowLabel.childIndent, muted: true)
+                }
+                .buttonStyle(NavRowStyle(isActive: false))
             }
             Button {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    if isExpanded { expanded.remove(key) } else { expanded.insert(key) }
-                }
+                withAnimation(.easeOut(duration: 0.15)) { toggleExpanded(key) }
             } label: {
                 FiloIcon(isExpanded ? .chevronDown : .chevronRight, size: 14)
                     .foregroundStyle(FiloPalette.muted)

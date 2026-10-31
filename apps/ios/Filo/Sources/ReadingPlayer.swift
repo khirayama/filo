@@ -62,6 +62,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published var readingListItems: [ReadingSessionItem] = []
     @Published var index = -1
     @Published var isLoading = false
+    @Published private(set) var isReadingListLoading = false
     @Published var isPlaying = false
     @Published var isReadingBrowserVisible = false
     @Published private(set) var isPreparing = false
@@ -84,6 +85,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var chunks: [String] = []
     private var chunkIndex = 0
     private var startingAutoplay = false
+    private var startSession = 0
+    private var settingsLoad: Task<Void, Never>?
     private var translationToken = 0
     private var nextCaptureId = 0
     private var playbackGeneration = 0
@@ -124,51 +127,75 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         try? AVAudioSession.sharedInstance().setActive(true)
     }
 
+    // The page never waits for the API: a known URL opens at once, and a list
+    // session opens as soon as its first unread article is known. Later pages
+    // only extend the list.
     func start(autoplay: Bool, temporaryUrl: String? = nil, article: ReadingSessionArticle? = nil) async {
-        guard !isLoading else { return }
+        startSession += 1
+        let session = startSession
         pause()
-        isLoading = true
         errorMessage = nil
         startingAutoplay = autoplay
         removedReadingListArticleIds = []
-        do {
-            async let settingsTask = APIClient.shared.getSettings()
-            let settings = try? await settingsTask
-            targetLanguage = settings?.language ?? targetLanguage
-            if let article {
-                items = [ReadingSessionItem(
-                    articleId: article.id,
-                    sortOrder: 0,
-                    article: article,
-                    createdAt: nil,
-                    isRead: false,
-                )]
-                index = 0
-                readingListItems = (try? await loadReadingList()) ?? []
-            } else if let temporaryUrl {
-                readingListItems = (try? await loadReadingList()) ?? []
-                let article = ReadingSessionArticle(
-                    id: 0,
-                    title: temporaryUrl,
-                    sourceLanguage: nil,
-                    canonicalUrl: temporaryUrl,
-                    publishedAt: nil,
-                    feed: .init(id: 0, title: L10n.string("共有ページ")),
-                )
-                items = [ReadingSessionItem(articleId: 0, sortOrder: 0, article: article, createdAt: nil, isRead: false)]
-                index = 0
-            } else {
-                let readingList = try await loadReadingList()
-                items = readingList
-                readingListItems = readingList
-                index = items.firstIndex(where: { !$0.isRead }) ?? -1
-                if index < 0 { errorMessage = L10n.string("未読の記事がありません。") }
+        readingListItems = []
+        isReadingListLoading = true
+        settingsLoad = Task {
+            if let settings = try? await APIClient.shared.getSettings(), session == startSession {
+                targetLanguage = settings.language
             }
-            resetPage()
-        } catch {
-            errorMessage = ErrorMessages.message(for: error)
         }
+        var directItem: ReadingSessionItem?
+        if let article {
+            directItem = ReadingSessionItem(articleId: article.id, sortOrder: 0, article: article, createdAt: nil, isRead: false)
+        } else if let temporaryUrl {
+            let article = ReadingSessionArticle(
+                id: 0,
+                title: temporaryUrl,
+                sourceLanguage: nil,
+                canonicalUrl: temporaryUrl,
+                publishedAt: nil,
+                feed: .init(id: 0, title: L10n.string("共有ページ")),
+            )
+            directItem = ReadingSessionItem(articleId: 0, sortOrder: 0, article: article, createdAt: nil, isRead: false)
+        }
+        var opened = directItem != nil
+        if let directItem {
+            items = [directItem]
+            index = 0
+            resetPage()
+        } else {
+            items = []
+            index = -1
+            isLoading = true
+        }
+        do {
+            try await loadReadingList(session: session) { pageItems in
+                readingListItems = plusNew(readingListItems, pageItems)
+                if directItem == nil { items = plusNew(items, pageItems) }
+                if !opened, let first = items.firstIndex(where: { !$0.isRead }) {
+                    opened = true
+                    index = first
+                    resetPage()
+                    isLoading = false
+                }
+                matchPageToReadingList()
+            }
+        } catch {
+            if !opened, session == startSession { errorMessage = ErrorMessages.message(for: error) }
+        }
+        guard session == startSession else { return }
+        if !opened, errorMessage == nil { errorMessage = L10n.string("未読の記事がありません。") }
         isLoading = false
+        isReadingListLoading = false
+    }
+
+    // Links the shown page to its reading-list article. The list can arrive
+    // after the page has loaded.
+    private func matchPageToReadingList() {
+        guard let currentPageUrl, currentPageArticleId == nil,
+              let match = readingListItems.first(where: { sameReadingArticleURL($0.article.canonicalUrl, currentPageUrl) }) else { return }
+        pageArticles[pageKey(currentPageUrl)] = match.articleId
+        if playbackKind == .page, isPlaying || isPreparing { playbackArticleId = match.articleId }
     }
 
     func pageLoading() {
@@ -187,10 +214,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
             sessionPageUrl = pageKey(currentPageUrl)
             if let id = currentItem?.articleId, id > 0 { pageArticles[pageKey(currentPageUrl)] = id }
         }
-        if let currentPageUrl, currentPageArticleId == nil,
-           let match = readingListItems.first(where: { sameReadingArticleURL($0.article.canonicalUrl, currentPageUrl) }) {
-            pageArticles[pageKey(currentPageUrl)] = match.articleId
-        }
+        matchPageToReadingList()
         isPageLoaded = true
         if startingAutoplay {
             startingAutoplay = false
@@ -228,16 +252,19 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         guard captureRequest?.id == request.id else { return }
         captureRequest = nil
         let generation = playbackGeneration
-        if let text, !text.isEmpty {
-            speak(text, language: language, kind: request.kind)
-            return
-        }
-        guard request.kind == .page, let articleId = currentPageArticleId else {
-            isPreparing = false
-            errorMessage = L10n.string(request.kind == .selection ? "読み上げる文章がありません。" : "本文を抽出できませんでした。")
-            return
-        }
         Task {
+            // The reading language comes from the settings that start() loads beside the page.
+            await settingsLoad?.value
+            guard generation == playbackGeneration else { return }
+            if let text, !text.isEmpty {
+                speak(text, language: language, kind: request.kind)
+                return
+            }
+            guard request.kind == .page, let articleId = currentPageArticleId else {
+                isPreparing = false
+                errorMessage = L10n.string(request.kind == .selection ? "読み上げる文章がありません。" : "本文を抽出できませんでした。")
+                return
+            }
             let content = await fetchServerText(articleId)
             guard generation == playbackGeneration else { return }
             if let content {
@@ -442,8 +469,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         }
     }
 
-    private func loadReadingList() async throws -> [ReadingSessionItem] {
-        var result: [ReadingSessionItem] = []
+    private func loadReadingList(session: Int, onPage: ([ReadingSessionItem]) -> Void) async throws {
+        var count = 0
         var cursor: String?
         repeat {
             let page = try await APIClient.shared.listArticles(
@@ -451,8 +478,10 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                 cursor: cursor,
                 limit: 100,
             )
-            let startIndex = result.count
-            let pageItems = page.articles.enumerated().map { offset, article in
+            guard session == startSession else { return }
+            let startIndex = count
+            count += page.articles.count
+            onPage(page.articles.enumerated().map { offset, article in
                 ReadingSessionItem(
                     articleId: article.id,
                     sortOrder: startIndex + offset,
@@ -460,11 +489,14 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
                     createdAt: nil,
                     isRead: article.userState.isRead,
                 )
-            }
-            result.append(contentsOf: pageItems)
+            })
             cursor = page.nextCursor
         } while cursor != nil
-        return result
+    }
+
+    private func plusNew(_ list: [ReadingSessionItem], _ other: [ReadingSessionItem]) -> [ReadingSessionItem] {
+        let known = Set(list.map(\.articleId))
+        return list + other.filter { !known.contains($0.articleId) }
     }
 
     private func resetPage() {
@@ -558,6 +590,26 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
 
 }
 
+// The web view's page history, for the header and the edge swipe.
+@MainActor
+final class ReadingPageHistory: ObservableObject {
+    @Published private(set) var canGoBack = false
+    private weak var webView: WKWebView?
+    private var observation: NSKeyValueObservation?
+
+    func attach(_ webView: WKWebView) {
+        self.webView = webView
+        observation = webView.observe(\.canGoBack, options: [.initial, .new]) { [weak self] webView, _ in
+            let canGoBack = webView.canGoBack
+            Task { @MainActor in self?.canGoBack = canGoBack }
+        }
+    }
+
+    func goBack() {
+        webView?.goBack()
+    }
+}
+
 struct ReadingSessionScreen: View {
     let autoplay: Bool
     let temporaryUrl: String?
@@ -565,6 +617,7 @@ struct ReadingSessionScreen: View {
     @EnvironmentObject private var player: ReadingPlayerStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @StateObject private var history = ReadingPageHistory()
     @State private var isReadingListPresented = false
     @State private var isSettingsPresented = false
     @State private var showShortcutHelp = false
@@ -597,6 +650,7 @@ struct ReadingSessionScreen: View {
                     } else if let item = player.currentItem, let url = item.article.canonicalUrl {
                         ReadingWebView(
                             url: url,
+                            history: history,
                             captureRequest: player.captureRequest,
                             onLoading: player.pageLoading,
                             onLoaded: player.pageLoaded,
@@ -626,6 +680,8 @@ struct ReadingSessionScreen: View {
                 )
             }
         }
+        // Back walks the page history first; the first page closes the screen.
+        .environment(\.filoHistoryBack, history.canGoBack ? { history.goBack() } : nil)
         .sheet(isPresented: $isSettingsPresented) {
             ReadingSettingsSheet(player: player)
                 .presentationDetents([.medium])
@@ -635,6 +691,7 @@ struct ReadingSessionScreen: View {
         .sheet(isPresented: $isReadingListPresented) {
             ReadingListView(
                 items: player.visibleReadingListItems,
+                isLoading: player.isReadingListLoading,
                 currentArticleId: player.currentPageArticleId ?? -1,
                 onSelect: { articleId in
                     player.select(articleId: articleId)
@@ -816,6 +873,7 @@ struct ReadingMiniPlayer: View {
 
 private struct ReadingListView: View {
     let items: [ReadingSessionItem]
+    let isLoading: Bool
     let currentArticleId: Int
     let onSelect: (Int) -> Void
     let onRemove: (Int) -> Void
@@ -834,7 +892,11 @@ private struct ReadingListView: View {
             .frame(height: FiloMetrics.headerHeight)
             .overlay(alignment: .bottom) { FiloDivider() }
             if items.isEmpty {
-                FiloEmptyState(icon: .playlist, message: "リーディングリストに記事がありません。")
+                if isLoading {
+                    FiloSpinner()
+                } else {
+                    FiloEmptyState(icon: .playlist, message: "リーディングリストに記事がありません。")
+                }
                 Spacer(minLength: 0)
             } else {
                 ScrollView {
@@ -888,6 +950,7 @@ private struct ReadingListView: View {
 
 private struct ReadingWebView: UIViewRepresentable {
     let url: String
+    let history: ReadingPageHistory
     let captureRequest: ReadingCaptureRequest?
     let onLoading: () -> Void
     let onLoaded: (String?, String?) -> Void
@@ -910,9 +973,15 @@ private struct ReadingWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.alwaysBounceVertical = true
-        webView.allowsBackForwardNavigationGestures = true
+        for edge in [UIRectEdge.left, .right] {
+            let swipe = UIScreenEdgePanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.edgeSwiped))
+            swipe.edges = edge
+            swipe.delegate = context.coordinator
+            webView.addGestureRecognizer(swipe)
+        }
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
+        history.attach(webView)
         if let value = URL(string: url) { webView.load(URLRequest(url: value)) }
         return webView
     }
@@ -922,7 +991,7 @@ private struct ReadingWebView: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, UIGestureRecognizerDelegate {
         weak var webView: WKWebView?
         private let onLoading: () -> Void
         private let onLoaded: (String?, String?) -> Void
@@ -934,6 +1003,8 @@ private struct ReadingWebView: UIViewRepresentable {
         private var pending: ReadingCaptureRequest?
         private var handledId: Int?
         private var navigationVersion = 0
+
+        private static let swipeDistance: CGFloat = 60
 
         private static let scripts: String = ["Readability", "FiloCapture"]
             .compactMap { name in
@@ -955,6 +1026,24 @@ private struct ReadingWebView: UIViewRepresentable {
             self.onCaptured = onCaptured
             self.onSelectionChanged = onSelectionChanged
             self.onEditingChanged = onEditingChanged
+        }
+
+        // Edge swipes step through the page history. WKWebView's own gesture
+        // does not navigate inside this screen, and without history the swipe
+        // falls through to the navigation stack, which closes the screen.
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let swipe = gestureRecognizer as? UIScreenEdgePanGestureRecognizer, let webView else { return true }
+            return swipe.edges == .left ? webView.canGoBack : webView.canGoForward
+        }
+
+        @objc func edgeSwiped(_ swipe: UIScreenEdgePanGestureRecognizer) {
+            guard swipe.state == .ended, let webView else { return }
+            let distance = swipe.translation(in: webView).x
+            if swipe.edges == .left, distance > Self.swipeDistance {
+                webView.goBack()
+            } else if swipe.edges == .right, distance < -Self.swipeDistance {
+                webView.goForward()
+            }
         }
 
         // Capture when asked, once the page has loaded.
