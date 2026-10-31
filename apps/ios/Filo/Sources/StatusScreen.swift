@@ -51,6 +51,22 @@ struct StatusScreen: View {
         .task {
             await load()
         }
+        // Follow running jobs so a fetch started here settles on screen.
+        .task(id: hasActiveJob) {
+            guard hasActiveJob else {
+                // Anything read while the jobs ran is older than their results.
+                await APIClient.shared.invalidateFeedData()
+                return
+            }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                await load()
+            }
+        }
+    }
+
+    private var hasActiveJob: Bool {
+        status?.subscriptionStatuses.contains { $0.fetchJob?.isActive == true } ?? false
     }
 
     // MARK: - Sections
@@ -121,7 +137,7 @@ struct StatusScreen: View {
 
     private func subscriptionRow(_ sub: StatusSubscription) -> some View {
         let fetchBusy = sub.fetchJob?.isActive == true || busyFeedId == sub.feedId && isRefreshing
-        let rowError = hasStatusAttention(sub) ? (sub.fetchJob?.lastError ?? sub.lastError) : nil
+        let rowError = hasStatusAttention(sub) ? (sub.fetchJob?.lastError ?? sub.lastError).map(ErrorMessages.statusMessage(for:)) : nil
         return HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 NavigationLink(value: AppRoute.subscriptionDetail(sub.subscriptionId)) {

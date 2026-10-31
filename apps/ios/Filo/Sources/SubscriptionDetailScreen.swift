@@ -9,7 +9,12 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var articles: [ArticleListItem] = []
     @Published var nextCursor: String?
     @Published var hasNewArticles = false
-    private var newArticleBaseline: (filters: ArticleListFilters, id: Int)?
+    @Published private var newArticleBaseline: (filters: ArticleListFilters, id: Int)?
+    // "Mark all as read" covers what this list has loaded, never what arrived after.
+    var markAllUpToArticleId: Int? {
+        guard let newArticleBaseline, newArticleBaseline.filters == filters else { return nil }
+        return newArticleBaseline.id
+    }
     @Published var isLoading = true
     @Published var isLoadingMore = false
     @Published var isGone = false
@@ -192,7 +197,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
     }
 
     func markAllRead() async {
-        guard !isMarkingAllRead else { return }
+        guard !isMarkingAllRead, let upToArticleId = markAllUpToArticleId else { return }
         isMarkingAllRead = true
         markAllReadNotice = nil
         errorMessage = nil
@@ -208,7 +213,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
             }
         }
         do {
-            let result = try await APIClient.shared.markAllRead(subscriptionId)
+            let result = try await APIClient.shared.markAllRead(subscriptionId, upToArticleId: upToArticleId)
             subscription?.unreadCount = result.unreadCount
             await reloadArticles()
             markAllReadNotice = L10n.string("既読への変更が完了しました。")
@@ -242,6 +247,22 @@ final class SubscriptionDetailViewModel: ObservableObject {
     @Published var isRefreshingFeed = false
     @Published var refreshNotice: String?
 
+    // A new subscription fetches its first articles in the background. Follow
+    // it so the screen shows the result without the user having to reload.
+    func followInitialFetch() async {
+        guard subscription?.initialFetchStatus == "fetching" else { return }
+        // The job gives up long before this; stop rather than poll a lost job forever.
+        for _ in 0 ..< 60 {
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            guard let next = try? await APIClient.shared.getSubscription(subscriptionId),
+                  next.initialFetchStatus != "fetching" else { continue }
+            subscription = next
+            await APIClient.shared.invalidateFeedData()
+            await reloadArticles()
+            return
+        }
+    }
+
     // Wait for this feed's job before reloading its metadata and articles.
     func refreshFeedAndReload() async {
         guard let feedId = subscription?.feed.id, !isRefreshingFeed else { return }
@@ -250,7 +271,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
         do {
             let result = try await APIClient.shared.refreshFeed(feedId, waitForCompletion: true)
             FiloAnalytics.track("refresh_feed", parameters: ["feed_id": feedId])
-            if result.enqueued > 0 { refreshNotice = L10n.format("%ld件のフィードを更新しました。", result.enqueued) }
+            refreshNotice = result.notice
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
         }
@@ -274,6 +295,7 @@ struct SubscriptionDetailScreen: View {
     @State private var showRename = false
     @State private var renameText = ""
     @State private var showUnsubscribeConfirm = false
+    @State private var showMarkAllConfirm = false
     @State private var showFeedUrl = false
     @State private var selectedArticleIndex: Int?
     @State private var visibleArticleIds: Set<Int> = []
@@ -291,6 +313,35 @@ struct SubscriptionDetailScreen: View {
     }
 
     var body: some View {
+        screen
+            .alert("購読名を変更", isPresented: $showRename) {
+                TextField("空欄でフィード名に戻す", text: $renameText)
+                Button("変更") { Task { await model.rename(to: renameText.trimmingCharacters(in: .whitespaces)) } }
+                Button("キャンセル", role: .cancel) {}
+            }
+            .alert("フィードURL", isPresented: $showFeedUrl) {
+                Button("コピー") { UIPasteboard.general.string = model.subscription?.feed.feedUrl }
+                Button("閉じる", role: .cancel) {}
+            } message: {
+                Text(model.subscription?.feed.feedUrl ?? "")
+            }
+            .confirmationDialog(Text(verbatim: markAllConfirmTitle), isPresented: $showMarkAllConfirm, titleVisibility: .visible) {
+                Button("すべて既読にする") { Task { await model.markAllRead() } }
+            }
+            .confirmationDialog("この購読を解除しますか？ブックマークした記事は残ります。", isPresented: $showUnsubscribeConfirm, titleVisibility: .visible) {
+                Button("購読解除", role: .destructive) {
+                    Task {
+                        if await model.unsubscribe() { dismiss() }
+                    }
+                }
+            }
+    }
+
+    private var markAllConfirmTitle: String {
+        L10n.format("「%@」の記事をすべて既読にしますか？", model.subscription?.displayTitle ?? "")
+    }
+
+    private var screen: some View {
         Group {
             if model.isGone {
                 FiloPage("購読が見つかりません", showsBack: true) {
@@ -338,6 +389,7 @@ struct SubscriptionDetailScreen: View {
                 if !Task.isCancelled { didLoad = true }
             }
         }
+        .task(id: model.subscription?.initialFetchStatus) { await model.followInitialFetch() }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
@@ -372,24 +424,6 @@ struct SubscriptionDetailScreen: View {
             guard !Task.isCancelled else { return }
             model.refreshNotice = nil
         }
-        .alert("購読名を変更", isPresented: $showRename) {
-            TextField("空欄でフィード名に戻す", text: $renameText)
-            Button("変更") { Task { await model.rename(to: renameText.trimmingCharacters(in: .whitespaces)) } }
-            Button("キャンセル", role: .cancel) {}
-        }
-        .alert("フィードURL", isPresented: $showFeedUrl) {
-            Button("コピー") { UIPasteboard.general.string = model.subscription?.feed.feedUrl }
-            Button("閉じる", role: .cancel) {}
-        } message: {
-            Text(model.subscription?.feed.feedUrl ?? "")
-        }
-        .confirmationDialog("この購読を解除しますか？ブックマークした記事は残ります。", isPresented: $showUnsubscribeConfirm, titleVisibility: .visible) {
-            Button("購読解除", role: .destructive) {
-                Task {
-                    if await model.unsubscribe() { dismiss() }
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -399,9 +433,9 @@ struct SubscriptionDetailScreen: View {
         }
         .disabled(model.isRefreshingFeed)
         FiloIconButton(.checkAll, label: "すべて既読にする") {
-            Task { await model.markAllRead() }
+            showMarkAllConfirm = true
         }
-        .disabled(model.isMarkingAllRead)
+        .disabled(model.isMarkingAllRead || model.markAllUpToArticleId == nil)
         subscriptionActionsMenu
         ArticleListControls(readFilter: $model.readFilter, sort: $model.sort, readOrder: $model.readOrder)
     }
@@ -428,6 +462,10 @@ struct SubscriptionDetailScreen: View {
                     Group {
                         if model.subscription?.initialFetchStatus == "fetching" {
                             FiloEmptyState(icon: .refresh, message: "記事を取得しています…")
+                        } else if let readFilter = model.readFilter {
+                            FiloEmptyState(icon: .sliders, message: readFilter ? "既読の記事はありません。" : "未読の記事はありません。") {
+                                FiloButton("絞り込みを解除") { model.readFilter = nil }
+                            }
                         } else {
                             FiloEmptyState(icon: .inbox, message: "表示できる記事がありません。")
                         }
@@ -519,7 +557,7 @@ struct SubscriptionDetailScreen: View {
             Button("", action: { if let article = keyboardArticle() { Task { await model.patchState(article.id, inReadingList: !article.userState.inReadingList) } } }).keyboardShortcut("s", modifiers: [])
             Button("", action: { if let article = keyboardArticle() { Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) } } }).keyboardShortcut("b", modifiers: [])
             Button("", action: { Task { await model.refreshFeedAndReload() } }).keyboardShortcut("r", modifiers: [])
-            Button("", action: { Task { await model.markAllRead() } }).keyboardShortcut("a", modifiers: [.shift])
+            Button("", action: { if model.markAllUpToArticleId != nil { showMarkAllConfirm = true } }).keyboardShortcut("a", modifiers: [.shift])
             Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
         }
         .frame(width: 1, height: 1)
@@ -564,6 +602,9 @@ struct SubscriptionDetailScreen: View {
                 .frame(height: FiloMetrics.controlHeightSmall)
             if subscription.initialFetchStatus == "failed" {
                 FiloButton("初回取得を再試行", small: true) { Task { await model.retryInitialFetch() } }
+            } else if subscription.feedHealthStatus == "paused" {
+                FiloButton("更新を再開", small: true) { Task { await model.refreshFeedAndReload() } }
+                    .disabled(model.isRefreshingFeed)
             }
             ForEach(model.allTags.filter { subscription.tagIds.contains($0.id) }) { tag in
                 FiloChip(label: tag.name, isOn: false, localize: false) { onSelectTag(tag.id) }

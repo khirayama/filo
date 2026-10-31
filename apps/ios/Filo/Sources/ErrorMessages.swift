@@ -36,6 +36,19 @@ enum ErrorMessages {
         return L10n.string(messages["internal_error"]!)
     }
 
+    // What a failed fetch recorded, in words for the status screen. The
+    // worker's text is English and technical, and is not shown as is.
+    static func statusMessage(for message: String) -> String {
+        if message == "feed not found" { return L10n.string("フィードが見つかりません。") }
+        if message == "feed is paused" { return L10n.string("フィードは停止中です。") }
+        if message == "feed could not be parsed" { return L10n.string("フィードを解析できませんでした。") }
+        let prefix = "feed responded with status "
+        if message.hasPrefix(prefix), let status = Int(message.dropFirst(prefix.count)) {
+            return L10n.format("フィードがHTTPエラーを返しました。(%ld)", status)
+        }
+        return L10n.string("フィードの取得に失敗しました。")
+    }
+
     static func initialFetchMessage(for code: String?) -> String {
         switch code {
         case "feed_unreachable": return L10n.string("フィードに接続できませんでした。")

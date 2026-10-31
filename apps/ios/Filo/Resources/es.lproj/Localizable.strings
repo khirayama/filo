@@ -196,7 +196,6 @@
 "既読の記事をリーディングリストから削除しますか？" = "¿Quitar los artículos leídos de la lista de lectura?";
 "既読は上" = "Leídos primero";
 "既読は下" = "Leídos al final";
-"既読履歴について" = "Historial de lectura";
 "既読状態" = "Estado de lectura";
 "既読記事を削除" = "Quitar artículos leídos";
 "更新停止中" = "Actualizaciones pausadas";
@@ -242,7 +241,6 @@
 "追加完了" = "Añadido";
 "速度" = "Velocidad";
 "進行中の削除処理はありません。" = "No hay ninguna eliminación en curso.";
-"閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。" = "El historial de lectura se trata como artículos leídos. Usa los filtros para verlos.";
 "今" = "ahora";
 "分" = "min";
 "時間" = "h";
@@ -276,3 +274,19 @@
 "翻訳を利用できないため原文で読み上げています。" = "La traducción no está disponible; se está leyendo el texto original.";
 
 "新着記事があります" = "Hay artículos nuevos";
+"「%@」の記事をすべて既読にしますか？" = "¿Marcar todos los artículos de «%@» como leídos?";
+"既読の記事はありません。" = "No hay artículos leídos.";
+"未読の記事はありません。" = "No hay artículos sin leer.";
+"ブックマークした記事はありません。" = "No hay artículos en marcadores.";
+"絞り込みを解除" = "Quitar filtro";
+"表示設定（絞り込み中）" = "Ajustes de visualización (con filtro)";
+"%ld件のフィードを取得できませんでした。処理ステータスで確認できます。" = "No se pudieron obtener %ld feeds. Consulta los detalles en Estado.";
+"更新を再開" = "Reanudar actualizaciones";
+"記事を見る" = "Ver artículos";
+"%ld件の既読記事を削除しました。" = "Se quitaron %ld artículos leídos.";
+"削除できる既読記事はありません。" = "No hay artículos leídos para quitar.";
+"フィードは停止中です。" = "Este feed está en pausa.";
+"フィードを解析できませんでした。" = "No se pudo analizar el feed.";
+"フィードがHTTPエラーを返しました。(%ld)" = "El feed devolvió un error HTTP. (%ld)";
+"フィードの取得に失敗しました。" = "No se pudo obtener el feed.";
+"フィードが見つかりません。" = "No se encontró el feed.";

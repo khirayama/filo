@@ -293,7 +293,19 @@ struct ArticleListControls: View {
     @State private var isOpen = false
 
     var body: some View {
-        FiloIconButton(.sliders, label: "表示設定") { isOpen = true }
+        FiloIconButton(.sliders, label: readFilter == nil ? "表示設定" : "表示設定（絞り込み中）") { isOpen = true }
+            // A dot on the icon: the list is filtered by read state.
+            .overlay(alignment: .topTrailing) {
+                if readFilter != nil {
+                    Circle()
+                        .fill(FiloPalette.accent)
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().strokeBorder(FiloPalette.background, lineWidth: 1))
+                        .padding(8)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .popover(isPresented: $isOpen, arrowEdge: .top) {
                 content
                     .frame(width: 300)
@@ -326,7 +338,7 @@ struct ArticleListControls: View {
                     .padding(.bottom, 4)
             }
             group("既読状態", top: 8) {
-                FiloChip(label: "全ての記事", isOn: readFilter == nil) { choose { readFilter = nil } }
+                FiloChip(label: "すべて", isOn: readFilter == nil) { choose { readFilter = nil } }
                 FiloChip(label: "未読", isOn: readFilter == false) { choose { readFilter = false } }
                 FiloChip(label: "既読", isOn: readFilter == true) { choose { readFilter = true } }
             }

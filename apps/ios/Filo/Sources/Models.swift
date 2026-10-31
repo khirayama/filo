@@ -232,8 +232,24 @@ struct StatusOverview: Codable, Hashable {
 struct RefreshResult: Codable, Hashable {
     var accepted: Bool
     var enqueued: Int
+    var enqueuedFeedIds: [Int]?
     var skipped: Int?
     var queuedAt: String
+    // Of the feeds this refresh asked for, how many ended in a failed job.
+    // Known only after waiting for completion; not part of the response.
+    var failed = 0
+
+    private enum CodingKeys: String, CodingKey {
+        case accepted, enqueued, enqueuedFeedIds, skipped, queuedAt
+    }
+
+    // The sentence that closes a refresh.
+    var notice: String {
+        if failed > 0 { return L10n.format("%ld件のフィードを取得できませんでした。処理ステータスで確認できます。", failed) }
+        if enqueued > 0 { return L10n.format("%ld件のフィードを更新しました。", enqueued) }
+        if (skipped ?? 0) > 0 { return L10n.string("最近取得済みのため、今回の取得対象はありませんでした。") }
+        return L10n.string("取得対象のフィードがありません。")
+    }
 }
 
 struct ArticleListFilters: Hashable {

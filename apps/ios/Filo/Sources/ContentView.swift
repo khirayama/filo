@@ -176,9 +176,8 @@ struct AppNavigationView: View {
         case .status:
             StatusScreen().onAppear { FiloAnalytics.screen("status") }
         case .addFeed:
-            AddFeedScreen(onOpenArticles: {
-                articlesModel.selectView()
-                resetToArticles()
+            AddFeedScreen(onOpenSubscription: { id in
+                navigate(.subscriptionDetail(id))
             }, onCreated: {
                 await articlesModel.load()
             })

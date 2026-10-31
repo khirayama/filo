@@ -34,15 +34,6 @@ struct SettingsScreen: View {
                         displaySection(settings)
                         translationSection(settings)
                         opmlSection
-                        section("既読履歴について") {
-                            Text(localized: "閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。")
-                                .filoFont(13)
-                                .lineSpacing(4)
-                                .foregroundStyle(FiloPalette.muted)
-                                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                        }
                         section("セッション") {
                             FiloCardRow {
                                 FiloButton("サインアウト") { BetterAuth.shared.signOut() }

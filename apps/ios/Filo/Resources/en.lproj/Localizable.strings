@@ -195,7 +195,6 @@
 "既読の記事をリーディングリストから削除しますか？" = "Remove read articles from the reading list?";
 "既読は上" = "Read first";
 "既読は下" = "Read last";
-"既読履歴について" = "Read history";
 "既読状態" = "Read status";
 "既読記事を削除" = "Remove read articles";
 "更新停止中" = "Updates paused";
@@ -241,7 +240,6 @@
 "追加完了" = "Added";
 "速度" = "Speed";
 "進行中の削除処理はありません。" = "There is no deletion in progress.";
-"閲覧履歴は既読記事として扱われます。記事一覧の絞り込みから既読記事を確認できます。" = "Reading history is treated as read articles. Use the article filters to view read articles.";
 "今" = "now";
 "分" = "m";
 "時間" = "h";
@@ -275,3 +273,19 @@
 "翻訳を利用できないため原文で読み上げています。" = "Translation is unavailable, so the original text is being read aloud.";
 
 "新着記事があります" = "New articles available";
+"「%@」の記事をすべて既読にしますか？" = "Mark all articles in \"%@\" as read?";
+"既読の記事はありません。" = "No read articles.";
+"未読の記事はありません。" = "No unread articles.";
+"ブックマークした記事はありません。" = "No bookmarked articles.";
+"絞り込みを解除" = "Clear filter";
+"表示設定（絞り込み中）" = "Display settings (filtered)";
+"%ld件のフィードを取得できませんでした。処理ステータスで確認できます。" = "%ld feeds could not be fetched. See Status for details.";
+"更新を再開" = "Resume updates";
+"記事を見る" = "View articles";
+"%ld件の既読記事を削除しました。" = "Removed %ld read articles.";
+"削除できる既読記事はありません。" = "There are no read articles to remove.";
+"フィードは停止中です。" = "This feed is paused.";
+"フィードを解析できませんでした。" = "The feed could not be parsed.";
+"フィードがHTTPエラーを返しました。(%ld)" = "The feed returned an HTTP error. (%ld)";
+"フィードの取得に失敗しました。" = "The feed could not be fetched.";
+"フィードが見つかりません。" = "The feed was not found.";

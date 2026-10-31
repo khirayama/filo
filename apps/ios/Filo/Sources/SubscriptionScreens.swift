@@ -129,10 +129,12 @@ struct SubscriptionsScreen: View {
 
     @ViewBuilder
     private var content: some View {
+        if let error = model.errorMessage {
+            FiloErrorBox(message: error) { Task { await model.load() } }
+                .padding(.bottom, 16)
+        }
         if model.isLoading {
             FiloSpinner()
-        } else if let error = model.errorMessage {
-            FiloErrorBox(message: error) { Task { await model.load() } }
         } else if model.subscriptions.isEmpty {
             FiloEmptyState(icon: .rss, message: "まだ購読がありません。") {
                 NavigationLink(value: AppRoute.addFeed) { FiloButtonLabel(title: "フィードを追加") }
@@ -184,7 +186,9 @@ struct SubscriptionsScreen: View {
                 if let tag {
                     HStack(spacing: 2) {
                         FiloIconButton(.chevronUp, label: "タグを上へ", size: 16) { Task { await model.moveTag(tag.id, direction: -1) } }
+                            .disabled(model.tags.first?.id == tag.id)
                         FiloIconButton(.chevronDown, label: "タグを下へ", size: 16) { Task { await model.moveTag(tag.id, direction: 1) } }
+                            .disabled(model.tags.last?.id == tag.id)
                         FiloIconButton(.pencil, label: "名前変更", size: 16) {
                             renameText = tag.name
                             renamingTag = tag
@@ -230,9 +234,11 @@ struct SubscriptionsScreen: View {
                 FiloIconButton(.chevronUp, label: "上へ", size: 16) {
                     Task { await model.move(subscription.id, direction: -1, within: groupIds) }
                 }
+                .disabled(groupIds.first == subscription.id)
                 FiloIconButton(.chevronDown, label: "下へ", size: 16) {
                     Task { await model.move(subscription.id, direction: 1, within: groupIds) }
                 }
+                .disabled(groupIds.last == subscription.id)
             }
             .disabled(model.isBusy)
         }

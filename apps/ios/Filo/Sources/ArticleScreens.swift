@@ -7,7 +7,12 @@ final class ArticlesViewModel: ObservableObject {
     @Published var articles: [ArticleListItem] = []
     @Published var nextCursor: String?
     @Published var hasNewArticles = false
-    private var newArticleBaseline: (filters: ArticleListFilters, id: Int)?
+    @Published private var newArticleBaseline: (filters: ArticleListFilters, id: Int)?
+    // "Mark all as read" covers what this list has loaded, never what arrived after.
+    var markAllUpToArticleId: Int? {
+        guard let newArticleBaseline, newArticleBaseline.filters == filters else { return nil }
+        return newArticleBaseline.id
+    }
     @Published var isLoading = false
     @Published var isLoadingMore = false
     @Published var errorMessage: String?
@@ -66,6 +71,19 @@ final class ArticlesViewModel: ObservableObject {
             sort: sort,
             readOrder: readOrder
         )
+    }
+
+    // Screens above this one change settings, tags and subscriptions, and
+    // articles read there change the counts. Bring the shell back in step.
+    func refreshAppData() async {
+        guard let bootstrap = try? await APIClient.shared.getBootstrap() else { return }
+        tags = bootstrap.tags
+        subscriptions = bootstrap.subscriptions
+        unreadCounts = bootstrap.unreadCounts
+        settings = bootstrap.settings
+        applyingDefaultSort = true
+        sort = selectedSort ?? bootstrap.settings.articleSortOrder
+        applyingDefaultSort = false
     }
 
     func load() async {
@@ -134,11 +152,7 @@ final class ArticlesViewModel: ObservableObject {
         refreshNotice = nil
         do {
             let result = try await APIClient.shared.refreshFeeds(force: false, waitForCompletion: true)
-            if result.enqueued == 0, (result.skipped ?? 0) > 0 {
-                refreshNotice = L10n.string("最近取得済みのため、今回の取得対象はありませんでした。")
-            } else if result.enqueued > 0 {
-                refreshNotice = L10n.format("%ld件のフィードを更新しました。", result.enqueued)
-            }
+            refreshNotice = result.notice
         } catch {
             refreshNotice = ErrorMessages.message(for: error)
         }
@@ -188,7 +202,7 @@ final class ArticlesViewModel: ObservableObject {
 
     // 表示中スコープ(全購読 or 選択タグ配下)の既読カーソルを一括前進させる
     func markAllRead() async -> Bool {
-        guard !isMarkingAllRead else { return false }
+        guard !isMarkingAllRead, let upToArticleId = markAllUpToArticleId else { return false }
         isMarkingAllRead = true
         markAllReadNotice = nil
         errorMessage = nil
@@ -205,7 +219,7 @@ final class ArticlesViewModel: ObservableObject {
             }
         }
         do {
-            _ = try await APIClient.shared.markAllArticlesRead(tagId: selectedTagId)
+            _ = try await APIClient.shared.markAllArticlesRead(upToArticleId: upToArticleId, tagId: selectedTagId)
             await reloadArticles()
             subscriptions = (try? await APIClient.shared.listSubscriptions()) ?? subscriptions
             await refreshUnreadCounts()
@@ -223,9 +237,12 @@ final class ArticlesViewModel: ObservableObject {
     func removeReadArticlesFromReadingList() async {
         FiloAnalytics.track("remove_read_articles_from_reading_list")
         do {
-            _ = try await APIClient.shared.removeReadArticlesFromReadingList()
+            let result = try await APIClient.shared.removeReadArticlesFromReadingList()
             await reloadArticles()
             await refreshUnreadCounts()
+            markAllReadNotice = result.removedCount > 0
+                ? L10n.format("%ld件の既読記事を削除しました。", result.removedCount)
+                : L10n.string("削除できる既読記事はありません。")
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }
@@ -243,7 +260,7 @@ final class ArticlesViewModel: ObservableObject {
         defer { pendingArticles.remove(articleId) }
         let before = article.userState
         let optimistic = before.applying(isRead: isRead, inReadingList: inReadingList, isBookmarked: isBookmarked)
-        let isSubscribed = !article.subscriptionContext.subscriptionIds.isEmpty
+        let subscriptionIds = article.subscriptionContext.subscriptionIds
         if let isRead {
             FiloAnalytics.track(isRead ? "mark_article_read" : "mark_article_unread", parameters: ["article_id": articleId])
         } else if let inReadingList {
@@ -252,7 +269,7 @@ final class ArticlesViewModel: ObservableObject {
             FiloAnalytics.track(isBookmarked ? "add_to_wishlist" : "remove_from_wishlist", parameters: ["article_id": articleId])
         }
         applyState(optimistic, to: articleId)
-        applyUnreadDelta(before: before, after: optimistic, isSubscribed: isSubscribed)
+        applyUnreadDelta(before: before, after: optimistic, subscriptionIds: subscriptionIds)
         do {
             let state: ArticleUserState
             if let isRead {
@@ -265,7 +282,7 @@ final class ArticlesViewModel: ObservableObject {
                 return
             }
             if requestFilters == filters { applyState(state, to: articleId) }
-            applyUnreadDelta(before: optimistic, after: state, isSubscribed: isSubscribed)
+            applyUnreadDelta(before: optimistic, after: state, subscriptionIds: subscriptionIds)
         } catch {
             if requestFilters == filters {
                 if let index = articles.firstIndex(where: { $0.id == articleId }) {
@@ -275,7 +292,7 @@ final class ArticlesViewModel: ObservableObject {
                 }
                 errorMessage = ErrorMessages.message(for: error)
             }
-            applyUnreadDelta(before: optimistic, after: before, isSubscribed: isSubscribed)
+            applyUnreadDelta(before: optimistic, after: before, subscriptionIds: subscriptionIds)
         }
     }
 
@@ -293,15 +310,20 @@ final class ArticlesViewModel: ObservableObject {
         }
     }
 
-    private func applyUnreadDelta(before: ArticleUserState, after: ArticleUserState, isSubscribed: Bool) {
+    private func applyUnreadDelta(before: ArticleUserState, after: ArticleUserState, subscriptionIds: [Int]) {
         let beforeUnread = before.isRead ? 0 : 1
         let afterUnread = after.isRead ? 0 : 1
         let beforeReadingListUnread = (!before.isRead && before.inReadingList) ? 1 : 0
         let afterReadingListUnread = (!after.isRead && after.inReadingList) ? 1 : 0
-        let allDelta = isSubscribed ? afterUnread - beforeUnread : 0
+        let allDelta = subscriptionIds.isEmpty ? 0 : afterUnread - beforeUnread
         let readingListDelta = afterReadingListUnread - beforeReadingListUnread
         unreadCounts.allArticles = max(0, unreadCounts.allArticles + allDelta)
         unreadCounts.readingList = max(0, unreadCounts.readingList + readingListDelta)
+        guard allDelta != 0 else { return }
+        // The sidebar's feed and tag counts follow the same read state.
+        for index in subscriptions.indices where subscriptionIds.contains(subscriptions[index].id) {
+            subscriptions[index].unreadCount = max(0, subscriptions[index].unreadCount + allDelta)
+        }
     }
 
     func refreshUnreadCounts() async {
@@ -318,6 +340,7 @@ struct ArticlesScreen: View {
     @ObservedObject private var translations = TitleTranslationStore.shared
     @Environment(\.openURL) private var openURL
     @State private var showRemoveReadConfirm = false
+    @State private var showMarkAllConfirm = false
     @State private var selectedArticleIndex: Int? = nil
     @State private var listScrollPosition: Int? = nil
     @State private var scrollToTopToken = 0
@@ -354,12 +377,19 @@ struct ArticlesScreen: View {
         .confirmationDialog("既読の記事をリーディングリストから削除しますか？", isPresented: $showRemoveReadConfirm, titleVisibility: .visible) {
             Button("既読記事を削除", role: .destructive) { Task { await model.removeReadArticlesFromReadingList() } }
         }
+        .confirmationDialog(
+            Text(verbatim: L10n.format("「%@」の記事をすべて既読にしますか？", L10n.string(model.viewTitle))),
+            isPresented: $showMarkAllConfirm,
+            titleVisibility: .visible,
+        ) {
+            Button("すべて既読にする") { Task { await markAllReadAndResetList() } }
+        }
         .onAppear {
             isKeyboardFocused = true
-            // load() already fetches unread counts on the first appearance.
-            // Keep the return-from-reading refresh without racing that load.
+            // load() covers the first appearance. On every return, pick up what
+            // the screens above changed without racing that load.
             if model.settings != nil {
-                Task { await model.refreshUnreadCounts() }
+                Task { await model.refreshAppData() }
             }
         }
         .task {
@@ -454,9 +484,9 @@ struct ArticlesScreen: View {
             }
             .disabled(model.isRefreshingFeeds)
             FiloIconButton(.checkAll, label: "すべて既読にする") {
-                Task { await markAllReadAndResetList() }
+                showMarkAllConfirm = true
             }
-            .disabled(model.isMarkingAllRead)
+            .disabled(model.isMarkingAllRead || model.markAllUpToArticleId == nil)
         }
         ArticleListControls(readFilter: $model.readFilter, sort: $model.sort, readOrder: $model.readOrder)
     }
@@ -620,7 +650,7 @@ struct ArticlesScreen: View {
                 Task { await model.patchState(article.id, isBookmarked: !article.userState.isBookmarked) }
             }).keyboardShortcut("b", modifiers: [])
             Button("", action: { Task { await model.refreshFeedsAndReload() } }).keyboardShortcut("r", modifiers: [])
-            Button("", action: { if !model.bookmarkedOnly && !model.readingListOnly { Task { await markAllReadAndResetList() } } })
+            Button("", action: { if !model.bookmarkedOnly && !model.readingListOnly && model.markAllUpToArticleId != nil { showMarkAllConfirm = true } })
                 .keyboardShortcut("a", modifiers: [.shift])
             Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
         }
@@ -650,12 +680,16 @@ struct ArticlesScreen: View {
             FiloEmptyState(icon: .refresh, message: "記事を取得しています…") {
                 FiloButton("更新") { Task { await model.reloadArticles() } }
             }
+        } else if let readFilter = model.readFilter {
+            FiloEmptyState(icon: .sliders, message: readFilter ? "既読の記事はありません。" : "未読の記事はありません。") {
+                FiloButton("絞り込みを解除") { model.readFilter = nil }
+            }
         } else if model.readingListOnly {
             FiloEmptyState(icon: .playlist, message: "リーディングリストに保存した記事はありません。") {
                 FiloButton("全ての記事") { model.selectView() }
             }
         } else if model.bookmarkedOnly {
-            FiloEmptyState(icon: .bookmark, message: "表示できる記事がありません。")
+            FiloEmptyState(icon: .bookmark, message: "ブックマークした記事はありません。")
         } else {
             FiloEmptyState(icon: .inbox, message: "表示できる記事がありません。")
         }

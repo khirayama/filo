@@ -99,7 +99,9 @@ struct TagsScreen: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 2) {
                         FiloIconButton(.chevronUp, label: "上へ", size: 16) { move(tag, by: -1) }
+                            .disabled(tags.first?.id == tag.id)
                         FiloIconButton(.chevronDown, label: "下へ", size: 16) { move(tag, by: 1) }
+                            .disabled(tags.last?.id == tag.id)
                         FiloIconButton(.pencil, label: "編集", size: 16) {
                             editingTagId = tag.id
                             editName = tag.name

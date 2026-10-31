@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Add feed
 
 struct AddFeedScreen: View {
-    var onOpenArticles: () -> Void = {}
+    var onOpenSubscription: (Int) -> Void = { _ in }
     var onCreated: () async -> Void = {}
 
     @Environment(\.filoIsDesktop) private var isDesktop
@@ -63,6 +63,20 @@ struct AddFeedScreen: View {
         .task {
             tags = (try? await APIClient.shared.listTags()) ?? []
         }
+        // Follow the first fetch so the card shows how it ended.
+        .task(id: created?.id) {
+            guard let id = created?.id else { return }
+            for _ in 0 ..< 60 {
+                guard created?.initialFetchStatus == "fetching" else { return }
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                if let next = try? await APIClient.shared.getSubscription(id), next.initialFetchStatus != "fetching" {
+                    created = next
+                    await APIClient.shared.invalidateFeedData()
+                    await onCreated()
+                    return
+                }
+            }
+        }
     }
 
     private func resultView(_ subscription: Subscription) -> some View {
@@ -93,7 +107,7 @@ struct AddFeedScreen: View {
                     FiloButton(isRetrying ? "再試行中…" : "再試行") { Task { await retry() } }
                         .disabled(isRetrying)
                 }
-                FiloButton("記事一覧へ", action: onOpenArticles)
+                FiloButton("記事を見る") { onOpenSubscription(subscription.id) }
             }
         }
         .foregroundStyle(FiloPalette.text)
@@ -126,6 +140,10 @@ struct AddFeedScreen: View {
                     "tag_count": selectedTagIds.count + names.count,
                 ],
             )
+            // Ready for the next feed; the card below reports this one.
+            url = ""
+            newTagNames = ""
+            selectedTagIds = []
         } catch {
             errorMessage = ErrorMessages.message(for: error)
         }

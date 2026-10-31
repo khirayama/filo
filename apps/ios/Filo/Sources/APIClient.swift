@@ -150,21 +150,28 @@ final class APIClient: Sendable {
     }
 
     func refreshFeeds(force: Bool = false, waitForCompletion: Bool = false) async throws -> RefreshResult {
-        let result: RefreshResult = try await send("POST", "/api/v1/status/refresh", json: ["force": force])
+        var result: RefreshResult = try await send("POST", "/api/v1/status/refresh", json: ["force": force])
         await invalidateCaches()
-        if waitForCompletion { try await waitForFeedRefresh(result) }
+        if waitForCompletion { result.failed = try await waitForFeedRefresh(result) }
         return result
     }
 
     func refreshFeed(_ feedId: Int, waitForCompletion: Bool = false) async throws -> RefreshResult {
-        let result: RefreshResult = try await send("POST", "/api/v1/status/refresh/\(feedId)", json: [:])
+        var result: RefreshResult = try await send("POST", "/api/v1/status/refresh/\(feedId)", json: [:])
         await invalidateCaches()
-        if waitForCompletion { try await waitForFeedRefresh(result, feedId: feedId) }
+        if waitForCompletion { result.failed = try await waitForFeedRefresh(result, feedId: feedId) }
         return result
     }
 
-    private func waitForFeedRefresh(_ result: RefreshResult, feedId: Int? = nil) async throws {
-        guard result.enqueued > 0 || (result.skipped ?? 0) > 0 else { return }
+    // A background job finished: anything read while it ran is older than its result.
+    func invalidateFeedData() async {
+        await invalidateCaches()
+    }
+
+    // Returns how many of the feeds this refresh asked for failed.
+    private func waitForFeedRefresh(_ result: RefreshResult, feedId: Int? = nil) async throws -> Int {
+        guard result.enqueued > 0 || (result.skipped ?? 0) > 0 else { return 0 }
+        let enqueuedFeedIds = Set(result.enqueuedFeedIds ?? [])
         do {
             for attempt in 0 ..< 11 {
                 try Task.checkCancellation()
@@ -174,11 +181,14 @@ final class APIClient: Sendable {
                 }
                 if !active {
                     await invalidateCaches()
-                    return
+                    return status.subscriptionStatuses.filter {
+                        enqueuedFeedIds.contains($0.feedId) && $0.fetchJob?.status == "failed"
+                    }.count
                 }
                 if attempt == 10 { throw APIError(status: 0, code: "feed_refresh_timeout") }
                 try await Task.sleep(for: .seconds(3))
             }
+            return 0
         } catch {
             await invalidateCaches()
             throw error
@@ -237,8 +247,8 @@ final class APIClient: Sendable {
         await invalidateCaches()
     }
 
-    func markAllRead(_ id: Int) async throws -> MarkAllReadResult {
-        let result: MarkAllReadResult = try await send("POST", "/api/v1/subscriptions/\(id)/mark-all-read", json: [:])
+    func markAllRead(_ id: Int, upToArticleId: Int) async throws -> MarkAllReadResult {
+        let result: MarkAllReadResult = try await send("POST", "/api/v1/subscriptions/\(id)/mark-all-read", json: ["upToArticleId": upToArticleId])
         await invalidateCaches()
         return result
     }
@@ -292,8 +302,8 @@ final class APIClient: Sendable {
 
     // MARK: Articles
 
-    func markAllArticlesRead(tagId: Int? = nil) async throws -> MarkAllArticlesReadResult {
-        let result: MarkAllArticlesReadResult = try await send("POST", "/api/v1/articles/mark-all-read", json: ["tagId": tagId])
+    func markAllArticlesRead(upToArticleId: Int, tagId: Int? = nil) async throws -> MarkAllArticlesReadResult {
+        let result: MarkAllArticlesReadResult = try await send("POST", "/api/v1/articles/mark-all-read", json: ["upToArticleId": upToArticleId, "tagId": tagId])
         await invalidateCaches()
         return result
     }
