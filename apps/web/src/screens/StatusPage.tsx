@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import type { FeedJob, StatusOverview, StatusSubscription } from "../api/types";
@@ -16,7 +16,7 @@ import {
   formatTimeCompact,
   palette,
 } from "../components/ui";
-import { errorMessage } from "../lib/messages";
+import { errorMessage, feedFetchErrorMessage } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
 
 // One busy marker for all manual operations: which operation, and for which
@@ -29,7 +29,7 @@ type StatusFilter = "all" | "attention" | "fetching" | "paused";
 export function StatusPage() {
   const api = useApi();
   const isDesktop = useIsDesktop();
-  const { language, t } = useAppData();
+  const { language, t, refresh: refreshAppData } = useAppData();
   const [status, setStatus] = useState<StatusOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +64,25 @@ export function StatusPage() {
   useEffect(() => {
     void load(true);
   }, [load]);
+
+  // Follow running jobs so a fetch started here (or by another device) settles
+  // on screen. Once they finish, the sidebar's counts catch up too.
+  const hasActiveJob = status?.subscriptionStatuses.some((sub) => isActiveJob(sub.fetchJob)) ?? false;
+  const wasActive = useRef(false);
+  useEffect(() => {
+    if (wasActive.current && !hasActiveJob) {
+      // Anything read while the jobs ran is older than their results.
+      api.invalidateFeedData();
+      void refreshAppData();
+    }
+    wasActive.current = hasActiveJob;
+    if (!hasActiveJob) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void api.getStatus(true).then(setStatus, () => undefined);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [api, hasActiveJob, refreshAppData]);
 
   useEffect(() => {
     if (!notice) return;
@@ -127,8 +146,8 @@ export function StatusPage() {
 
   const rowState = (sub: StatusSubscription) => {
     const fetchBusy = isActiveJob(sub.fetchJob) || (refreshing && busy?.target === sub.feedId);
-    const rowError = sub.fetchJob?.status === "failed" ? sub.fetchJob.lastError ?? sub.lastError : hasFetchAttention(sub) ? sub.lastError : null;
-    return { fetchBusy, rowError };
+    const rawError = sub.fetchJob?.status === "failed" ? sub.fetchJob.lastError ?? sub.lastError : hasFetchAttention(sub) ? sub.lastError : null;
+    return { fetchBusy, rowError: rawError ? feedFetchErrorMessage(rawError, language) : null };
   };
 
   const fetchButton = (sub: StatusSubscription, fetchBusy: boolean) => (

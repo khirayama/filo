@@ -1,32 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../api/useApi";
 import { AppShell, useIsDesktop } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
 import { ArticleRows, NewArticlesNotice, useArticleList } from "../components/ArticleList";
 import { ArticleListControls } from "../components/ArticleListControls";
+import { useDialogs } from "../components/Dialogs";
 import { PullToRefresh } from "../components/PullToRefresh";
-import { Button, EmptyState, ErrorBox, IconButton, Spinner, Toast, useDialogFocus } from "../components/ui";
+import { Button, EmptyState, ErrorBox, IconButton, Spinner, Toast } from "../components/ui";
+import { ShortcutHelpDialog, useArticleShortcuts } from "../components/useArticleShortcuts";
 import { useArticleFilterParams } from "../lib/articleFilters";
 import { detectReadingExtension, launchReadingExtension } from "../lib/extensionBridge";
 import { errorMessage } from "../lib/messages";
-import { enqueueFeedRefresh } from "../lib/refresh";
+import { enqueueFeedRefresh, refreshNoticeMessage } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
-import { useBackOr } from "../lib/navigation";
 import { firstUnreadReadingArticle } from "../lib/readingStart";
-
-function isArticleVisibleInViewport(articleId: number): boolean {
-  const row = document.getElementById(`filo-article-${articleId}`);
-  if (!row) return false;
-  const headerBottom = document.querySelector<HTMLElement>("[data-filo-page-header]")?.getBoundingClientRect().bottom ?? 0;
-  const rect = row.getBoundingClientRect();
-  return rect.bottom > headerBottom && rect.top < window.innerHeight;
-}
-
-function firstVisibleArticleIndex(articles: readonly { id: number }[]): number {
-  const firstIndex = articles.findIndex((article) => isArticleVisibleInViewport(article.id));
-  return firstIndex >= 0 ? firstIndex : 0;
-}
 
 function scrollArticlesToTop(): void {
   const page = document.querySelector<HTMLElement>(".articles-page");
@@ -50,7 +38,7 @@ function ArticlesListPage() {
   const isDesktop = useIsDesktop();
   const api = useApi();
   const { tags, subscriptions, settings, error: sideError, refresh: refreshAppData, refreshUnreadCounts, language, t } = useAppData();
-  const goBack = useBackOr("/articles");
+  const { confirm } = useDialogs();
   const { tagId, bookmarkedOnly, readingListOnly, read, sort, readOrder, setRead, setSort, setReadOrder } = useArticleFilterParams();
   const [markAllError, setMarkAllError] = useState<string | null>(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
@@ -58,12 +46,9 @@ function ArticlesListPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const [removingReadArticles, setRemovingReadArticles] = useState(false);
-  const [activeArticleIndex, setActiveArticleIndex] = useState<number | null>(null);
-  const [extensionReady, setExtensionReady] = useState(false);
+  // null until the first check answers, so the hint does not flash.
+  const [extensionReady, setExtensionReady] = useState<boolean | null>(null);
   const [startingReading, setStartingReading] = useState(false);
-  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
-  const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
-  useDialogFocus(showShortcutHelp, "filo-shortcut-help", closeShortcutHelp);
 
   useEffect(() => {
     if (!markAllNotice) return;
@@ -111,13 +96,18 @@ function ArticlesListPage() {
       <p>{t("記事を取得しています…")}</p>
       <Button onClick={() => void list.reload()}>{t("更新")}</Button>
     </EmptyState>
+  ) : read !== undefined ? (
+    <EmptyState icon="sliders">
+      <p>{read ? t("既読の記事はありません。") : t("未読の記事はありません。")}</p>
+      <Button onClick={() => setRead(undefined)}>{t("絞り込みを解除")}</Button>
+    </EmptyState>
   ) : readingListOnly ? (
     <EmptyState icon="playlist">
       <p>{t("リーディングリストに保存した記事はありません。")}</p>
       <Link to="/articles" className="fl-btn fl-btn--secondary">{t("全ての記事")}</Link>
     </EmptyState>
   ) : bookmarkedOnly ? (
-    <EmptyState icon="bookmark">{t("表示できる記事がありません。")}</EmptyState>
+    <EmptyState icon="bookmark">{t("ブックマークした記事はありません。")}</EmptyState>
   ) : (
     <EmptyState icon="inbox">{t("表示できる記事がありません。")}</EmptyState>
   );
@@ -131,13 +121,7 @@ function ArticlesListPage() {
     setRefreshNotice(null);
     try {
       const outcome = await enqueueFeedRefresh(api);
-      if (outcome.timedOut) {
-        setRefreshNotice(t("取得に時間がかかっています。あとで再度更新してください。"));
-      } else if (outcome.enqueued === 0 && outcome.skipped > 0) {
-        setRefreshNotice(t("最近取得済みのため、今回の取得対象はありませんでした。"));
-      } else if (outcome.enqueued > 0) {
-        setRefreshNotice(`${outcome.enqueued}${t("件のフィードを更新しました。")}`);
-      }
+      setRefreshNotice(refreshNoticeMessage(outcome, t));
       trackEvent("refresh_feeds", {
         enqueued: outcome.enqueued,
         skipped: outcome.skipped,
@@ -154,17 +138,23 @@ function ArticlesListPage() {
   };
 
   const markAllRead = async () => {
-    if (markingAllRead) return;
+    const upToArticleId = list.markAllUpToId;
+    if (markingAllRead || upToArticleId === null) return;
+    const confirmed = await confirm({
+      title: t("「{name}」の記事をすべて既読にしますか？", { name: title }),
+      confirmLabel: t("すべて既読にする"),
+    });
+    if (!confirmed) return;
     setMarkingAllRead(true);
     setMarkAllNotice(null);
     setMarkAllError(null);
     const rollback = list.markAllReadLocally();
     try {
-      await api.markAllArticlesRead(tagId);
+      await api.markAllArticlesRead(upToArticleId, tagId);
       trackEvent("mark_all_articles_read", { scope: selectedTag ? "tag" : "all_articles" });
       await list.reload();
       void refreshAppData();
-      setActiveArticleIndex(null);
+      shortcuts.clearSelection();
       scrollArticlesToTop();
       setMarkAllNotice(t("既読への変更が完了しました。"));
     } catch (e) {
@@ -176,12 +166,20 @@ function ArticlesListPage() {
   };
 
   const removeReadArticles = async () => {
-    if (!window.confirm(t("既読の記事をリーディングリストから削除しますか？"))) return;
+    const confirmed = await confirm({
+      title: t("既読の記事をリーディングリストから削除しますか？"),
+      confirmLabel: t("既読記事を削除"),
+      danger: true,
+    });
+    if (!confirmed) return;
     setRemovingReadArticles(true);
     try {
-      await api.removeReadArticlesFromReadingList();
+      const { removedCount } = await api.removeReadArticlesFromReadingList();
       trackEvent("remove_read_articles_from_reading_list");
       await list.reload();
+      setMarkAllNotice(removedCount > 0
+        ? t("{count}件の既読記事を削除しました。", { count: removedCount })
+        : t("削除できる既読記事はありません。"));
       void refreshUnreadCounts({ force: true }).catch(() => undefined);
     } catch (e) {
       setMarkAllError(errorMessage(e, language));
@@ -216,13 +214,16 @@ function ArticlesListPage() {
 
   const title = selectedTag?.name ?? (readingListOnly ? t("リーディングリスト") : bookmarkedOnly ? t("ブックマーク") : t("全ての記事"));
 
-  useEffect(() => {
-    setActiveArticleIndex((current) => current == null ? null : Math.min(current, Math.max(list.articles.length - 1, 0)));
-  }, [list.articles.length]);
+  const shortcuts = useArticleShortcuts({
+    articles: list.articles,
+    onUpdateState: (id, patch) => void list.updateState(id, patch),
+    onRefresh: () => void refreshFeeds(),
+    onMarkAll: bookmarkedOnly || readingListOnly ? undefined : () => void markAllRead(),
+  });
 
   useEffect(() => {
     if (!readingListOnly) {
-      setExtensionReady(false);
+      setExtensionReady(null);
       return;
     }
     let active = true;
@@ -239,83 +240,7 @@ function ArticlesListPage() {
     };
   }, [readingListOnly]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (showShortcutHelp && event.key === "Escape") {
-        event.preventDefault();
-        setShowShortcutHelp(false);
-        return;
-      }
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, button, [contenteditable]:not([contenteditable='false'])")) return;
-      const key = event.key.toLowerCase();
-      const modifier = event.ctrlKey || event.metaKey || event.altKey;
-      if (event.shiftKey && key === "a" && !modifier) {
-        event.preventDefault();
-        if (!bookmarkedOnly && !readingListOnly) void markAllRead();
-        return;
-      }
-      if (modifier) return;
-      const isArticleNavigationKey = key === "j"
-        || event.key === "ArrowDown"
-        || key === "k"
-        || event.key === "ArrowUp";
-      if (event.repeat && !isArticleNavigationKey) return;
-      if (key === "j" || event.key === "ArrowDown") {
-        event.preventDefault();
-        setActiveArticleIndex((current) => {
-          if (current != null && isArticleVisibleInViewport(list.articles[current]?.id ?? -1)) {
-            return Math.min(current + 1, Math.max(list.articles.length - 1, 0));
-          }
-          return firstVisibleArticleIndex(list.articles);
-        });
-      } else if (key === "k" || event.key === "ArrowUp") {
-        event.preventDefault();
-        setActiveArticleIndex((current) => {
-          if (current != null && isArticleVisibleInViewport(list.articles[current]?.id ?? -1)) {
-            return Math.max(current - 1, 0);
-          }
-          return firstVisibleArticleIndex(list.articles);
-        });
-      } else if (key === "enter" || key === "o" || key === "v") {
-        event.preventDefault();
-        const articleIndex = activeArticleIndex ?? 0;
-        setActiveArticleIndex((current) => current ?? 0);
-        const article = list.articles[articleIndex];
-        if (article?.canonicalUrl) window.open(article.canonicalUrl, "_blank", "noopener,noreferrer");
-      } else if (key === "m" || key === "s" || key === "b") {
-        event.preventDefault();
-        const articleIndex = activeArticleIndex ?? 0;
-        setActiveArticleIndex((current) => current ?? 0);
-        const article = list.articles[articleIndex];
-        if (!article) return;
-        const patch = key === "m"
-          ? { isRead: !article.userState.isRead }
-          : key === "s"
-            ? { inReadingList: !article.userState.inReadingList }
-            : { isBookmarked: !article.userState.isBookmarked };
-        void list.updateState(article.id, patch);
-      } else if (key === "r") {
-        event.preventDefault();
-        void refreshFeeds();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        goBack();
-      } else if (event.key === "?") {
-        event.preventDefault();
-        setShowShortcutHelp(true);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeArticleIndex, bookmarkedOnly, goBack, list, markAllRead, readingListOnly, refreshFeeds, showShortcutHelp]);
-
-  useEffect(() => {
-    const article = activeArticleIndex == null ? undefined : list.articles[activeArticleIndex];
-    if (article) document.getElementById(`filo-article-${article.id}`)?.scrollIntoView({ block: "center" });
-  }, [activeArticleIndex, list.articles]);
-
-  const readingDisabled = !extensionReady || startingReading || list.articles.length === 0;
+  const readingDisabled = extensionReady !== true || startingReading || list.articles.length === 0;
   const headerActions = (
     <>
       {readingListOnly ? (
@@ -347,7 +272,7 @@ function ArticlesListPage() {
       {!bookmarkedOnly && !readingListOnly ? (
         <>
           <IconButton icon="refresh" label={t("フィードを更新")} disabled={refreshing} spinning={refreshing} onClick={() => void refreshFeeds()} />
-          <IconButton icon="checkAll" label={t("すべて既読にする")} disabled={markingAllRead} onClick={() => void markAllRead()} />
+          <IconButton icon="checkAll" label={t("すべて既読にする")} disabled={markingAllRead || list.markAllUpToId === null} onClick={() => void markAllRead()} />
         </>
       ) : null}
       <ArticleListControls
@@ -367,8 +292,11 @@ function ArticlesListPage() {
     <AppShell title={title} actions={headerActions}>
       <main className="articles-page" aria-busy={markingAllRead} style={{ paddingBottom: "32px" }}>
         <PullToRefresh disabled={refreshing} onRefresh={() => void refreshFeeds()} />
+        {readingListOnly && extensionReady === false ? (
+          <p className="fl-notice">{t("閲覧と読み上げには Browser Extension が必要です。")}</p>
+        ) : null}
         <NewArticlesNotice visible={list.hasNewArticles} disabled={list.loading || refreshing || markingAllRead} onLoad={() => {
-          setActiveArticleIndex(null);
+          shortcuts.clearSelection();
           void list.reload().then((loaded) => { if (loaded) { scrollArticlesToTop(); void refreshUnreadCounts(); } });
         }} />
         {sideError || markAllError ? (
@@ -390,30 +318,13 @@ function ArticlesListPage() {
             onRetry={() => void list.reload()}
             onLoadMore={() => void list.loadMore()}
             onUpdateState={(id, patch) => void list.updateState(id, patch)}
-            activeArticleId={activeArticleIndex == null ? undefined : list.articles[activeArticleIndex]?.id}
+            activeArticleId={shortcuts.activeArticleId}
             emptyContent={emptyContent}
           />
         )}
       </main>
       {markAllNotice ? <Toast message={markAllNotice} /> : null}
-      {showShortcutHelp ? (
-        <div
-          role="dialog"
-          id="filo-shortcut-help"
-          aria-modal="true"
-          aria-labelledby="filo-shortcut-help-title"
-          onClick={() => setShowShortcutHelp(false)}
-          className="fl-dialog-scrim"
-        >
-          <section onClick={(event) => event.stopPropagation()} className="fl-dialog" style={{ maxWidth: "360px" }}>
-            <div className="fl-dialog-header">
-              <h2 id="filo-shortcut-help-title">{t("ショートカット")}</h2>
-              <IconButton icon="close" label={t("閉じる")} onClick={() => setShowShortcutHelp(false)} />
-            </div>
-            <pre style={{ fontFamily: "inherit", fontSize: "14px", lineHeight: 1.8, margin: 0, whiteSpace: "pre-wrap" }}>{t("ショートカットヘルプ")}</pre>
-          </section>
-        </div>
-      ) : null}
+      {shortcuts.helpOpen ? <ShortcutHelpDialog onClose={shortcuts.closeHelp} /> : null}
     </AppShell>
   );
 }

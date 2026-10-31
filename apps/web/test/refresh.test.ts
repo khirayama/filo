@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { enqueueFeedRefresh } from "../src/lib/refresh.ts";
+import { enqueueFeedRefresh, refreshNoticeMessage } from "../src/lib/refresh.ts";
 
 function client(statuses: Array<Array<{ feedId: number; status: string; stalled?: boolean }>>, enqueued = 1, skipped = 0) {
   let reads = 0;
@@ -10,10 +10,10 @@ function client(statuses: Array<Array<{ feedId: number; status: string; stalled?
     get reads() { return reads; },
     get invalidations() { return invalidations; },
     get refreshedFeed() { return refreshedFeed; },
-    refreshFeeds: async () => ({ accepted: true, enqueued, skipped, queuedAt: "2026-10-02T00:00:00Z" }),
+    refreshFeeds: async () => ({ accepted: true, enqueued, enqueuedFeedIds: [1], skipped, queuedAt: "2026-10-02T00:00:00Z" }),
     refreshFeed: async (feedId: number) => {
       refreshedFeed = feedId;
-      return { accepted: true, enqueued, skipped, queuedAt: "2026-10-02T00:00:00Z" };
+      return { accepted: true, enqueued, enqueuedFeedIds: [feedId], skipped, queuedAt: "2026-10-02T00:00:00Z" };
     },
     getStatus: async (fresh?: boolean) => {
       assert.equal(fresh, true, "polling must bypass pre-refresh cached status");
@@ -77,4 +77,21 @@ test("polling failures still invalidate pre-refresh data", async () => {
   api.getStatus = async () => { throw error; };
   await assert.rejects(enqueueFeedRefresh(asClient(api)), error);
   assert.equal(api.invalidations, 1);
+});
+
+test("counts only the failures of the feeds this refresh asked for", async () => {
+  const api = client([[{ feedId: 1, status: "failed" }, { feedId: 2, status: "failed" }]]);
+  const result = await enqueueFeedRefresh(asClient(api), {}, { intervalMs: 0 });
+  assert.equal(result.failed, 1);
+});
+
+test("the closing notice says what happened", () => {
+  const t = (source: string, values?: Record<string, string | number>) =>
+    Object.entries(values ?? {}).reduce((text, [key, value]) => text.replace(`{${key}}`, String(value)), source);
+  const outcome = { enqueued: 2, skipped: 0, failed: 0, timedOut: false };
+  assert.equal(refreshNoticeMessage(outcome, t), "2件のフィードを更新しました。");
+  assert.match(refreshNoticeMessage({ ...outcome, failed: 1 }, t) ?? "", /^1件のフィードを取得できませんでした/);
+  assert.match(refreshNoticeMessage({ ...outcome, timedOut: true }, t) ?? "", /時間がかかっています/);
+  assert.match(refreshNoticeMessage({ ...outcome, enqueued: 0, skipped: 3 }, t) ?? "", /最近取得済み/);
+  assert.equal(refreshNoticeMessage({ ...outcome, enqueued: 0 }, t), "取得対象のフィードがありません。");
 });

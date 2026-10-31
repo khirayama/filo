@@ -36,7 +36,8 @@ export function ArticleListControls({
     <div ref={ref} style={{ position: "relative" }}>
       <IconButton
         icon="sliders"
-        label={t("表示設定")}
+        label={read === undefined ? t("表示設定") : t("表示設定（絞り込み中）")}
+        indicator={read !== undefined}
         ariaExpanded={open}
         ariaHaspopup="dialog"
         ariaControls="filo-article-list-settings"
@@ -67,7 +68,7 @@ export function ArticleListControls({
           ) : null}
           <p id="filo-article-read-filter" className="fl-menu-label" style={{ padding: "8px 0 8px" }}>{t("既読状態")}</p>
           <div role="group" aria-labelledby="filo-article-read-filter" style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            <FilterChip label={t("全ての記事")} active={read === undefined} onClick={() => choose(() => setRead(undefined))} />
+            <FilterChip label={t("すべて")} active={read === undefined} onClick={() => choose(() => setRead(undefined))} />
             <FilterChip label={t("未読")} active={read === false} onClick={() => choose(() => setRead(false))} />
             <FilterChip label={t("既読")} active={read === true} onClick={() => choose(() => setRead(true))} />
           </div>

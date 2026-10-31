@@ -195,8 +195,8 @@ export function createApiClient(getToken: TokenGetter, cacheScope = "default") {
       await send<unknown>("DELETE", `/api/v1/subscriptions/${id}`);
       invalidateShell();
     },
-    markAllRead: async (id: number) => {
-      const value = (await send<MarkAllReadResult>("POST", `/api/v1/subscriptions/${id}/mark-all-read`)).data;
+    markAllRead: async (id: number, upToArticleId: number) => {
+      const value = (await send<MarkAllReadResult>("POST", `/api/v1/subscriptions/${id}/mark-all-read`, { upToArticleId })).data;
       invalidateArticles();
       return value;
     },
@@ -264,8 +264,8 @@ export function createApiClient(getToken: TokenGetter, cacheScope = "default") {
         async () => (await get<UnreadCounts>(`/api/v1/articles/unread-counts?scope=${scope}`)).data,
       );
     },
-    markAllArticlesRead: async (tagId?: number) => {
-      const value = (await send<{ updatedFeeds: number }>("POST", "/api/v1/articles/mark-all-read", tagId === undefined ? {} : { tagId })).data;
+    markAllArticlesRead: async (upToArticleId: number, tagId?: number) => {
+      const value = (await send<{ updatedFeeds: number }>("POST", "/api/v1/articles/mark-all-read", tagId === undefined ? { upToArticleId } : { upToArticleId, tagId })).data;
       invalidateArticles();
       return value;
     },

@@ -27,6 +27,8 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
   const pendingArticles = useRef(new Set<number>());
   const [hasNewArticles, setHasNewArticles] = useState(false);
   const watermark = useRef<{ api: ApiClient; filtersKey: string; id: number } | null>(null);
+  // "Mark all as read" covers what this list has loaded, never what arrived after.
+  const [markAllUpToId, setMarkAllUpToId] = useState<number | null>(null);
   const viewIdentity = useRef({ api, filtersKey });
   viewIdentity.current = { api, filtersKey };
 
@@ -40,6 +42,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
       const result = await api.listArticles(parsed);
       if (generation.current !== gen) return false;
       watermark.current = result.latestArticleId === undefined ? null : { api, filtersKey, id: result.latestArticleId };
+      setMarkAllUpToId(result.latestArticleId ?? null);
       setHasNewArticles(false);
       setArticles(result.articles);
       setNextCursor(result.nextCursor);
@@ -55,6 +58,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
 
   useEffect(() => {
     watermark.current = null;
+    setMarkAllUpToId(null);
     setHasNewArticles(false);
     // Another view's rows must not linger under the new title. Reloads of the
     // same view keep their rows on screen until the new page arrives.
@@ -128,6 +132,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
         adjustUnreadCounts({
           allArticles: isSubscribed ? Number(!to.isRead) - Number(!from.isRead) : 0,
           readingList: Number(!to.isRead && to.inReadingList) - Number(!from.isRead && from.inReadingList),
+          subscriptionIds: article.subscriptionContext.subscriptionIds,
         });
       };
       // Same-filter reloads may race with this write and read the old server
@@ -201,7 +206,7 @@ export function useArticleList(api: ApiClient, filters: ArticleListFilters) {
     };
   }, [api, articles, filtersKey]);
 
-  return { articles, nextCursor, loading, loadingMore, error, hasNewArticles, reload: load, loadMore, updateState, markAllReadLocally };
+  return { articles, nextCursor, loading, loadingMore, error, hasNewArticles, markAllUpToId, reload: load, loadMore, updateState, markAllReadLocally };
 }
 
 export function ArticleRows({

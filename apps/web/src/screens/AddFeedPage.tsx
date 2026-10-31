@@ -4,6 +4,7 @@ import { useApi } from "../api/useApi";
 import type { Subscription } from "../api/types";
 import { AppShell } from "../components/AppShell";
 import { useAppData } from "../components/AppDataContext";
+import { useSubscriptionFetchPolling } from "../components/useSubscriptionFetchPolling";
 import { Badge, Button, ErrorBox, FilterChip, palette } from "../components/ui";
 import { errorMessage, initialFetchErrorMessage } from "../lib/messages";
 import { trackEvent } from "../lib/analytics";
@@ -42,6 +43,10 @@ export function AddFeedPage() {
         has_custom_tags: tagNames.length > 0,
         tag_count: selectedTagIds.size + tagNames.length,
       });
+      // Ready for the next feed; the card below reports this one.
+      setUrl("");
+      setNewTagNames("");
+      setSelectedTagIds(new Set());
       void refreshAppData();
     } catch (e) {
       setError(errorMessage(e, language));
@@ -49,6 +54,11 @@ export function AddFeedPage() {
       setSubmitting(false);
     }
   };
+
+  useSubscriptionFetchPolling(api, created, (settled) => {
+    setCreated(settled);
+    void refreshAppData();
+  });
 
   const retry = async () => {
     if (!created || retrying) return;
@@ -82,7 +92,11 @@ export function AddFeedPage() {
               <span className="fl-field-label">{t("RSS/Atom URL または サイトURL")}</span>
               <input
                 id="feed-url"
-                type="url"
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 className="fl-input"
                 required
                 autoFocus
@@ -146,8 +160,8 @@ export function AddFeedPage() {
                     {retrying ? t("再試行中…") : t("再試行")}
                   </Button>
                 ) : null}
-                <Link to="/articles" className="fl-btn fl-btn--secondary">
-                  {t("記事一覧へ")}
+                <Link to={`/subscriptions/${created.id}`} className="fl-btn fl-btn--secondary">
+                  {t("記事を見る")}
                 </Link>
               </div>
             </section>

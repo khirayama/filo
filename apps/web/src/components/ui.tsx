@@ -258,6 +258,7 @@ export function IconButton({
   color,
   danger,
   spinning,
+  indicator,
   ariaExpanded,
   ariaHaspopup,
   ariaControls,
@@ -273,6 +274,8 @@ export function IconButton({
   danger?: boolean;
   // The icon turns while the action it started is still running.
   spinning?: boolean;
+  // A dot on the icon: something behind this button is not at its default.
+  indicator?: boolean;
   ariaExpanded?: boolean;
   ariaHaspopup?: AriaAttributes["aria-haspopup"];
   ariaControls?: string;
@@ -298,6 +301,7 @@ export function IconButton({
       style={{ color: color ?? (active ? palette.text : undefined), height: box, width: box }}
     >
       <Icon name={icon} size={size} filled={filled ?? active} />
+      {indicator ? <span aria-hidden="true" className="fl-icon-btn-dot" /> : null}
     </button>
   );
 }

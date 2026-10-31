@@ -109,6 +109,7 @@ export type UnreadCountScope = "all" | "reading_list" | "both";
 export interface RefreshResult {
   accepted: boolean;
   enqueued: number;
+  enqueuedFeedIds: number[];
   skipped: number;
   queuedAt: string;
 }

@@ -17,7 +17,7 @@ interface AppData {
   error: string | null;
   refresh: () => Promise<void>;
   refreshUnreadCounts: (options?: { force?: boolean }) => Promise<void>;
-  adjustUnreadCounts: (delta: { allArticles: number; readingList: number }) => void;
+  adjustUnreadCounts: (delta: { allArticles: number; readingList: number; subscriptionIds: number[] }) => void;
   setSettings: (settings: Settings) => void;
   language: SupportedLanguage;
   t: (source: string, values?: Record<string, string | number>) => string;
@@ -137,12 +137,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     if (nextUnreadCounts && activeUserId.current === userId) setUnreadCounts(nextUnreadCounts);
   }, [fetchUnreadCounts, userId]);
 
-  const adjustUnreadCounts = useCallback((delta: { allArticles: number; readingList: number }) => {
+  const adjustUnreadCounts = useCallback((delta: { allArticles: number; readingList: number; subscriptionIds: number[] }) => {
     if (!userId || activeUserId.current !== userId) return;
     setUnreadCounts((current) => ({
       allArticles: Math.max(0, current.allArticles + delta.allArticles),
       readingList: Math.max(0, current.readingList + delta.readingList),
     }));
+    if (delta.allArticles === 0 || delta.subscriptionIds.length === 0) return;
+    // The sidebar's feed and tag counts follow the same read state.
+    setSubscriptions((current) => current.map((subscription) => delta.subscriptionIds.includes(subscription.id)
+      ? { ...subscription, unreadCount: Math.max(0, subscription.unreadCount + delta.allArticles) }
+      : subscription));
   }, [userId]);
 
   useEffect(() => {
