@@ -1053,7 +1053,7 @@ a.fl-article-feed:hover span {
   align-items: center;
   display: flex;
   gap: 16px;
-  min-height: 48px;
+  height: 40px;
   padding: 0 var(--fl-page-gutter);
 }
 
@@ -1121,7 +1121,7 @@ a.fl-article-feed:hover span {
 
 /* Mobile: feed/date line, then a two-line title. */
 .fl-article-row--mobile {
-  padding: 14px var(--fl-page-gutter) 16px;
+  padding: 12px var(--fl-page-gutter);
 }
 
 .fl-article-row--mobile .fl-article-head {
@@ -1151,7 +1151,7 @@ a.fl-article-feed:hover span {
 
 .fl-article-row--mobile .fl-article-title {
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   display: -webkit-box;
   font-size: 15px;
   line-height: 22px;
