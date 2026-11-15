@@ -43,13 +43,13 @@ Vars（`wrangler.jsonc`）:
 - `ADMIN_BETTER_AUTH_USER_IDS`: `/api/v1/admin/*` を呼べる Better Auth user id のカンマ区切り。admin 判定はこれ一本で行う
 - `APP_ENV`: `development` または `production`。health endpoint の環境確認にも使う
 - `CORS_ALLOWED_ORIGINS`: 環境ごとのWebとChrome Extensionのoriginをカンマ区切りで指定する。localの2 Web originに加え、developmentではunpacked / 一時読み込みの Extension origin（`chrome-extension://` `moz-extension://` `safari-web-extension://`）を許可する
+- `BETTER_AUTH_TRUSTED_ORIGINS`: Web の許可 origin。モバイルの custom scheme は許可しない
+- `MAIL_FROM`: パスワードリセットメールの送信元
 
 Secrets（`wrangler secret put`）:
 
 - `BETTER_AUTH_SECRET`: Better Auth の署名・暗号化用 secret
 - `RESEND_API_KEY`: パスワードリセットメール配送用の Resend API key
-- `MAIL_FROM`: パスワードリセットメールの送信元
-- `BETTER_AUTH_TRUSTED_ORIGINS`: Web と `filo://auth` の許可 origin
 - `CURSOR_SECRET`: pagination cursor の HMAC 鍵
 
 secret は Git にコミットしない。ローカルは `.dev.vars`（`.dev.vars.example` を複製）を使う。
@@ -75,6 +75,7 @@ HTTP / API:
 - 転送障害のみ `2` 回まで再試行する。validation / redirect policy エラーは再試行しない
 - OPML import file size: max `1MB`、outline 件数: max `2000`、失敗要約の保存件数: max `50`
 - response header は `Cache-Control: no-store` を既定とする
+- client へ返す記事 URL、サイト URL、favicon URL は http(s) のみとし、Web / Extension / iOS / Android でも開く直前に同じ検証を行う
 - CORS のdevelopment環境は `http://localhost:5173` と `http://127.0.0.1:5173`、production環境は `https://filoreader.app` と `https://filo-web.pages.dev` を許可する
 
 feed fetch:
@@ -109,6 +110,10 @@ npm run deploy:production
 Web本番は `apps/web/.env.production.example` を参照し、Pagesのproduction build
 environmentへ `VITE_API_BASE_URL=https://api.filoreader.app` を登録する。development用ファイルの値を
 Pagesへアップロードしない。Pages deployは `--branch` を付けずproductionへ行う。
+
+パスワードリセットメールの `redirectTo` は iOS / Android とも Web の
+`/reset-password` を指す。`filo://auth/reset` のような custom scheme は
+他アプリが横取りできるため、認証リンクには使わない。
 
 ローカルWebは `apps/web/.env.development.local` の localhost APIを使い、
 `npm run dev` または `npm run build` で起動・確認する。本番ビルドは明示的に
@@ -264,9 +269,9 @@ npx wrangler d1 execute filo-db --remote --env production --file migrations/0019
 以下は運用目標として合意されているが、コード上には存在しない。実装するまで「守られている」前提を置かない。
 
 - staging 環境、および staging smoke test を挟む二段階 deploy
-- CI（typecheck / lint / test / migration dry-run はローカル実行のみ）
+- CI は API / Web / Extension のみ。iOS / Android と migration dry-run はローカル実行
 - 構造化ログ（`jobId` / `userId` / `route` / `durationMs` / `errorCode` などの共通フィールド）
 - メトリクスとアラート（5xx rate、queue backlog、paused feed の増加など）
 - D1 の定期 backup と復旧手順の検証
 - Better Auth user の作成は API 呼び出し時の upsert のみ
-- 本文抽出の publisher 尊重ルール（User-Agent、`noarchive` 判定、paywall 判定、feed 単位の抽出無効化）
+- 本文抽出の publisher 尊重ルールのうち、paywall 判定と feed 単位の抽出無効化

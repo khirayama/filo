@@ -34,8 +34,9 @@ against the target database.
 ## Email flows
 
 - Sign-up does not send or require an email verification message.
-- Password reset sends a link whose callback is `filo://auth/reset`. iOS and
-  Android receive the token and immediately show the new-password screen.
+- Password reset sends a link to the Web `/reset-password` page on iOS,
+  Android, Web, and the Extension. Mobile clients do not rely on a custom URL
+  scheme because another app could claim it and intercept the reset token.
 - Resend is used only for password reset delivery.
 
 ## Session policy
@@ -67,5 +68,6 @@ npm run db:migrate:local
 npm run dev
 ```
 
-The mobile deep-link scheme is `filo://auth`. iOS declares it in the generated
-Info.plist and Android declares it in `AndroidManifest.xml`.
+Mobile password resets complete in the browser. The API trusts the Web origins
+listed in `BETTER_AUTH_TRUSTED_ORIGINS`; `filo://auth` is not a trusted
+redirect target.
