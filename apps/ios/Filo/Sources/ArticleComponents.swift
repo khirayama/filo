@@ -78,7 +78,7 @@ struct ArticleRowView: View {
         .onHover { hovered = $0 }
         .sensoryFeedback(.impact(weight: .light), trigger: feedbackTick)
         .contextMenu {
-            if let urlString = article.canonicalUrl, let url = URL(string: urlString) {
+            if let url = safeHttpURL(article.canonicalUrl) {
                 Button {
                     UIApplication.shared.open(url)
                 } label: {

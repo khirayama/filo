@@ -59,9 +59,7 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if auth.resetToken != nil {
-                BetterAuthResetPasswordView()
-            } else if auth.token != nil {
+            if auth.token != nil {
                 AppNavigationView()
             } else {
                 BetterAuthView()

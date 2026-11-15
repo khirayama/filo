@@ -51,7 +51,6 @@
 "削除" = "Delete";
 "保存" = "Save";
 "キャンセル" = "Cancel";
-"8文字以上で同じパスワードを入力してください" = "Enter the same password with at least 8 characters";
 "?  この一覧" = "?  This list";
 "APIの設定を確認してください。" = "Check the API configuration.";
 "B  ブックマーク" = "B  Bookmark";
@@ -102,8 +101,6 @@
 "8文字以上のパスワード" = "Password (8 or more characters)";
 "すでにアカウントをお持ちですか？" = "Already have an account?";
 "はじめてご利用ですか？" = "New to Filo?";
-"パスワードをリセット" = "Reset password";
-"新しいパスワードを入力してください。" = "Enter a new password.";
 "サーバーエラーが発生しました。時間をおいて再試行してください。" = "A server error occurred. Please try again later.";
 "シミュレータには翻訳用の言語モデルが用意されていません。実機でお試しください。" = "The simulator has no translation language model. Try on a physical device.";
 "ショートカット" = "Shortcuts";
@@ -122,7 +119,6 @@
 "ネットワークに接続できません。時間をおいて再試行してください。" = "Unable to connect. Please try again later.";
 "パスワード" = "Password";
 "パスワードを再設定" = "Reset password";
-"パスワードを変更しました" = "Password changed";
 "パスワードを忘れた場合" = "Forgot password";
 "パスワードリセットメールを送信しました" = "Password reset email sent";
 "フィード" = "Feeds";
@@ -141,7 +137,6 @@
 "メールを送信できませんでした" = "Could not send the email";
 "メールアドレス" = "Email address";
 "リストに追加" = "Add to list";
-"リセットリンクが無効です" = "The reset link is invalid";
 "リンクを常にブラウザで開く" = "Always open links in the browser";
 "リーディングリストから削除" = "Remove from reading list";
 "リーディングリストに保存した記事はありません。" = "There are no saved articles in the reading list.";
@@ -179,15 +174,11 @@
 "問題あり" = "Needs attention";
 "声" = "Voice";
 "変更" = "Change";
-"変更する" = "Change";
-"変更に失敗しました" = "Could not make the change";
 "完了" = "Done";
 "対象が見つかりません。" = "Not found.";
 "操作が混み合っています。少し待ってから再試行してください。" = "Things are busy. Please wait and try again.";
 "操作が競合しました。最新の状態を確認してください。" = "The operation conflicted. Check the latest state.";
 "新しいタグ名" = "New tag name";
-"新しいパスワード" = "New password";
-"新しいパスワードを入力してください" = "Enter a new password";
 "新規タグ（カンマ区切り）" = "New tags (comma-separated)";
 "既読で並び替えない" = "Do not sort by read status";
 "既読にする" = "Mark as read";
@@ -205,7 +196,6 @@
 "準備済み" = "Ready";
 "状態" = "Status";
 "状態を確認しています…" = "Checking status…";
-"確認" = "Confirm";
 "確認しています…" = "Checking…";
 "空欄でフィード名に戻す" = "Leave blank to use the feed name";
 "简体中文" = "Simplified Chinese";

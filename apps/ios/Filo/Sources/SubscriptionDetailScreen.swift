@@ -478,7 +478,7 @@ struct SubscriptionDetailScreen: View {
                             selected: selectedArticle?.id == article.id,
                             showFeed: false,
                             onOpen: {
-                                guard let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
+                                guard let url = safeHttpURL(article.canonicalUrl) else { return }
                                 if model.openInBrowserByDefault {
                                     openURL(url)
                                 } else {
@@ -537,7 +537,7 @@ struct SubscriptionDetailScreen: View {
     }
 
     private func openSelected(external: Bool) {
-        guard let article = keyboardArticle(), let value = article.canonicalUrl, let url = URL(string: value) else { return }
+        guard let article = keyboardArticle(), let url = safeHttpURL(article.canonicalUrl) else { return }
         if external || model.openInBrowserByDefault { openURL(url) } else { onOpenArticle(article) }
     }
 
@@ -573,7 +573,7 @@ struct SubscriptionDetailScreen: View {
             } label: {
                 Label { Text("名前を変更") } icon: { Image(filoIcon: .pencil) }
             }
-            if let siteUrlString = model.subscription?.feed.siteUrl, let siteUrl = URL(string: siteUrlString) {
+            if let siteUrl = safeHttpURL(model.subscription?.feed.siteUrl) {
                 Button { openURL(siteUrl) } label: {
                     Label { Text("サイトを開く") } icon: { Image(filoIcon: .externalLink) }
                 }

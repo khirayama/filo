@@ -5,28 +5,17 @@ import Security
 @MainActor final class BetterAuth: ObservableObject {
     static let shared = BetterAuth()
     @Published private(set) var token: String?
-    @Published var resetToken: String?
     @Published var statusMessage: String?
     @Published var errorMessage: String?
     @Published private(set) var isSubmitting = false
-    private init() { token = KeychainToken.get(); resetToken = nil; statusMessage = nil; errorMessage = nil }
+    private init() { token = KeychainToken.get(); statusMessage = nil; errorMessage = nil }
     func signOut() { token = nil; KeychainToken.remove() }
+    // The reset finishes on the Web /reset-password page. A custom URL scheme
+    // could be claimed by another app and intercept the reset token.
     func sendPasswordReset(email: String) async throws {
         isSubmitting = true
         defer { isSubmitting = false }
-        var request = URLRequest(url: endpoint("api/auth/request-password-reset")); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "redirectTo": "filo://auth/reset"]); let (_, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
-    }
-    func handleAuthURL(_ url: URL) async {
-        guard url.scheme == "filo", url.host == "auth" else { return }
-        guard url.path.localizedCaseInsensitiveContains("reset") else { return }
-        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        let value = items.first(where: { $0.name == "token" || $0.name == "code" })?.value
-        guard let value, !value.isEmpty else { errorMessage = L10n.string("リセットリンクが無効です"); return }
-        resetToken = value
-        statusMessage = L10n.string("新しいパスワードを入力してください")
-    }
-    func resetPassword(token: String, password: String) async throws {
-        var request = URLRequest(url: endpoint("api/auth/reset-password")); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONSerialization.data(withJSONObject: ["token": token, "newPassword": password]); let (_, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }; resetToken = nil
+        var request = URLRequest(url: endpoint("api/auth/request-password-reset")); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "redirectTo": AppConfig.webBaseURL.appendingPathComponent("reset-password").absoluteString]); let (_, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
     }
     func authenticate(email: String, password: String, signUp: Bool) async throws {
         isSubmitting = true
@@ -200,58 +189,6 @@ struct BetterAuthView: View {
                 .frame(maxWidth: 520)
                 .frame(maxWidth: .infinity)
             }
-        }
-    }
-}
-
-struct BetterAuthResetPasswordView: View {
-    @EnvironmentObject private var auth: BetterAuth
-    @State private var password = ""; @State private var confirmation = ""; @State private var message: String?
-    var body: some View {
-        ZStack {
-            AuthBackdrop()
-            VStack(alignment: .leading, spacing: 22) {
-                AuthBrandMark()
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(L10n.string("パスワードをリセット"))
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                    Text(L10n.string("新しいパスワードを入力してください。"))
-                        .font(.subheadline)
-                        .foregroundStyle(FiloPalette.muted)
-                }
-                AuthInputField(label: L10n.string("新しいパスワード"), icon: "lock") {
-                    SecureField(L10n.string("新しいパスワード"), text: $password)
-                }
-                AuthInputField(label: L10n.string("新しいパスワード（確認）"), icon: "checkmark.shield") {
-                    SecureField(L10n.string("確認"), text: $confirmation)
-                }
-                if let message {
-                    AuthMessage(message: message, tint: FiloPalette.danger, fill: FiloPalette.dangerBackground)
-                }
-                Button(L10n.string("変更する")) {
-                    guard password.count >= 8, password == confirmation, let token = auth.resetToken else {
-                        message = L10n.string("8文字以上で同じパスワードを入力してください")
-                        return
-                    }
-                    Task {
-                        do {
-                            try await auth.resetPassword(token: token, password: password)
-                            message = L10n.string("パスワードを変更しました")
-                        } catch {
-                            message = L10n.string("変更に失敗しました")
-                        }
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
-            }
-            .padding(24)
-            .frame(maxWidth: 520)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(FiloPalette.border.opacity(0.65), lineWidth: 1))
-            .shadow(color: Color.black.opacity(0.10), radius: 26, y: 14)
-            .padding(20)
         }
     }
 }

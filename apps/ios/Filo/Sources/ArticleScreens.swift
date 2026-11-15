@@ -612,7 +612,7 @@ struct ArticlesScreen: View {
 
     private func open(_ article: ArticleListItem, external: Bool) {
         FiloAnalytics.track("select_item", parameters: ["article_id": article.id])
-        guard let urlString = article.canonicalUrl, let url = URL(string: urlString) else { return }
+        guard let url = safeHttpURL(article.canonicalUrl) else { return }
         if external || model.settings?.openInBrowserByDefault == true {
             openURL(url)
         } else {

@@ -9,9 +9,7 @@ struct FiloApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView().environmentObject(BetterAuth.shared).onOpenURL { url in
-                Task { await BetterAuth.shared.handleAuthURL(url) }
-            }
+            ContentView().environmentObject(BetterAuth.shared)
         }
     }
 }

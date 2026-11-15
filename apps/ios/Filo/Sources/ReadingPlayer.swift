@@ -147,12 +147,12 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         var directItem: ReadingSessionItem?
         if let article {
             directItem = ReadingSessionItem(articleId: article.id, sortOrder: 0, article: article, createdAt: nil, isRead: false)
-        } else if let temporaryUrl {
+        } else if let temporaryUrl, let safeURL = safeHttpURL(temporaryUrl) {
             let article = ReadingSessionArticle(
                 id: 0,
-                title: temporaryUrl,
+                title: safeURL.absoluteString,
                 sourceLanguage: nil,
-                canonicalUrl: temporaryUrl,
+                canonicalUrl: safeURL.absoluteString,
                 publishedAt: nil,
                 feed: .init(id: 0, title: L10n.string("共有ページ")),
             )
@@ -647,7 +647,7 @@ struct ReadingSessionScreen: View {
                 Group {
                     if player.isLoading {
                         FiloSpinner()
-                    } else if let item = player.currentItem, let url = item.article.canonicalUrl {
+                    } else if let item = player.currentItem, let url = safeHttpURL(item.article.canonicalUrl)?.absoluteString {
                         ReadingWebView(
                             url: url,
                             history: history,
@@ -716,7 +716,7 @@ struct ReadingSessionScreen: View {
                 Button("", action: player.selectPrevious).keyboardShortcut("k", modifiers: [])
                 Button("", action: player.addCurrentPageToReadingList).keyboardShortcut("s", modifiers: [])
                 Button("", action: {
-                    if let urlString = player.currentPageUrl, let url = URL(string: urlString) { openURL(url) }
+                    if let url = safeHttpURL(player.currentPageUrl) { openURL(url) }
                 }).keyboardShortcut("v", modifiers: [])
                 Button("", action: { dismiss() }).keyboardShortcut(.escape, modifiers: [])
                 Button("", action: { showShortcutHelp = true }).keyboardShortcut("?", modifiers: [])
@@ -931,7 +931,7 @@ private struct ReadingListView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(item.article.canonicalUrl == nil)
+            .disabled(safeHttpURL(item.article.canonicalUrl) == nil)
             FiloIconButton(.trash, label: "リーディングリストから削除", size: 16, danger: true) {
                 onRemove(item.articleId)
             }
@@ -982,7 +982,7 @@ private struct ReadingWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         history.attach(webView)
-        if let value = URL(string: url) { webView.load(URLRequest(url: value)) }
+        if let value = safeHttpURL(url) { webView.load(URLRequest(url: value)) }
         return webView
     }
 
@@ -1034,6 +1034,14 @@ private struct ReadingWebView: UIViewRepresentable {
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let swipe = gestureRecognizer as? UIScreenEdgePanGestureRecognizer, let webView else { return true }
             return swipe.edges == .left ? webView.canGoBack : webView.canGoForward
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            decisionHandler(isAllowedWebNavigation(navigationAction.request.url?.absoluteString) ? .allow : .cancel)
         }
 
         @objc func edgeSwiped(_ swipe: UIScreenEdgePanGestureRecognizer) {

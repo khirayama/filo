@@ -52,7 +52,6 @@
 "保存" = "Guardar";
 "キャンセル" = "Cancelar";
 "この画面を閉じても削除処理は継続されます。再ログインでデータが復活することはありません。" = "La eliminación continúa aunque cierres esta pantalla. Volver a iniciar sesión no restaurará los datos.";
-"8文字以上で同じパスワードを入力してください" = "Introduce la misma contraseña con al menos 8 caracteres";
 "?  この一覧" = "?  Esta lista";
 "APIの設定を確認してください。" = "Comprueba la configuración de la API.";
 "B  ブックマーク" = "B  Marcador";
@@ -103,8 +102,6 @@
 "8文字以上のパスワード" = "Contraseña (8 caracteres o más)";
 "すでにアカウントをお持ちですか？" = "¿Ya tienes una cuenta?";
 "はじめてご利用ですか？" = "¿Es tu primera vez en Filo?";
-"パスワードをリセット" = "Restablecer contraseña";
-"新しいパスワードを入力してください。" = "Introduce una nueva contraseña.";
 "サーバーエラーが発生しました。時間をおいて再試行してください。" = "Se produjo un error del servidor. Inténtalo más tarde.";
 "シミュレータには翻訳用の言語モデルが用意されていません。実機でお試しください。" = "El simulador no tiene modelos de traducción. Prueba en un dispositivo real.";
 "ショートカット" = "Atajos";
@@ -123,7 +120,6 @@
 "ネットワークに接続できません。時間をおいて再試行してください。" = "No se puede conectar a la red. Inténtalo más tarde.";
 "パスワード" = "Contraseña";
 "パスワードを再設定" = "Restablecer contraseña";
-"パスワードを変更しました" = "Contraseña cambiada";
 "パスワードを忘れた場合" = "Olvidé mi contraseña";
 "パスワードリセットメールを送信しました" = "Se envió el correo para restablecer la contraseña";
 "フィード" = "Feeds";
@@ -142,7 +138,6 @@
 "メールを送信できませんでした" = "No se pudo enviar el correo";
 "メールアドレス" = "Correo electrónico";
 "リストに追加" = "Añadir a la lista";
-"リセットリンクが無効です" = "El enlace de restablecimiento no es válido";
 "リンクを常にブラウザで開く" = "Abrir siempre los enlaces en el navegador";
 "リーディングリストから削除" = "Quitar de la lista de lectura";
 "リーディングリストに保存した記事はありません。" = "No hay artículos guardados en la lista de lectura.";
@@ -180,15 +175,11 @@
 "問題あり" = "Requiere atención";
 "声" = "Voz";
 "変更" = "Cambiar";
-"変更する" = "Cambiar";
-"変更に失敗しました" = "No se pudo cambiar";
 "完了" = "Listo";
 "対象が見つかりません。" = "No se encontró el elemento.";
 "操作が混み合っています。少し待ってから再試行してください。" = "Hay mucha actividad. Espera un momento e inténtalo de nuevo.";
 "操作が競合しました。最新の状態を確認してください。" = "La operación entró en conflicto. Comprueba el estado más reciente.";
 "新しいタグ名" = "Nuevo nombre de etiqueta";
-"新しいパスワード" = "Nueva contraseña";
-"新しいパスワードを入力してください" = "Introduce una nueva contraseña";
 "新規タグ（カンマ区切り）" = "Nuevas etiquetas (separadas por comas)";
 "既読で並び替えない" = "No ordenar por leído";
 "既読にする" = "Marcar como leído";
@@ -206,7 +197,6 @@
 "準備済み" = "Listo";
 "状態" = "Estado";
 "状態を確認しています…" = "Comprobando el estado…";
-"確認" = "Confirmar";
 "確認しています…" = "Comprobando…";
 "空欄でフィード名に戻す" = "Déjalo vacío para usar el nombre del feed";
 "简体中文" = "Chino simplificado";
