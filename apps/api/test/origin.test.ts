@@ -9,6 +9,22 @@ import {
 const unpackedExtensionOrigin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
 
 describe("API origins", () => {
+  it("allows local web origins in development", () => {
+    expect(resolveCorsOrigin("http://localhost:5173", "", "development")).toBe("http://localhost:5173");
+    expect(resolveCorsOrigin("http://127.0.0.1:5173", "", "development")).toBe("http://127.0.0.1:5173");
+  });
+
+  it("does not implicitly allow local web origins in production", () => {
+    expect(resolveCorsOrigin("http://localhost:5173", "", "production")).toBeUndefined();
+    expect(resolveCorsOrigin("http://127.0.0.1:5173", "", "production")).toBeUndefined();
+  });
+
+  it("allows an explicitly configured local origin in production", () => {
+    expect(resolveCorsOrigin("http://localhost:5173", "http://localhost:5173", "production")).toBe(
+      "http://localhost:5173",
+    );
+  });
+
   it("allows unpacked Chrome extensions in development", () => {
     expect(resolveCorsOrigin(unpackedExtensionOrigin, "", "development")).toBe(unpackedExtensionOrigin);
   });
@@ -34,7 +50,7 @@ describe("API origins", () => {
   it("adds the extension wildcards to Better Auth only in development", () => {
     const baseEnv = {
       CORS_ALLOWED_ORIGINS: "http://localhost:5173",
-      BETTER_AUTH_TRUSTED_ORIGINS: "filo://auth",
+      BETTER_AUTH_TRUSTED_ORIGINS: "http://127.0.0.1:5173",
     } as Env;
 
     expect(resolveBetterAuthTrustedOrigins({ ...baseEnv, APP_ENV: "development" })).toEqual(
@@ -43,5 +59,12 @@ describe("API origins", () => {
     for (const pattern of DEV_EXTENSION_ORIGIN_PATTERNS) {
       expect(resolveBetterAuthTrustedOrigins({ ...baseEnv, APP_ENV: "production" })).not.toContain(pattern);
     }
+  });
+
+  it("does not trust a mobile custom scheme by default", () => {
+    const env = {
+      CORS_ALLOWED_ORIGINS: "https://filoreader.app",
+    } as Env;
+    expect(resolveBetterAuthTrustedOrigins(env)).not.toContain("filo://auth");
   });
 });

@@ -37,7 +37,7 @@
     "APP_ENV": "development",
     "ADMIN_BETTER_AUTH_USER_IDS": "",
     "CORS_ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
-    "BETTER_AUTH_TRUSTED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,filo://auth"
+    "BETTER_AUTH_TRUSTED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173"
   },
   "env": {
     "development": {
@@ -63,7 +63,7 @@
         "APP_ENV": "development",
         "ADMIN_BETTER_AUTH_USER_IDS": "",
         "CORS_ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
-        "BETTER_AUTH_TRUSTED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,filo://auth"
+        "BETTER_AUTH_TRUSTED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173"
       }
     },
     "production": {
@@ -91,7 +91,7 @@
         "ADMIN_BETTER_AUTH_USER_IDS": "",
         "CORS_ALLOWED_ORIGINS": "https://filoreader.app,https://filo-web.pages.dev",
         "APP_PUBLIC_URL": "https://api.filoreader.app",
-        "BETTER_AUTH_TRUSTED_ORIGINS": "https://filoreader.app,https://filo-web.pages.dev,filo://auth",
+        "BETTER_AUTH_TRUSTED_ORIGINS": "https://filoreader.app,https://filo-web.pages.dev",
         "MAIL_FROM": "Filo <noreply@filoreader.app>"
       }
     }

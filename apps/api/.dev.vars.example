@@ -5,4 +5,4 @@ BETTER_AUTH_SECRET=local-dev-better-auth-secret-change-me
 RESEND_API_KEY=re_your_resend_api_key
 MAIL_FROM=Filo <noreply@example.com>
 APP_PUBLIC_URL=http://localhost:8787
-BETTER_AUTH_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,filo://auth
+BETTER_AUTH_TRUSTED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173

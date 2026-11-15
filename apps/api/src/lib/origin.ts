@@ -24,15 +24,17 @@ export function resolveCorsOrigin(
   appEnv: Env["APP_ENV"],
 ): string | undefined {
   if (!origin) return undefined;
-  if (DEV_WEB_ORIGINS.has(origin) || configuredOrigins(allowedOrigins).includes(origin)) return origin;
-  if (appEnv === "development" && DEV_EXTENSION_ORIGINS.some((pattern) => pattern.test(origin))) return origin;
+  if (configuredOrigins(allowedOrigins).includes(origin)) return origin;
+  if (appEnv !== "development") return undefined;
+  if (DEV_WEB_ORIGINS.has(origin)) return origin;
+  if (DEV_EXTENSION_ORIGINS.some((pattern) => pattern.test(origin))) return origin;
   return undefined;
 }
 
 export function resolveBetterAuthTrustedOrigins(env: Env): string[] {
   return [
     ...configuredOrigins(env.CORS_ALLOWED_ORIGINS),
-    ...configuredOrigins(env.BETTER_AUTH_TRUSTED_ORIGINS ?? "filo://auth"),
+    ...configuredOrigins(env.BETTER_AUTH_TRUSTED_ORIGINS),
     ...(env.APP_ENV === "development" ? DEV_EXTENSION_ORIGIN_PATTERNS : []),
   ];
 }
