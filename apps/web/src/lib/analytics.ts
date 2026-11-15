@@ -13,10 +13,28 @@ export function trackEvent(name: string, params: AnalyticsParams = {}) {
   window.gtag("event", name, params);
 }
 
-export function trackPageView(pathname: string, search: string) {
+const PRIVATE_PAGE_PREFIXES = [
+  "/sign-in",
+  "/sign-up",
+  "/forgot-password",
+  "/reset-password",
+  "/sign-out",
+  "/settings/account-deletion",
+];
+
+export function isPrivatePagePath(pathname: string): boolean {
+  const pagePath = pathname || "/";
+  return PRIVATE_PAGE_PREFIXES.some(
+    (prefix) => pagePath === prefix || pagePath.startsWith(`${prefix}/`),
+  );
+}
+
+export function trackPageView(pathname: string) {
+  const pagePath = pathname || "/";
+  if (isPrivatePagePath(pagePath)) return;
   trackEvent("page_view", {
-    page_location: window.location.href,
-    page_path: `${pathname}${search}`,
+    page_location: `${window.location.origin}${pagePath}`,
+    page_path: pagePath,
     page_title: document.title,
   });
 }
