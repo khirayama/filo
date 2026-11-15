@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AppContext } from "../lib/auth";
 import { errors } from "../lib/errors";
 import { buildOpml, type OpmlExportEntry } from "../lib/opml";
+import { safeHttpUrl } from "../lib/net";
 import { nowIso, toIso } from "../lib/util";
 
 // The file is held in a D1 row until the worker parses it, and D1 caps a
@@ -112,7 +113,7 @@ export const opmlRoutes = new Hono<AppContext>()
     const entries: OpmlExportEntry[] = results.map((row) => ({
       title: row.custom_title ?? row.feed_title,
       feedUrl: row.feed_url,
-      siteUrl: row.site_url,
+      siteUrl: safeHttpUrl(row.site_url),
       tagNames: tagsBySubscription.get(row.subscription_id) ?? [],
     }));
 

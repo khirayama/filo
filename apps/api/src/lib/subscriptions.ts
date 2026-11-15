@@ -1,5 +1,6 @@
 import type { JobMessage } from "../env";
 import { faviconUrlFor, type DiscoveredFeed } from "./discovery";
+import { safeHttpUrl } from "./net";
 import { createSubscriptionUnreadCountMutation } from "./readCursor";
 import { attachTagsStatement, resolveTagIdsByNames } from "./tagops";
 import { nowIso } from "./util";
@@ -13,16 +14,17 @@ export async function findOrCreateFeed(db: D1Database, discovered: DiscoveredFee
   if (existing) return existing.id;
 
   const now = nowIso();
+  const siteUrl = safeHttpUrl(discovered.parsed.siteUrl, discovered.feedUrl);
   const inserted = await db.prepare(
     `INSERT INTO feeds (feed_url, site_url, title, description, favicon_url, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'active', ?, ?) RETURNING id`,
   )
     .bind(
       discovered.feedUrl,
-      discovered.parsed.siteUrl,
+      siteUrl,
       discovered.parsed.title,
       discovered.parsed.description,
-      await faviconUrlFor(discovered.parsed.siteUrl, discovered.feedUrl),
+      await faviconUrlFor(siteUrl, discovered.feedUrl),
       now,
       now,
     )

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeCursor, encodeCursor } from "../src/lib/cursor";
 import { discoverFeed } from "../src/lib/discovery";
 import { dedupeKeyFor, discoverFeedUrlsInHtml, parseFeed } from "../src/lib/feed";
-import { canonicalizeFeedUrl, canonicalizeUrl, safeFetch } from "../src/lib/net";
+import { canonicalizeFeedUrl, canonicalizeUrl, safeCanonicalUrl, safeFetch, safeHttpUrl } from "../src/lib/net";
 import { buildOpml, parseOpml } from "../src/lib/opml";
 import { htmlToText, normalizeTagName, previewFrom } from "../src/lib/util";
 
@@ -257,6 +257,29 @@ describe("canonicalizeUrl", () => {
     expect(canonicalizeFeedUrl("https://Example.com:443/Path/?utm_source=x&a=1&fbclid=y")).toBe(
       "https://example.com/Path/?a=1"
     );
+  });
+
+  it.each(["javascript:alert(1)", "data:text/html,hello", "file:///etc/passwd", "mailto:a@example.com"])(
+    "rejects non-http URLs: %s",
+    (url) => {
+      expect(() => canonicalizeUrl(url)).toThrow();
+      expect(safeCanonicalUrl(url)).toBeNull();
+      expect(safeHttpUrl(url)).toBeNull();
+    },
+  );
+
+  it("only exposes http(s) URLs to clients", () => {
+    expect(safeHttpUrl("https://example.com/article")).toBe("https://example.com/article");
+    expect(safeCanonicalUrl("/article", "https://example.com/feed")).toBe("https://example.com/article");
+    expect(safeCanonicalUrl("javascript:alert(1)", "https://example.com/feed")).toBeNull();
+  });
+
+  it("keeps site URLs as published apart from resolving and scheme checks", () => {
+    expect(safeHttpUrl("http://example.com/blog/?page=1", "https://example.com/feed")).toBe(
+      "http://example.com/blog/?page=1",
+    );
+    expect(safeHttpUrl("/blog/", "https://example.com/feed.xml")).toBe("https://example.com/blog/");
+    expect(safeHttpUrl("javascript:alert(1)", "https://example.com/feed")).toBeNull();
   });
 });
 

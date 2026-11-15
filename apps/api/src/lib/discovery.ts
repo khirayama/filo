@@ -1,6 +1,6 @@
 import { ApiError } from "./errors";
 import { COMMON_FEED_PATHS, discoverFeedUrlsInHtml, looksLikeFeed, parseFeed, type ParsedFeed } from "./feed";
-import { alternateTrailingSlashUrl, canonicalizeFeedUrl, readTextCapped, safeFetch } from "./net";
+import { alternateTrailingSlashUrl, canonicalizeFeedUrl, readTextCapped, safeFetch, safeHttpUrl } from "./net";
 
 export interface DiscoveredFeed {
   feedUrl: string;
@@ -112,15 +112,12 @@ function discoverFaviconUrlInHtml(html: string, baseUrl: string): string | null 
     const href = tag.match(/href\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
     const value = href?.[2] ?? href?.[3] ?? href?.[4];
     if (!value) continue;
-    try {
-      const url = new URL(value, baseUrl).toString();
-      const sizeMatch = tag.match(/sizes\s*=\s*["']?(\d+)/i);
-      const size = sizeMatch ? Number(sizeMatch[1]) : 0;
-      if (!best || (size > 0 && size <= 64 && (best.size === 0 || size > best.size))) {
-        best = { url, size };
-      }
-    } catch {
-      // skip invalid href
+    const url = safeHttpUrl(value, baseUrl);
+    if (!url) continue;
+    const sizeMatch = tag.match(/sizes\s*=\s*["']?(\d+)/i);
+    const size = sizeMatch ? Number(sizeMatch[1]) : 0;
+    if (!best || (size > 0 && size <= 64 && (best.size === 0 || size > best.size))) {
+      best = { url, size };
     }
   }
   return best?.url ?? null;
@@ -143,7 +140,7 @@ export async function faviconUrlFor(siteUrl: string | null, feedUrl: string): Pr
   }
   try {
     const base = new URL(siteBase);
-    return `${base.protocol}//${base.host}/favicon.ico`;
+    return safeHttpUrl(`${base.protocol}//${base.host}/favicon.ico`);
   } catch {
     return null;
   }

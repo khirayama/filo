@@ -6,7 +6,7 @@ import type { AppContext } from "../lib/auth";
 import { decodeCursor, encodeCursor, type ArticleCursor } from "../lib/cursor";
 import { errors } from "../lib/errors";
 import { normalizeSourceLanguage } from "../lib/languages";
-import { canonicalizeUrl } from "../lib/net";
+import { canonicalizeUrl, safeHttpUrl } from "../lib/net";
 import {
   EFFECTIVE_IS_READ,
   parseUpToArticleId,
@@ -595,11 +595,11 @@ export const articleRoutes = new Hono<AppContext>()
         id: row.id,
         title: row.title,
         sourceLanguage: normalizeSourceLanguage(row.source_language),
-        canonicalUrl: row.canonical_url,
+        canonicalUrl: safeHttpUrl(row.canonical_url),
         previewText: preview,
         publishedAt: toIso(row.published_at),
         fetchedAt: toIso(row.fetched_at),
-        feed: { id: row.feed_id, title: row.feed_title, faviconUrl: row.feed_favicon_url },
+        feed: { id: row.feed_id, title: row.feed_title, faviconUrl: safeHttpUrl(row.feed_favicon_url) },
         subscriptionContext: context,
         userState: serializeUserState(row),
       });

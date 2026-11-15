@@ -1,4 +1,5 @@
 import { intToBool, toIso } from "./util";
+import { safeHttpUrl } from "./net";
 
 export interface SubscriptionRow {
   id: number;
@@ -58,9 +59,9 @@ export function serializeSubscription(row: SubscriptionRow, tagIds: number[], un
     feed: {
       id: row.feed_id,
       title: row.feed_title,
-      siteUrl: row.feed_site_url,
+      siteUrl: safeHttpUrl(row.feed_site_url),
       feedUrl: row.feed_url,
-      faviconUrl: row.feed_favicon_url,
+      faviconUrl: safeHttpUrl(row.feed_favicon_url),
       // 翻訳の準備画面が「購読に実在する言語」を出すために使う
       language: row.feed_language,
       latestPublishedAt: toIso(row.latest_published_at),

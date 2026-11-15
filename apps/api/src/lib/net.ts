@@ -35,7 +35,7 @@ function isBlockedHost(hostname: string): boolean {
   return false;
 }
 
-function assertSafeUrl(rawUrl: string): URL {
+function parseHttpUrl(rawUrl: string): URL {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -48,6 +48,11 @@ function assertSafeUrl(rawUrl: string): URL {
   if (url.username || url.password) {
     throw errors.validation("URLs must not contain credentials");
   }
+  return url;
+}
+
+function assertSafeUrl(rawUrl: string): URL {
+  const url = parseHttpUrl(rawUrl);
   if (isBlockedHost(url.hostname)) {
     throw new ApiError(400, "feed_unreachable", "URL is not reachable");
   }
@@ -159,7 +164,7 @@ export async function readTextCapped(response: Response, maxBytes = MAX_RESPONSE
 const TRACKING_PARAMS = /^(utm_|fbclid$|gclid$|yclid$|mc_cid$|mc_eid$)/;
 
 function canonicalizeUrlWithOptions(rawUrl: string, stripTrailingSlash: boolean): string {
-  const url = new URL(rawUrl);
+  const url = parseHttpUrl(rawUrl);
   url.protocol = "https:";
   url.hostname = url.hostname.toLowerCase();
   if (url.port === "443") {
@@ -192,6 +197,26 @@ export function canonicalizeUrl(rawUrl: string): string {
 
 export function canonicalizeFeedUrl(rawUrl: string): string {
   return canonicalizeUrlWithOptions(rawUrl, false);
+}
+
+// Client-facing URLs are always plain web links. This keeps legacy rows and
+// feed metadata from reaching a browser, WebView, or intent as javascript:,
+// data:, file:, or any other non-http scheme. A relative URL resolves against
+// baseUrl when one is given (feed links may be relative to the feed).
+export function safeHttpUrl(rawUrl: string | null | undefined, baseUrl?: string): string | null {
+  const trimmed = rawUrl?.trim();
+  if (!trimmed) return null;
+  try {
+    return parseHttpUrl(new URL(trimmed, baseUrl).toString()).toString();
+  } catch {
+    return null;
+  }
+}
+
+// Article URLs are stored canonicalized: they double as the dedupe identity.
+export function safeCanonicalUrl(rawUrl: string | null | undefined, baseUrl?: string): string | null {
+  const url = safeHttpUrl(rawUrl, baseUrl);
+  return url ? canonicalizeUrl(url) : null;
 }
 
 export function alternateTrailingSlashUrl(rawUrl: string): string | null {

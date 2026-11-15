@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppContext } from "../lib/auth";
 import { errors } from "../lib/errors";
+import { safeHttpUrl } from "../lib/net";
 import { nowIso, parseId, parseLimit, toIso } from "../lib/util";
 
 interface AdminFeedRow {
@@ -32,7 +33,7 @@ function serializeFeed(row: AdminFeedRow, detailed = false) {
   const base = {
     id: row.id,
     feedUrl: row.feed_url,
-    siteUrl: row.site_url,
+    siteUrl: safeHttpUrl(row.site_url),
     title: row.title,
     status: row.status,
     consecutiveFailures: row.consecutive_failures ?? 0,

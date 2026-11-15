@@ -8,9 +8,10 @@ import { detectArticleLanguage, detectFeedLanguage } from "../lib/languageDetect
 import {
   alternateTrailingSlashUrl,
   canonicalizeFeedUrl,
-  canonicalizeUrl,
   readTextCapped,
+  safeCanonicalUrl,
   safeFetch,
+  safeHttpUrl,
 } from "../lib/net";
 import { isoOffset, nowIso } from "../lib/util";
 
@@ -253,19 +254,12 @@ async function ingestArticles(
   items: ParsedFeed["items"],
   feedLanguage: string | null,
   now: string,
+  baseUrl: string,
 ): Promise<number[]> {
   const byDedupeKey = new Map<string, PreparedArticle>();
   for (const item of items.slice(0, 200)) {
     const dedupeKey = await dedupeKeyFor(item);
-    const canonicalUrl = item.url
-      ? (() => {
-          try {
-            return canonicalizeUrl(item.url);
-          } catch {
-            return item.url;
-          }
-        })()
-      : null;
+    const canonicalUrl = safeCanonicalUrl(item.url, baseUrl);
     const sourceLanguage = detectArticleLanguage(
       `${item.title} ${item.summary ?? ""}`,
       feedLanguage,
@@ -457,7 +451,9 @@ export async function runFetchFeed(
       fetched.permanentRedirect ? fetched.finalUrl : fetched.requestedUrl
     );
     // refresh feed metadata including favicon
-    const siteUrl = parsed.siteUrl ?? canonicalFeedUrl;
+    // A feed without a usable <link> keeps its stored site_url (COALESCE below);
+    // only the favicon lookup falls back to the feed's own host.
+    const siteUrl = safeHttpUrl(parsed.siteUrl, canonicalFeedUrl);
     let faviconUrl: string | null = null;
     try {
       faviconUrl = await faviconUrlFor(siteUrl, canonicalFeedUrl);
@@ -489,10 +485,10 @@ export async function runFetchFeed(
          )`,
     )
       .bind(
-        parsed.title, parsed.siteUrl, parsed.description, faviconUrl,
+        parsed.title, siteUrl, parsed.description, faviconUrl,
         nextLanguage, nextLanguageSource, now, feedId,
         parsed.title, parsed.description,
-        parsed.siteUrl, parsed.siteUrl,
+        siteUrl, siteUrl,
         faviconUrl, faviconUrl,
         nextLanguage, nextLanguage,
         nextLanguageSource, nextLanguageSource,
@@ -500,7 +496,7 @@ export async function runFetchFeed(
       .run();
     const feedLanguage = nextLanguage ?? feed.language;
 
-    const newArticleIds = await ingestArticles(env, feedId, parsed.items, feedLanguage, now);
+    const newArticleIds = await ingestArticles(env, feedId, parsed.items, feedLanguage, now, canonicalFeedUrl);
 
     // feeds.article_count and the subscribers' unread counters are advanced
     // by the article insert trigger (migration 0019), in the same statement
