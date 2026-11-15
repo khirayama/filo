@@ -2,6 +2,7 @@ import { API_BASE_URL } from "./config";
 import { clearToken, getToken } from "./auth";
 import type { SupportedLanguage } from "../../web/src/lib/messages";
 import type { ReaderItem } from "./reader";
+import { safeHttpUrl } from "./url";
 
 interface ReadingArticle {
   id: number;
@@ -46,11 +47,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 function toReaderItem(article: ReadingArticle): ReaderItem | null {
-  if (!article.canonicalUrl) return null;
+  const url = safeHttpUrl(article.canonicalUrl);
+  if (!url) return null;
   return {
     articleId: article.id,
     title: article.title,
-    url: article.canonicalUrl,
+    url,
     feedTitle: article.feed.title,
     isRead: article.userState.isRead,
   };

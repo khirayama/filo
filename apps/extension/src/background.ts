@@ -1,5 +1,6 @@
 import { api, ExtensionApiError } from "./api";
 import { speech, type SpeakOptions } from "./speech";
+import { safeHttpUrl } from "./url";
 import { normalizeLanguage, translate } from "../../web/src/lib/messages";
 import {
   baseLanguage,
@@ -491,7 +492,7 @@ async function registerSessionPage(tabId: number, url: string): Promise<ReaderSt
 }
 
 async function startFromWeb(command: Extract<ReaderCommand, { type: "startFromWeb" }>): Promise<void> {
-  if (!/^https?:\/\//i.test(command.url)) throw new Error("読み上げできるページがありません。");
+  if (!safeHttpUrl(command.url)) throw new Error("読み上げできるページがありません。");
   if (command.targetLanguage) await saveSettings({ targetLanguage: command.targetLanguage });
   // The extension needs the same account and complete list to navigate and
   // update read state. Never silently degrade to an unauthenticated one-item session.
