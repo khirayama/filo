@@ -17,7 +17,7 @@ test target='iPhone 17':
   set -euo pipefail
 
   target="{{target}}"
-  device_udid=$(
+  device_json=$(
     DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun simctl list devices available --json \
       | jq -er --arg target "$target" '
         [
@@ -26,13 +26,24 @@ test target='iPhone 17':
           | .key as $runtime
           | .value[]
           | select(.udid == $target or .name == $target)
-          | { runtime: $runtime, udid }
+          | { runtime: $runtime, udid, name, dataPath, deviceTypeIdentifier }
         ]
         | sort_by(.runtime, .udid)
         | last
-        | .udid
       '
   )
+  device_udid=$(jq -r '.udid' <<<"$device_json")
+  data_path=$(jq -r '.dataPath' <<<"$device_json")
+
+  if [[ ! -d "$data_path" ]]; then
+    runtime=$(jq -r '.runtime' <<<"$device_json")
+    name=$(jq -r '.name' <<<"$device_json")
+    device_type=$(jq -r '.deviceTypeIdentifier' <<<"$device_json")
+
+    echo "Recreating stale simulator $device_udid ($name, $runtime)" >&2
+    xcrun simctl delete "$device_udid" >/dev/null 2>&1 || true
+    device_udid=$(xcrun simctl create "$name" "$device_type" "$runtime")
+  fi
 
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodegen generate
   arch_args=()
@@ -52,9 +63,15 @@ build-release:
     exit 1
   fi
 
-  api_base_url=$(plutil -extract API_BASE_URL raw -o - "$secrets_file")
+  api_base_url=$(plutil -extract API_BASE_URL raw -o - "$secrets_file" 2>/dev/null || true)
   if [[ "$api_base_url" != "https://api.filoreader.app" ]]; then
     echo "Release builds require API_BASE_URL=https://api.filoreader.app in $secrets_file." >&2
+    exit 1
+  fi
+
+  web_base_url=$(plutil -extract WEB_BASE_URL raw -o - "$secrets_file" 2>/dev/null || true)
+  if [[ "$web_base_url" != "https://filoreader.app" ]]; then
+    echo "Release builds require WEB_BASE_URL=https://filoreader.app in $secrets_file." >&2
     exit 1
   fi
 
@@ -84,7 +101,8 @@ simulator target='DEACF1DB-C035-439D-BB01-D07B25C7B8A7':
     exit 1
   fi
 
-  open -a Simulator
+  # Xcode 27 replaced Simulator.app with Device Hub (com.apple.dt.Devices).
+  open -a /Applications/Xcode.app/Contents/Applications/DeviceHub.app
 
   device_json=$(
     xcrun simctl list devices available --json \

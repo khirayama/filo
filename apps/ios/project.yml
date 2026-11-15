@@ -23,9 +23,6 @@ targets:
         UILaunchScreen: {}
         UIBackgroundModes:
           - audio
-        CFBundleURLTypes:
-          - CFBundleURLSchemes:
-              - filo
     sources:
       - path: Filo/Sources
       - path: Filo/Resources
