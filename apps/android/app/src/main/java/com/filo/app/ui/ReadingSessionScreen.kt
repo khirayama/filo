@@ -3,7 +3,6 @@ package com.filo.app.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -60,6 +59,9 @@ import com.filo.app.api.ApiClient
 import com.filo.app.api.ArticleListFilters
 import com.filo.app.api.ReadingSessionArticle
 import com.filo.app.api.ReadingSessionItem
+import com.filo.app.openExternalUrl
+import com.filo.app.isAllowedWebNavigation
+import com.filo.app.safeHttpUrl
 import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.languageid.LanguageIdentification
@@ -198,20 +200,21 @@ class ReadingPlayerController(
                 if (session == startSession) applyLanguage(it.language)
             }
         }
+        val safeTemporaryUrl = safeHttpUrl(temporaryUrl)
         val directItem = when {
             article != null -> ReadingSessionItem(
                 articleId = article.id,
                 sortOrder = 0,
                 article = article,
             )
-            temporaryUrl != null -> ReadingSessionItem(
+            safeTemporaryUrl != null -> ReadingSessionItem(
                 articleId = 0,
                 sortOrder = 0,
                 article = ReadingSessionArticle(
                     id = 0,
-                    title = temporaryUrl,
+                    title = safeTemporaryUrl,
                     sourceLanguage = null,
-                    canonicalUrl = temporaryUrl,
+                    canonicalUrl = safeTemporaryUrl,
                     feedTitle = AppStrings.get("共有ページ"),
                 ),
             )
@@ -732,9 +735,7 @@ fun ReadingSessionScreen(
                         true
                     }
                     event.key == Key.V -> {
-                        player.currentPageUrl?.let {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
-                        }
+                        openExternalUrl(context, player.currentPageUrl)
                         true
                     }
                     event.key == Key.Escape -> {
@@ -762,7 +763,7 @@ fun ReadingSessionScreen(
             )
         }
         val currentItem = player.currentItem
-        val currentUrl = currentItem?.article?.canonicalUrl
+        val currentUrl = safeHttpUrl(currentItem?.article?.canonicalUrl)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 player.isLoading -> FiloSpinner(modifier = Modifier.align(Alignment.Center))
@@ -998,7 +999,7 @@ private fun ReadingListSheet(
                             Modifier
                                 .weight(1f)
                                 .heightIn(min = 48.dp)
-                                .clickable(enabled = item.article.canonicalUrl != null) { onSelect(item.articleId) }
+                                .clickable(enabled = safeHttpUrl(item.article.canonicalUrl) != null) { onSelect(item.articleId) }
                                 .padding(vertical = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1064,6 +1065,9 @@ private fun ReadingWebView(
                 addJavascriptInterface(SelectionBridge(onSelectionChanged, onEditingChanged, onPageLocationChanged), "FiloReader")
                 webViewClient = object : WebViewClient() {
                     private var navigationVersion = 0
+                    override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
+                        return !isAllowedWebNavigation(request.url?.toString())
+                    }
                     override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
                         history.canGoBack = view.canGoBack()
                     }
@@ -1085,7 +1089,7 @@ private fun ReadingWebView(
                         ) { if (version == navigationVersion) onPageLoaded(loadedUrl, view.title) }
                     }
                 }
-                loadUrl(url)
+                safeHttpUrl(url)?.let(::loadUrl)
             }
         }
         // Capture when asked, once the page has loaded. A page that renders

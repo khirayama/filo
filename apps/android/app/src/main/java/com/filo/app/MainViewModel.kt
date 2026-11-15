@@ -11,8 +11,9 @@ import java.net.URL
 import org.json.JSONObject
 import com.filo.app.ui.AppText
 
-enum class AuthMode { SignIn, SignUp, ResetPasswordRequest, ResetPasswordVerify, ResetPasswordNewPassword }
-data class AuthUiState(val isConfigured: Boolean = true, val isInitialized: Boolean = true, val initializationError: Boolean = false, val isSignedIn: Boolean = TokenStore.get() != null, val isSubmitting: Boolean = false, val mode: AuthMode = if (AuthLinkStore.resetToken != null) AuthMode.ResetPasswordNewPassword else AuthMode.SignIn, val email: String = "", val password: String = "", val confirmPassword: String = "", val code: String = "", val statusMessage: AppText? = null, val errorMessage: AppText? = null)
+// Password reset finishes on the Web /reset-password page, so the app only requests the email.
+enum class AuthMode { SignIn, SignUp, ResetPasswordRequest }
+data class AuthUiState(val isConfigured: Boolean = true, val isInitialized: Boolean = true, val initializationError: Boolean = false, val isSignedIn: Boolean = TokenStore.get() != null, val isSubmitting: Boolean = false, val mode: AuthMode = AuthMode.SignIn, val email: String = "", val password: String = "", val statusMessage: AppText? = null, val errorMessage: AppText? = null)
 
 private class AuthMessageException(val text: AppText) : Exception()
 
@@ -21,21 +22,12 @@ private object TokenStore { fun get() = SecureTokenStore.get(); fun set(value: S
 class MainViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState = _uiState.asStateFlow()
-    private var resetToken: String? = AuthLinkStore.resetToken
-
-    init {
-        viewModelScope.launch {
-            AuthLinkStore.resetEvents.collect { verifyResetCode() }
-        }
-    }
 
     fun retryInitialization() = update { copy(isInitialized = true, initializationError = false) }
     fun setEmail(value: String) = update { copy(email = value, errorMessage = null) }
     fun setPassword(value: String) = update { copy(password = value, errorMessage = null) }
-    fun setConfirmPassword(value: String) = update { copy(confirmPassword = value, errorMessage = null) }
-    fun setCode(value: String) = update { copy(code = value) }
     fun setMode(value: AuthMode) = update { copy(mode = value, errorMessage = null) }
-    fun backToSignIn() = update { copy(mode = AuthMode.SignIn, password = "", confirmPassword = "", code = "") }
+    fun backToSignIn() = update { copy(mode = AuthMode.SignIn, password = "") }
     fun signIn() = authenticate(false)
     fun signUp() = authenticate(true)
 
@@ -65,36 +57,11 @@ class MainViewModel : ViewModel() {
         val email = _uiState.value.email.trim()
         if (email.isBlank()) { update { copy(errorMessage = AppText("メールアドレスを入力してください")) }; return }
         submit {
-            val body = JSONObject().apply { put("email", email); put("redirectTo", "filo://auth/reset") }.toString()
+            val resetUrl = BuildConfig.WEB_BASE_URL.trimEnd('/') + "/reset-password"
+            val body = JSONObject().apply { put("email", email); put("redirectTo", resetUrl) }.toString()
             val connection = post("/api/auth/request-password-reset", body)
             if (connection.responseCode !in 200..299) throw AuthMessageException(AppText("リセットメールを送信できませんでした"))
             update { copy(isSubmitting = false, statusMessage = AppText("パスワードリセットメールを送信しました")) }
-        }
-    }
-
-    fun verifyResetCode() {
-        resetToken = AuthLinkStore.resetToken
-        if (resetToken.isNullOrBlank()) {
-            update { copy(mode = AuthMode.ResetPasswordVerify, errorMessage = AppText("リセットリンクを開いてください")) }
-        } else {
-            update { copy(mode = AuthMode.ResetPasswordNewPassword, statusMessage = AppText("新しいパスワードを入力してください")) }
-        }
-    }
-
-    fun resetPassword() {
-        val state = _uiState.value
-        val token = resetToken
-        if (token.isNullOrBlank() || state.password.length < 8 || state.password != state.confirmPassword) {
-            update { copy(errorMessage = AppText("リセットリンクと8文字以上のパスワードを確認してください")) }
-            return
-        }
-        submit {
-            val body = JSONObject().apply { put("token", token); put("newPassword", state.password) }.toString()
-            val connection = post("/api/auth/reset-password", body)
-            if (connection.responseCode !in 200..299) throw AuthMessageException(AppText("パスワードを変更できませんでした"))
-            resetToken = null
-            AuthLinkStore.resetToken = null
-            update { copy(mode = AuthMode.SignIn, isSubmitting = false, password = "", confirmPassword = "", statusMessage = AppText("パスワードを変更しました")) }
         }
     }
 

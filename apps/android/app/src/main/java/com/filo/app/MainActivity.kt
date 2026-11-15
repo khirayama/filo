@@ -95,7 +95,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        AuthLinkStore.accept(intent?.data)
         sharedUrl = extractSharedUrl(intent)
         LanguagePreference.load(this)
         ThemePreference.load(this)
@@ -118,7 +117,6 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        AuthLinkStore.accept(intent.data)
         sharedUrl = extractSharedUrl(intent)
     }
 
@@ -174,14 +172,10 @@ private fun AuthRoot(
         uiState = uiState,
         onEmailChanged = mainViewModel::setEmail,
         onPasswordChanged = mainViewModel::setPassword,
-        onConfirmPasswordChanged = mainViewModel::setConfirmPassword,
-        onCodeChanged = mainViewModel::setCode,
         onModeChanged = mainViewModel::setMode,
         onSignIn = mainViewModel::signIn,
         onSignUp = mainViewModel::signUp,
         onSendResetCode = mainViewModel::sendResetCode,
-        onVerifyResetCode = mainViewModel::verifyResetCode,
-        onResetPassword = mainViewModel::resetPassword,
         onBackToSignIn = mainViewModel::backToSignIn,
     )
 }
@@ -213,14 +207,10 @@ private fun AuthScreenPreview() {
             uiState = AuthUiState(),
             onEmailChanged = {},
             onPasswordChanged = {},
-            onConfirmPasswordChanged = {},
-            onCodeChanged = {},
             onModeChanged = {},
             onSignIn = {},
             onSignUp = {},
             onSendResetCode = {},
-            onVerifyResetCode = {},
-            onResetPassword = {},
             onBackToSignIn = {},
         )
     }
@@ -234,14 +224,10 @@ private fun AuthScreen(
     uiState: AuthUiState,
     onEmailChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
-    onConfirmPasswordChanged: (String) -> Unit,
-    onCodeChanged: (String) -> Unit,
     onModeChanged: (AuthMode) -> Unit,
     onSignIn: () -> Unit,
     onSignUp: () -> Unit,
     onSendResetCode: () -> Unit,
-    onVerifyResetCode: () -> Unit,
-    onResetPassword: () -> Unit,
     onBackToSignIn: () -> Unit,
 ) {
     val colors = Filo.colors
@@ -249,8 +235,6 @@ private fun AuthScreen(
         AuthMode.SignIn -> onSignIn
         AuthMode.SignUp -> onSignUp
         AuthMode.ResetPasswordRequest -> onSendResetCode
-        AuthMode.ResetPasswordVerify -> onVerifyResetCode
-        AuthMode.ResetPasswordNewPassword -> onResetPassword
     }
     BoxWithConstraints(
         modifier = Modifier
@@ -298,8 +282,6 @@ private fun AuthScreen(
                             AuthMode.SignIn -> tr("サインイン")
                             AuthMode.SignUp -> tr("アカウント作成")
                             AuthMode.ResetPasswordRequest -> tr("パスワードをリセット")
-                            AuthMode.ResetPasswordVerify -> tr("リセットコードを入力")
-                            AuthMode.ResetPasswordNewPassword -> tr("新しいパスワードを設定")
                         },
                         fontSize = 36.sp,
                         lineHeight = 38.sp,
@@ -311,8 +293,6 @@ private fun AuthScreen(
                         when (uiState.mode) {
                             AuthMode.SignIn, AuthMode.SignUp -> tr("URLをリーディングリストに保存します。")
                             AuthMode.ResetPasswordRequest -> tr("登録済みのメールアドレスにリセット用のリンクを送信します。")
-                            AuthMode.ResetPasswordVerify -> tr("メールに記載されたリセットコードを入力してください。")
-                            AuthMode.ResetPasswordNewPassword -> tr("新しいパスワードを入力してください。")
                         },
                         fontSize = 16.sp,
                         lineHeight = 26.sp,
@@ -334,27 +314,6 @@ private fun AuthScreen(
                             )
                         }
                         AuthMode.ResetPasswordRequest -> EmailField(uiState.email, onEmailChanged, onDone = submit)
-                        AuthMode.ResetPasswordVerify -> {
-                            EmailField(uiState.email, onEmailChanged, enabled = false)
-                            AuthField(tr("リセットコード")) {
-                                AuthInput(
-                                    value = uiState.code,
-                                    onValueChange = onCodeChanged,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                                    keyboardActions = KeyboardActions(onDone = { submit() }),
-                                )
-                            }
-                        }
-                        AuthMode.ResetPasswordNewPassword -> {
-                            PasswordField(tr("新しいパスワード"), uiState.password, onPasswordChanged, isNew = true)
-                            PasswordField(
-                                tr("新しいパスワード（確認）"),
-                                uiState.confirmPassword,
-                                onConfirmPasswordChanged,
-                                isNew = true,
-                                onDone = submit,
-                            )
-                        }
                     }
                 }
 
@@ -366,8 +325,6 @@ private fun AuthScreen(
                         AuthMode.SignIn -> tr("サインイン")
                         AuthMode.SignUp -> tr("アカウント作成")
                         AuthMode.ResetPasswordRequest -> tr("リセットメールを送信")
-                        AuthMode.ResetPasswordVerify -> tr("コードを確認")
-                        AuthMode.ResetPasswordNewPassword -> tr("パスワードを変更")
                     },
                     isLoading = uiState.isSubmitting,
                     onClick = submit,
@@ -384,8 +341,7 @@ private fun AuthScreen(
                             AuthLink(tr("アカウントを作成")) { onModeChanged(AuthMode.SignUp) }
                         }
                         AuthMode.SignUp -> AuthLink(tr("サインインへ戻る")) { onModeChanged(AuthMode.SignIn) }
-                        AuthMode.ResetPasswordRequest, AuthMode.ResetPasswordVerify -> AuthLink(tr("サインインへ戻る"), onBackToSignIn)
-                        AuthMode.ResetPasswordNewPassword -> Unit
+                        AuthMode.ResetPasswordRequest -> AuthLink(tr("サインインへ戻る"), onBackToSignIn)
                     }
                 }
             }
@@ -408,7 +364,6 @@ private fun AuthInput(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true,
     password: Boolean = false,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
@@ -417,7 +372,6 @@ private fun AuthInput(
     FiloTextField(
         value = value,
         onValueChange = onValueChange,
-        enabled = enabled,
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
         visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
@@ -433,14 +387,12 @@ private fun AuthInput(
 private fun EmailField(
     value: String,
     onValueChange: (String) -> Unit,
-    enabled: Boolean = true,
     onDone: (() -> Unit)? = null,
 ) {
     AuthField(tr("メールアドレス")) {
         AuthInput(
             value = value,
             onValueChange = onValueChange,
-            enabled = enabled,
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.None,
                 autoCorrectEnabled = false,
@@ -662,7 +614,7 @@ private fun RssNavigation(
                             onStartReading = { autoplay -> navigateSingleTop("reading/$autoplay") },
                             onOpenArticle = { article ->
                                 Analytics.track("select_item", mapOf("article_id" to article.id))
-                                article.canonicalUrl?.let { url ->
+                                safeHttpUrl(article.canonicalUrl)?.let { url ->
                                     navController.navigate(
                                         "reading-article/${article.id}?url=${Uri.encode(url)}" +
                                             "&title=${Uri.encode(article.title)}" +
@@ -778,7 +730,7 @@ private fun RssNavigation(
                                 navController.popBackStack("articles", false)
                             },
                             onOpenArticle = { article ->
-                                article.canonicalUrl?.let { url ->
+                                safeHttpUrl(article.canonicalUrl)?.let { url ->
                                     navController.navigate(
                                         "reading-article/${article.id}?url=${Uri.encode(url)}" +
                                             "&title=${Uri.encode(article.title)}" +

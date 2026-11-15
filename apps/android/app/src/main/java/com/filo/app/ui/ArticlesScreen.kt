@@ -1,7 +1,5 @@
 package com.filo.app.ui
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +46,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.filo.app.ThemePreference
 import com.filo.app.api.ArticleListItem
+import com.filo.app.openExternalUrl
+import com.filo.app.safeHttpUrl
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -209,7 +209,7 @@ fun ArticlesScreen(
         } ?: subscriptions.any { it.initialFetchStatus == "fetching" }
     }
     // Reading starts at the first unread article, so it needs one to open.
-    val canStartReading = articles.any { it.canonicalUrl != null }
+    val canStartReading = articles.any { safeHttpUrl(it.canonicalUrl) != null }
 
     fun selectedArticleOrFirst(): ArticleListItem? {
         if (articles.isEmpty()) return null
@@ -219,9 +219,9 @@ fun ArticlesScreen(
     }
 
     fun openArticle(article: ArticleListItem) {
-        val url = article.canonicalUrl
+        val url = safeHttpUrl(article.canonicalUrl)
         if (vm.openInBrowserByDefault && url != null) {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            openExternalUrl(context, url)
         } else {
             onOpenArticle(article)
         }
@@ -281,9 +281,7 @@ fun ArticlesScreen(
                             true
                         }
                         Key.V -> {
-                            selectedArticleOrFirst()?.canonicalUrl?.let {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
-                            }
+                            selectedArticleOrFirst()?.let { openExternalUrl(context, it.canonicalUrl) }
                             true
                         }
                         Key.M -> {
@@ -421,7 +419,7 @@ fun ArticlesScreen(
                                     { onOpenSubscription(subscriptionId) }
                                 },
                                 onOpen = { openArticle(article) },
-                                onLongPress = if (article.canonicalUrl != null) {
+                                onLongPress = if (safeHttpUrl(article.canonicalUrl) != null) {
                                     { articleToOpenInBrowser = article }
                                 } else null,
                                 onToggleRead = { vm.patchState(article, isRead = !article.userState.isRead) },
@@ -490,9 +488,7 @@ fun ArticlesScreen(
             message = article.title,
             confirmLabel = tr("開く"),
             onConfirm = {
-                article.canonicalUrl?.let { url ->
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                }
+                openExternalUrl(context, article.canonicalUrl)
                 articleToOpenInBrowser = null
             },
             onDismiss = { articleToOpenInBrowser = null },

@@ -2,7 +2,6 @@ package com.filo.app.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
@@ -43,7 +42,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.filo.app.api.ApiClient
@@ -53,6 +51,8 @@ import com.filo.app.api.ArticleListItem
 import com.filo.app.api.ErrorMessages
 import com.filo.app.api.Subscription
 import com.filo.app.api.Tag
+import com.filo.app.openExternalUrl
+import com.filo.app.safeHttpUrl
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
@@ -407,8 +407,8 @@ fun SubscriptionDetailScreen(
             if (article != null) {
                 selectedArticleIndex = index
                 when (event.key) {
-                    Key.Enter, Key.O -> if (openInBrowserByDefault && article.canonicalUrl != null) context.startActivity(Intent(Intent.ACTION_VIEW, article.canonicalUrl.toUri())) else onOpenArticle(article)
-                    Key.V -> article.canonicalUrl?.let { context.startActivity(Intent(Intent.ACTION_VIEW, it.toUri())) }
+                    Key.Enter, Key.O -> if (openInBrowserByDefault && safeHttpUrl(article.canonicalUrl) != null) openExternalUrl(context, article.canonicalUrl) else onOpenArticle(article)
+                    Key.V -> openExternalUrl(context, article.canonicalUrl)
                     Key.M -> patchState(article, isRead = !article.userState.isRead)
                     Key.S -> patchState(article, inReadingList = !article.userState.inReadingList)
                     Key.B -> patchState(article, isBookmarked = !article.userState.isBookmarked)
@@ -452,10 +452,10 @@ fun SubscriptionDetailScreen(
                                 renameText = sub.customTitle.orEmpty()
                                 showRename = true
                             }, icon = FiloIconName.Pencil)
-                            sub.feed.siteUrl?.let { siteUrl ->
+                            safeHttpUrl(sub.feed.siteUrl)?.let { siteUrl ->
                                 FiloMenuItem(tr("サイトを開く"), {
                                     subscriptionActionsMenuOpen = false
-                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, siteUrl.toUri())) }
+                                    openExternalUrl(context, siteUrl)
                                 }, icon = FiloIconName.ExternalLink)
                             }
                             if (sub.feed.feedUrl != null) {
@@ -569,9 +569,9 @@ fun SubscriptionDetailScreen(
                                 showFeed = false,
                                 translations = translations,
                                 onOpen = {
-                                    val url = article.canonicalUrl
+                                    val url = safeHttpUrl(article.canonicalUrl)
                                     if (openInBrowserByDefault && url != null) {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                                        openExternalUrl(context, url)
                                     } else {
                                         onOpenArticle(article)
                                     }
