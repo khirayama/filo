@@ -15,6 +15,7 @@ import { errorMessage } from "../lib/messages";
 import { enqueueFeedRefresh, refreshNoticeMessage } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
 import { firstUnreadReadingArticle } from "../lib/readingStart";
+import { safeHttpUrl } from "../lib/url";
 
 function scrollArticlesToTop(): void {
   const page = document.querySelector<HTMLElement>(".articles-page");
@@ -196,12 +197,13 @@ function ArticlesListPage() {
       // The visible list can be filtered or only partly loaded. The session
       // starts from the same complete, unfiltered reading list as the apps.
       const readingArticle = await firstUnreadReadingArticle(api.listArticles);
-      if (!readingArticle?.canonicalUrl) {
+      const readingUrl = safeHttpUrl(readingArticle?.canonicalUrl);
+      if (!readingArticle || !readingUrl) {
         setMarkAllError(t("未読の記事がありません。"));
         return;
       }
       await launchReadingExtension(
-        { id: readingArticle.id, url: readingArticle.canonicalUrl, title: readingArticle.title },
+        { id: readingArticle.id, url: readingUrl, title: readingArticle.title },
         { autoplay, targetLanguage: settings?.language ?? language },
       );
       trackEvent(autoplay ? "start_reading_aloud" : "start_reading", { source: "web_extension" });

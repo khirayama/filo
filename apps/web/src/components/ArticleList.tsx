@@ -8,6 +8,7 @@ import { articleItem, trackEvent } from "../lib/analytics";
 import { useIsDesktop } from "./AppShell";
 import { useAppData } from "./AppDataContext";
 import { useTitleTranslation } from "./TitleTranslationContext";
+import { openExternalUrl, safeHttpUrl } from "../lib/url";
 import { ErrorBox, Icon, IconButton, Spinner, formatTimeCompact, palette } from "./ui";
 
 type ArticleStateMutation =
@@ -313,16 +314,17 @@ function ArticleRow({
   const translatedTitle = titleFor(article.id);
   const isTranslated = translatedTitle != null;
   const displayTitle = showOriginal || !isTranslated ? article.title : translatedTitle;
+  const articleUrl = safeHttpUrl(article.canonicalUrl);
   const subscriptionId = article.subscriptionContext.subscriptionIds[0];
   const openRow = (event: React.MouseEvent<HTMLLIElement>) => {
-    if (!article.canonicalUrl || (event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
+    if (!articleUrl || (event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
     trackEvent("select_item", { items: [articleItem(article)] });
-    window.open(article.canonicalUrl, "_blank", "noopener,noreferrer");
+    openExternalUrl(articleUrl);
   };
 
-  const titleEl = article.canonicalUrl ? (
+  const titleEl = articleUrl ? (
     <a
-      href={article.canonicalUrl}
+      href={articleUrl}
       target="_blank"
       rel="noreferrer"
       onClick={() => trackEvent("select_item", { items: [articleItem(article)] })}

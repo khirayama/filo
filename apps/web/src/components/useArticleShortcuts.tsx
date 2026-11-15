@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ArticleListItem } from "../api/types";
 import { articleShortcut, isShortcutIgnoredFor } from "../lib/articleShortcuts";
+import { openExternalUrl } from "../lib/url";
 import { useAppData } from "./AppDataContext";
 import { IconButton, useDialogFocus } from "./ui";
 
@@ -55,7 +56,7 @@ export function useArticleShortcuts({
         if (!article) return;
         setActiveIndex(index);
         if (action === "open" || action === "external") {
-          if (article.canonicalUrl) window.open(article.canonicalUrl, "_blank", "noopener,noreferrer");
+          openExternalUrl(article.canonicalUrl);
         } else {
           onUpdateState(article.id, action === "read"
             ? { isRead: !article.userState.isRead }

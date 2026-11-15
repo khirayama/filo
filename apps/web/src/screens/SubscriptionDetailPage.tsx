@@ -19,6 +19,7 @@ import { errorMessage } from "../lib/messages";
 import { enqueueFeedRefresh, refreshNoticeMessage } from "../lib/refresh";
 import { trackEvent } from "../lib/analytics";
 import { useBackOr } from "../lib/navigation";
+import { openExternalUrl, safeHttpUrl } from "../lib/url";
 
 export function SubscriptionDetailPage() {
   const api = useApi();
@@ -259,14 +260,14 @@ export function SubscriptionDetailPage() {
                       void rename();
                     }}
                   />
-                  {subscription.feed.siteUrl ? (
+                  {safeHttpUrl(subscription.feed.siteUrl) ? (
                     <MenuItem
                       label={t("サイトを開く")}
                       icon="externalLink"
                       role="menuitem"
                       onClick={() => {
                         setMenuOpen(false);
-                        window.open(subscription.feed.siteUrl ?? "", "_blank", "noreferrer");
+                        openExternalUrl(subscription.feed.siteUrl);
                       }}
                     />
                   ) : null}

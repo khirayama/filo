@@ -25,3 +25,11 @@ test("does not start an already-read article when there are no unread articles",
   const result = await firstUnreadReadingArticle(async () => ({ articles: [article(1, true)], nextCursor: null }));
   assert.equal(result, undefined);
 });
+
+test("skips articles whose URLs cannot be opened as web pages", async () => {
+  const result = await firstUnreadReadingArticle(async () => ({
+    articles: [article(1, false, "javascript:alert(1)"), article(2, false)],
+    nextCursor: null,
+  }));
+  assert.equal(result?.id, 2);
+});
