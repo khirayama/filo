@@ -21,6 +21,10 @@ fun configuredProperty(name: String, defaultValue: String = ""): String =
 
 val developmentApiBaseUrl = configuredProperty("apiBaseUrl", "http://10.0.2.2:8787")
 val productionApiBaseUrl = configuredProperty("productionApiBaseUrl")
+// The password reset link opens in the host's browser, not the emulator, and
+// the API trusts only the Web origins listed in BETTER_AUTH_TRUSTED_ORIGINS.
+val developmentWebBaseUrl = configuredProperty("webBaseUrl", "http://localhost:5173")
+val productionWebBaseUrl = configuredProperty("productionWebBaseUrl", "https://filoreader.app")
 val releaseKeystorePath = configuredProperty("releaseKeystorePath")
 val releaseKeystorePassword = configuredProperty("releaseKeystorePassword")
 val releaseKeyAlias = configuredProperty("releaseKeyAlias")
@@ -32,6 +36,9 @@ fun asBuildConfigString(value: String): String =
 fun validateProductionConfiguration() {
     require(productionApiBaseUrl == "https://api.filoreader.app") {
         "Release builds require productionApiBaseUrl=https://api.filoreader.app"
+    }
+    require(productionWebBaseUrl == "https://filoreader.app") {
+        "Release builds require productionWebBaseUrl=https://filoreader.app"
     }
 }
 
@@ -83,10 +90,12 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "API_BASE_URL", asBuildConfigString(developmentApiBaseUrl))
+            buildConfigField("String", "WEB_BASE_URL", asBuildConfigString(developmentWebBaseUrl))
         }
 
         release {
             buildConfigField("String", "API_BASE_URL", asBuildConfigString(productionApiBaseUrl))
+            buildConfigField("String", "WEB_BASE_URL", asBuildConfigString(productionWebBaseUrl))
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(

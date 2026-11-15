@@ -10,10 +10,14 @@ Jetpack Compose app with Better Auth email/password authentication.
 4. Leave `apiBaseUrl` at `http://10.0.2.2:8787` for the emulator (that address is
    the host's loopback, where `just api` listens). On a physical device set it to
    the host's LAN IP instead.
+5. `webBaseUrl` (default `http://localhost:5173`) is where password reset emails
+   send you. The link opens in the host's browser, so it stays on localhost even
+   for the emulator, and it must be listed in the API's `BETTER_AUTH_TRUSTED_ORIGINS`.
 
 For a production release build, set `productionApiBaseUrl` to
-`https://api.filoreader.app` in `local.properties`. `just build-release` rejects
-development API URL and local authentication settings.
+`https://api.filoreader.app` and keep `productionWebBaseUrl` at
+`https://filoreader.app` in `local.properties`. `just build-release` rejects a
+development URL and requires the release signing configuration.
 
 ## Commands
 
