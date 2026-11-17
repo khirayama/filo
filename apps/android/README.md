@@ -22,7 +22,8 @@ development URL and requires the release signing configuration.
 ## Commands
 
 - `just build`
-- `just build-release`
+- `just build-release` (universal APK, about 70 MB with ML Kit native libraries for every ABI)
+- `just bundle-release` (App Bundle for Play; each device downloads only its ABI)
 - `just run`
 
 ## Emulator can't reach the local API

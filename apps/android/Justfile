@@ -9,6 +9,11 @@ build:
 build-release:
   ./gradlew assembleRelease
 
+# Play Store upload: the bundle lets Play deliver only the device's ABI
+# (the universal release APK carries ML Kit native libraries for all four).
+bundle-release:
+  ./gradlew bundleRelease
+
 run:
   adb install -r app/build/outputs/apk/debug/app-debug.apk || { adb uninstall com.filo.app || true; adb install app/build/outputs/apk/debug/app-debug.apk; }
   adb shell monkey -p com.filo.app -c android.intent.category.LAUNCHER 1
