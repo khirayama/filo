@@ -533,10 +533,10 @@ object AppStrings {
     )
 
     private val readingTranslations = mapOf(
-        "en" to mapOf("フィードを更新" to "Refresh feeds", "%d件のフィードを更新しました。" to "%d feeds refreshed.", "フィードを更新しました。" to "Feed refreshed.", "翻訳を利用できないため原文で読み上げています。" to "Translation is unavailable, so the original text is being read aloud."),
-        "zh" to mapOf("フィードを更新" to "刷新订阅源", "%d件のフィードを更新しました。" to "%d 个订阅源已更新。", "フィードを更新しました。" to "订阅源已更新。", "翻訳を利用できないため原文で読み上げています。" to "翻译不可用，正在朗读原文。"),
-        "ko" to mapOf("フィードを更新" to "피드 새로고침", "%d件のフィードを更新しました。" to "%d개 피드를 새로고침했습니다.", "フィードを更新しました。" to "피드를 새로고침했습니다.", "翻訳を利用できないため原文で読み上げています。" to "번역을 사용할 수 없어 원문을 읽고 있습니다."),
-        "es" to mapOf("フィードを更新" to "Actualizar feeds", "%d件のフィードを更新しました。" to "%d feeds actualizados.", "フィードを更新しました。" to "Feed actualizado.", "翻訳を利用できないため原文で読み上げています。" to "La traducción no está disponible; se está leyendo el texto original."),
+        "en" to mapOf("他の音声が使われているため、読み上げを開始できませんでした。" to "Reading aloud could not start because other audio is in use.", "モバイル回線では翻訳モデルをダウンロードしないため、原文で読み上げています。" to "Translation models are not downloaded on mobile data, so the original text is being read aloud.", "フィードを更新" to "Refresh feeds", "%d件のフィードを更新しました。" to "%d feeds refreshed.", "フィードを更新しました。" to "Feed refreshed.", "翻訳を利用できないため原文で読み上げています。" to "Translation is unavailable, so the original text is being read aloud."),
+        "zh" to mapOf("他の音声が使われているため、読み上げを開始できませんでした。" to "其他音频正在使用，无法开始朗读。", "モバイル回線では翻訳モデルをダウンロードしないため、原文で読み上げています。" to "移动网络下不下载翻译模型，正在朗读原文。", "フィードを更新" to "刷新订阅源", "%d件のフィードを更新しました。" to "%d 个订阅源已更新。", "フィードを更新しました。" to "订阅源已更新。", "翻訳を利用できないため原文で読み上げています。" to "翻译不可用，正在朗读原文。"),
+        "ko" to mapOf("他の音声が使われているため、読み上げを開始できませんでした。" to "다른 오디오가 사용 중이라 읽기를 시작하지 못했습니다.", "モバイル回線では翻訳モデルをダウンロードしないため、原文で読み上げています。" to "모바일 데이터에서는 번역 모델을 다운로드하지 않으므로 원문을 읽고 있습니다.", "フィードを更新" to "피드 새로고침", "%d件のフィードを更新しました。" to "%d개 피드를 새로고침했습니다.", "フィードを更新しました。" to "피드를 새로고침했습니다.", "翻訳を利用できないため原文で読み上げています。" to "번역을 사용할 수 없어 원문을 읽고 있습니다."),
+        "es" to mapOf("他の音声が使われているため、読み上げを開始できませんでした。" to "No se pudo empezar a leer porque hay otro audio en uso.", "モバイル回線では翻訳モデルをダウンロードしないため、原文で読み上げています。" to "Los modelos de traducción no se descargan con datos móviles; se está leyendo el texto original.", "フィードを更新" to "Actualizar feeds", "%d件のフィードを更新しました。" to "%d feeds actualizados.", "フィードを更新しました。" to "Feed actualizado.", "翻訳を利用できないため原文で読み上げています。" to "La traducción no está disponible; se está leyendo el texto original."),
     )
 
     // Wording follows apps/web/src/lib/messages.ts (USABILITY_MESSAGES).

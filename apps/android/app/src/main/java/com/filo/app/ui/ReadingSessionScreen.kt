@@ -1,8 +1,14 @@
 package com.filo.app.ui
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.net.ConnectivityManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -64,8 +70,10 @@ import com.filo.app.isAllowedWebNavigation
 import com.filo.app.safeHttpUrl
 import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import java.util.Locale
@@ -86,7 +94,13 @@ data class ReadingCaptureRequest(
     val kind: CaptureKind,
 )
 
-private data class ReadingTranslationResult(val text: String, val language: String?, val untranslated: Boolean = false)
+private data class ReadingTranslationResult(
+    val text: String,
+    val language: String?,
+    val untranslated: Boolean = false,
+    // Untranslated because the model would have to be downloaded over a metered network.
+    val metered: Boolean = false,
+)
 
 class ReadingPlayerController(
     private val context: Context,
@@ -134,6 +148,38 @@ class ReadingPlayerController(
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    // The utterance being spoken, so a late onDone of a stopped one is ignored.
+    private var currentUtteranceId: String? = null
+
+    // Speech holds audio focus only while it plays: another app's audio (or a
+    // call) pauses it, and unplugged headphones pause it like a media player.
+    private val audioManager = context.getSystemService(AudioManager::class.java)
+    private val speechAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_MEDIA)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ||
+            change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
+        ) {
+            scope.launch { if (isPlaying) pause() }
+        }
+    }
+    private val focusRequest: AudioFocusRequest? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(speechAttributes)
+            .setWillPauseWhenDucked(true)
+            .setOnAudioFocusChangeListener(focusListener)
+            .build()
+    } else {
+        null
+    }
+    private var holdsAudio = false
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(receiverContext: Context, intent: Intent) {
+            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) scope.launch { if (isPlaying) pause() }
+        }
+    }
     private var chunks = emptyList<String>()
     private var chunkIndex = 0
     private var speechLanguage: String? = null
@@ -162,13 +208,20 @@ class ReadingPlayerController(
             ttsReady = status == TextToSpeech.SUCCESS
             refreshVoices()
         }.also { engine ->
+            engine.setAudioAttributes(speechAttributes)
             engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) = Unit
+                @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                    scope.launch { isPlaying = false; notifyMedia() }
+                    scope.launch {
+                        if (utteranceId != currentUtteranceId) return@launch
+                        isPlaying = false
+                        releaseAudio()
+                        notifyMedia()
+                    }
                 }
                 override fun onDone(utteranceId: String?) {
-                    scope.launch { finishChunk() }
+                    scope.launch { if (utteranceId == currentUtteranceId) finishChunk() }
                 }
             })
         }
@@ -367,9 +420,17 @@ class ReadingPlayerController(
             if (generation != playbackGeneration) return@launch
             chunks = split(translated.text)
             speechLanguage = translated.language
-            noticeMessage = if (translated.untranslated) AppText("翻訳を利用できないため原文で読み上げています。") else null
+            noticeMessage = when {
+                translated.metered -> AppText("モバイル回線では翻訳モデルをダウンロードしないため、原文で読み上げています。")
+                translated.untranslated -> AppText("翻訳を利用できないため原文で読み上げています。")
+                else -> null
+            }
             chunkIndex = 0
             isPreparing = false
+            if (!acquireAudio()) {
+                errorMessage = AppText("他の音声が使われているため、読み上げを開始できませんでした。")
+                return@launch
+            }
             isPlaying = true
             speakChunk()
         }
@@ -381,9 +442,42 @@ class ReadingPlayerController(
         captureRequest = null
         isPreparing = false
         noticeMessage = null
+        currentUtteranceId = null
         tts?.stop()
         isPlaying = false
+        releaseAudio()
         notifyMedia()
+    }
+
+    private fun acquireAudio(): Boolean {
+        if (holdsAudio) return true
+        val granted = if (focusRequest != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioManager.requestAudioFocus(focusRequest)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+        } == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (!granted) return false
+        holdsAudio = true
+        ContextCompat.registerReceiver(
+            context,
+            noisyReceiver,
+            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        return true
+    }
+
+    private fun releaseAudio() {
+        if (!holdsAudio) return
+        holdsAudio = false
+        runCatching { context.unregisterReceiver(noisyReceiver) }
+        if (focusRequest != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioManager.abandonAudioFocusRequest(focusRequest)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(focusListener)
+        }
     }
 
     fun select(articleId: Int) {
@@ -532,6 +626,7 @@ class ReadingPlayerController(
 
     fun shutdown() {
         pause()
+        releaseAudio()
         tts?.shutdown()
         tts = null
         TtsMediaService.onPlayPause = null
@@ -561,7 +656,9 @@ class ReadingPlayerController(
         voiceName?.let { selected ->
             tts?.voices?.firstOrNull { it.name == selected && it.locale.language == locale.language }?.let { tts?.voice = it }
         }
-        tts?.speak(chunks[chunkIndex], TextToSpeech.QUEUE_FLUSH, null, "filo-$chunkIndex")
+        val utteranceId = "filo-$playbackGeneration-$chunkIndex"
+        currentUtteranceId = utteranceId
+        tts?.speak(chunks[chunkIndex], TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         notifyMedia()
     }
 
@@ -573,6 +670,8 @@ class ReadingPlayerController(
             return
         }
         isPlaying = false
+        currentUtteranceId = null
+        releaseAudio()
         dismissMedia()
         markArticleRead(playbackArticleId)
     }
@@ -598,6 +697,11 @@ class ReadingPlayerController(
             TranslatorOptions.Builder().setSourceLanguage(sourceCode).setTargetLanguage(targetCode).build(),
         )
         return try {
+            // A model download (tens of MB) never starts on a metered network;
+            // the original is read instead, as when translation is unavailable.
+            if (isNetworkMetered() && !areModelsDownloaded(sourceCode, targetCode)) {
+                return ReadingTranslationResult(text, sourceLanguage, true, metered = true)
+            }
             translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitReading()
             val output = mutableListOf<String>()
             for (chunk in split(text)) output += translator.translate(chunk).awaitReading()
@@ -608,6 +712,18 @@ class ReadingPlayerController(
             ReadingTranslationResult(text, sourceLanguage, true)
         } finally {
             translator.close()
+        }
+    }
+
+    private fun isNetworkMetered(): Boolean =
+        context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered ?: true
+
+    private suspend fun areModelsDownloaded(vararg languages: String): Boolean {
+        val manager = RemoteModelManager.getInstance()
+        return languages.all { language ->
+            runCatching {
+                manager.isModelDownloaded(TranslateRemoteModel.Builder(language).build()).awaitReading()
+            }.getOrDefault(false)
         }
     }
 
@@ -632,6 +748,7 @@ class ReadingPlayerController(
     private fun notifyMedia() {
         if (!isPlaying && !mediaNotificationShown) return
         val item = currentItem ?: return
+        val alreadyShown = mediaNotificationShown
         mediaNotificationShown = true
         val intent = Intent(context, TtsMediaService::class.java).apply {
             action = TtsMediaService.ACTION_UPDATE
@@ -640,8 +757,14 @@ class ReadingPlayerController(
             putExtra("chunk", chunkIndex)
             putExtra("total", chunks.size)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ContextCompat.startForegroundService(context, intent)
-        else context.startService(intent)
+        // Playback starts from the screen, so the first post may start a
+        // foreground service. Later posts (a chunk finishing while the app is in
+        // the background) only update the running one, which a background app
+        // may still do; a refused update must never crash playback.
+        runCatching {
+            if (alreadyShown || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) context.startService(intent)
+            else ContextCompat.startForegroundService(context, intent)
+        }
     }
 
     private fun clean(text: String): String = text
@@ -1059,31 +1182,42 @@ private fun ReadingWebView(
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
+                // Article pages never need the app's files or content providers.
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
                 isVerticalScrollBarEnabled = true
                 overScrollMode = WebView.OVER_SCROLL_IF_CONTENT_SCROLLS
                 history.goBack = ::goBack
-                addJavascriptInterface(SelectionBridge(onSelectionChanged, onEditingChanged, onPageLocationChanged), "FiloReader")
+                // Selection and focus state only. The page can call this bridge,
+                // so it carries nothing the app acts on beyond enabling buttons.
+                addJavascriptInterface(SelectionBridge(onSelectionChanged, onEditingChanged), "FiloReader")
                 webViewClient = object : WebViewClient() {
                     private var navigationVersion = 0
+                    private var loading = false
                     override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
                         return !isAllowedWebNavigation(request.url?.toString())
                     }
+                    // Same-document navigations (pushState, hash changes) only
+                    // update the history. Reading the URL from the WebView,
+                    // rather than from a hook in the page, keeps the page from
+                    // reporting a location of its choosing.
                     override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
                         history.canGoBack = view.canGoBack()
+                        val current = view.url
+                        if (!loading && current != null) onPageLocationChanged(current, view.title.orEmpty())
                     }
                     override fun onPageStarted(view: WebView, startedUrl: String?, favicon: android.graphics.Bitmap?) {
                         navigationVersion += 1
+                        loading = true
                         onPageLoading()
                     }
                     override fun onPageFinished(view: WebView, loadedUrl: String) {
                         if (view.url != loadedUrl) return
+                        loading = false
                         val version = navigationVersion
                         view.evaluateJavascript(
                             "$scripts;(() => { const report = () => FiloReader.selectionChanged(window.__filoHasSelection());" +
                                 "const editing = () => { const e = document.activeElement; FiloReader.editingChanged(!!e && (e.matches('input, textarea, select') || e.isContentEditable)); };" +
-                                "if (!window.__filoLocationHook) { window.__filoLocationHook = true; let last = location.href; const locationChanged = () => { if (last !== location.href) { last = location.href; FiloReader.locationChanged(last, document.title || ''); } };" +
-                                "for (const name of ['pushState','replaceState']) { const original = history[name]; history[name] = function(...args) { const result = original.apply(this, args); locationChanged(); return result; }; }" +
-                                "addEventListener('popstate', locationChanged); addEventListener('hashchange', locationChanged); }" +
                                 "document.addEventListener('selectionchange', report); document.addEventListener('focusin', editing);" +
                                 "document.addEventListener('focusout', () => setTimeout(editing, 0)); report(); editing(); })();",
                         ) { if (version == navigationVersion) onPageLoaded(loadedUrl, view.title) }
@@ -1125,7 +1259,7 @@ private suspend fun WebView.capture(kind: String): Pair<String, String?>? = susp
     }
 }
 
-private class SelectionBridge(private val onSelectionChanged: (Boolean) -> Unit, private val onEditingChanged: (Boolean) -> Unit, private val onLocationChanged: (String, String) -> Unit) {
+private class SelectionBridge(private val onSelectionChanged: (Boolean) -> Unit, private val onEditingChanged: (Boolean) -> Unit) {
     @JavascriptInterface
     fun selectionChanged(value: Boolean) {
         Handler(Looper.getMainLooper()).post { onSelectionChanged(value) }
@@ -1134,10 +1268,5 @@ private class SelectionBridge(private val onSelectionChanged: (Boolean) -> Unit,
     @JavascriptInterface
     fun editingChanged(value: Boolean) {
         Handler(Looper.getMainLooper()).post { onEditingChanged(value) }
-    }
-
-    @JavascriptInterface
-    fun locationChanged(url: String, title: String) {
-        Handler(Looper.getMainLooper()).post { onLocationChanged(url, title) }
     }
 }
