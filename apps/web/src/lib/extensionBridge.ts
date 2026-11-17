@@ -2,6 +2,8 @@ const WEB_SOURCE = "filo-web";
 const EXTENSION_SOURCE = "filo-extension";
 const EXTENSION_ERROR = "拡張機能を操作できませんでした。";
 
+// Messages stay on this page: the content script answers only this origin.
+
 function requestId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -22,7 +24,7 @@ export async function detectReadingExtension(timeoutMs = 800): Promise<boolean> 
     };
     window.addEventListener("message", onMessage);
     const timeoutId = window.setTimeout(() => finish(false), timeoutMs);
-    window.postMessage({ source: WEB_SOURCE, type: "ping" }, "*");
+    window.postMessage({ source: WEB_SOURCE, type: "ping" }, window.location.origin);
   });
 }
 
@@ -59,6 +61,6 @@ export function launchReadingExtension(
       title: article.title ?? "",
       autoplay: options.autoplay,
       targetLanguage: options.targetLanguage,
-    }, "*");
+    }, window.location.origin);
   });
 }

@@ -6,6 +6,7 @@ test("extension authentication errors are shown to the web caller", async () => 
   const previous = globalThis.window;
   const listeners = new Set<(event: { source: unknown; data: unknown }) => void>();
   const fake = {
+    location: { origin: "https://filoreader.app" },
     setTimeout,
     clearTimeout,
     addEventListener: (_: string, listener: (event: { source: unknown; data: unknown }) => void) => listeners.add(listener),
