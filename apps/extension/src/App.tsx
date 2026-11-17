@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AUTH_TOKEN_KEY, refreshToken, signIn, signOut, signUp } from "./auth";
+import { refreshToken, SIGNED_IN_KEY, signIn, signOut, signUp } from "./auth";
 import { api } from "./api";
 import { webAppPath } from "./config";
 import { trackEvent } from "./analytics";
@@ -81,8 +81,8 @@ export function App() {
 
   // Account
   const [authChecked, setAuthChecked] = useState(false);
-  const token = useStorageValue<string | null>("local", AUTH_TOKEN_KEY, null);
-  const isSignedIn = authChecked && token !== null;
+  const signedIn = useStorageValue<boolean>("local", SIGNED_IN_KEY, false);
+  const isSignedIn = authChecked && signedIn === true;
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [authEmail, setAuthEmail] = useState("");

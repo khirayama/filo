@@ -1,7 +1,8 @@
 import { api, ExtensionApiError } from "./api";
 import { speech, type SpeakOptions } from "./speech";
 import { safeHttpUrl } from "./url";
-import { normalizeLanguage, translate } from "../../web/src/lib/messages";
+import { normalizeLanguage, SUPPORTED_LANGUAGES, translate, type SupportedLanguage } from "../../web/src/lib/messages";
+import { WEB_APP_URL } from "./config";
 import {
   baseLanguage,
   currentSessionItem,
@@ -493,7 +494,9 @@ async function registerSessionPage(tabId: number, url: string): Promise<ReaderSt
 
 async function startFromWeb(command: Extract<ReaderCommand, { type: "startFromWeb" }>): Promise<void> {
   if (!safeHttpUrl(command.url)) throw new Error("読み上げできるページがありません。");
-  if (command.targetLanguage) await saveSettings({ targetLanguage: command.targetLanguage });
+  if (command.targetLanguage && SUPPORTED_LANGUAGES.includes(command.targetLanguage as SupportedLanguage)) {
+    await saveSettings({ targetLanguage: command.targetLanguage });
+  }
   // The extension needs the same account and complete list to navigate and
   // update read state. Never silently degrade to an unauthenticated one-item session.
   let items: ReaderItem[];
@@ -587,7 +590,33 @@ function run(command: ReaderCommand): Promise<void> {
   }
 }
 
-chrome.runtime.onMessage.addListener((message: ReaderCommand, _sender, sendResponse) => {
+// Commands come from the extension's own pages (the popup). The only command a
+// page may send is the Web app's launch request, relayed by the content script
+// on the Web origin. Content scripts injected into other pages for reading
+// never send commands, so anything else from a tab is refused.
+const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL("")).origin;
+const WEB_APP_ORIGIN = new URL(WEB_APP_URL).origin;
+
+function senderOrigin(sender: chrome.runtime.MessageSender): string | null {
+  try {
+    return sender.url ? new URL(sender.url).origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedCommand(message: ReaderCommand, sender: chrome.runtime.MessageSender): boolean {
+  if (sender.id !== chrome.runtime.id) return false;
+  const origin = senderOrigin(sender);
+  if (message?.type === "startFromWeb") return sender.tab !== undefined && origin === WEB_APP_ORIGIN;
+  return sender.tab === undefined && origin === EXTENSION_ORIGIN;
+}
+
+chrome.runtime.onMessage.addListener((message: ReaderCommand, sender, sendResponse) => {
+  if (!isAllowedCommand(message, sender)) {
+    sendResponse({ ok: false, error: "拡張機能を操作できませんでした。" });
+    return false;
+  }
   run(message).then(
     () => sendResponse({ ok: true }),
     (cause: unknown) => sendResponse({ ok: false, error: errorText(cause) }),

@@ -1,19 +1,57 @@
 import { API_BASE_URL } from "./config";
 
-const KEY = "filo:betterAuthToken";
+// The session token lives in the extension origin's IndexedDB. chrome.storage
+// .local is also readable from content scripts, which this extension injects
+// into arbitrary pages to read them; IndexedDB of the extension origin is not.
+// Only a non-secret flag goes to storage.local, so the popup can follow
+// sign-in changes through storage.onChanged.
+const DB_NAME = "filo";
+const STORE = "auth";
+const TOKEN = "token";
+export const SIGNED_IN_KEY = "filo:signedIn";
 
 interface AuthErrorResponse {
   code?: string;
   message?: string;
 }
 
+function openDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function withStore<T>(mode: IDBTransactionMode, use: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const db = await openDatabase();
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const transaction = db.transaction(STORE, mode);
+      const request = use(transaction.objectStore(STORE));
+      transaction.oncomplete = () => resolve(request.result);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
 export async function getToken(): Promise<string | null> {
-  const value = (await chrome.storage.local.get(KEY))[KEY];
+  const value = await withStore<unknown>("readonly", (store) => store.get(TOKEN));
   return typeof value === "string" ? value : null;
 }
 
+async function setToken(value: string): Promise<void> {
+  await withStore("readwrite", (store) => store.put(value, TOKEN));
+  await chrome.storage.local.set({ [SIGNED_IN_KEY]: true });
+}
+
 export async function clearToken(): Promise<void> {
-  await chrome.storage.local.remove(KEY);
+  await withStore("readwrite", (store) => store.delete(TOKEN));
+  await chrome.storage.local.remove(SIGNED_IN_KEY);
 }
 
 // Validates the stored session once (when the popup opens) and stores a
@@ -21,8 +59,14 @@ export async function clearToken(): Promise<void> {
 // directly and clear it on 401.
 export async function refreshToken(): Promise<string | null> {
   const current = await getToken();
-  if (!current) return null;
+  if (!current) {
+    // Keep the popup's flag in step with a token store that was cleared.
+    await chrome.storage.local.remove(SIGNED_IN_KEY);
+    return null;
+  }
   const response = await fetch(`${API_BASE_URL}/api/auth/get-session`, { headers: { Authorization: `Bearer ${current}` } });
+  // A server or rate-limit error says nothing about the session; keep it.
+  if (!response.ok && response.status !== 401) return current;
   const session = await response.json().catch(() => null) as { session?: unknown; user?: unknown } | null;
   if (!response.ok || !session?.session || !session.user) {
     await clearToken();
@@ -30,7 +74,7 @@ export async function refreshToken(): Promise<string | null> {
   }
   const next = response.headers.get("set-auth-token");
   if (next) {
-    await chrome.storage.local.set({ [KEY]: next });
+    await setToken(next);
     return next;
   }
   return current;
@@ -57,7 +101,7 @@ async function authenticate(action: string, body: Record<string, string>): Promi
   }
   const token = response.headers.get("set-auth-token");
   if (!token) throw new Error("認証トークンを取得できませんでした。");
-  await chrome.storage.local.set({ [KEY]: token });
+  await setToken(token);
 }
 
 export async function signOut(): Promise<void> {
@@ -76,5 +120,3 @@ export async function signOut(): Promise<void> {
     await clearToken();
   }
 }
-
-export const AUTH_TOKEN_KEY = KEY;

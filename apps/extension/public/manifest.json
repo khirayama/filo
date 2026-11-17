@@ -18,8 +18,7 @@
   ],
   "host_permissions": [
     "http://*/*",
-    "https://*/*",
-    "https://www.google-analytics.com/*"
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js",
