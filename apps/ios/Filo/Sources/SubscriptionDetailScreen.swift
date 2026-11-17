@@ -283,6 +283,7 @@ final class SubscriptionDetailViewModel: ObservableObject {
 
 struct SubscriptionDetailScreen: View {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var isListVisible = false
     @State private var isLoadingNewArticles = false
     @StateObject private var model: SubscriptionDetailViewModel
     @ObservedObject private var translations = TitleTranslationStore.shared
@@ -390,8 +391,12 @@ struct SubscriptionDetailScreen: View {
             }
         }
         .task(id: model.subscription?.initialFetchStatus) { await model.followInitialFetch() }
-        .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
+        // Checks only while this list is on screen: a screen pushed above it
+        // (settings, the reading browser) stops the 30-second API polling.
+        .onAppear { isListVisible = true }
+        .onDisappear { isListVisible = false }
+        .task(id: scenePhase == .active && isListVisible) {
+            guard scenePhase == .active, isListVisible else { return }
             while !Task.isCancelled {
                 await model.checkForNewArticles()
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }

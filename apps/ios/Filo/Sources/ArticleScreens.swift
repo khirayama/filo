@@ -334,6 +334,7 @@ final class ArticlesViewModel: ObservableObject {
 
 struct ArticlesScreen: View {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var isListVisible = false
     @State private var isLoadingNewArticles = false
     @Binding var path: NavigationPath
     @ObservedObject var model: ArticlesViewModel
@@ -400,8 +401,12 @@ struct ArticlesScreen: View {
             registerTitlesForTranslation()
             await translations.refreshLanguages()
         }
-        .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
+        // Checks only while this list is on screen: a screen pushed above it
+        // (settings, the reading browser) stops the 30-second API polling.
+        .onAppear { isListVisible = true }
+        .onDisappear { isListVisible = false }
+        .task(id: scenePhase == .active && isListVisible) {
+            guard scenePhase == .active, isListVisible else { return }
             while !Task.isCancelled {
                 await model.checkForNewArticles()
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
