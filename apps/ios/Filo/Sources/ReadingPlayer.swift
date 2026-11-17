@@ -82,6 +82,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published fileprivate var translationRequest: ReadingTranslationRequest?
 
     private let synthesizer = AVSpeechSynthesizer()
+    // The utterance being spoken, so a late `didFinish` of a stopped one is ignored.
+    private var currentUtterance: ObjectIdentifier?
     private var chunks: [String] = []
     private var chunkIndex = 0
     private var startingAutoplay = false
@@ -123,8 +125,18 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     override init() {
         super.init()
         synthesizer.delegate = self
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-        try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    // The playback session is held only while speaking, so opening the app or
+    // the reading browser never interrupts audio from other apps.
+    private func setAudioSessionActive(_ active: Bool) {
+        let session = AVAudioSession.sharedInstance()
+        if active {
+            try? session.setCategory(.playback, mode: .spokenAudio)
+            try? session.setActive(true)
+        } else {
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     // The page never waits for the API: a known URL opens at once, and a list
@@ -343,6 +355,7 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         chunkIndex = 0
         isPreparing = false
         isPlaying = true
+        setAudioSessionActive(true)
         speakCurrentChunk()
     }
 
@@ -356,6 +369,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         isPreparing = false
         noticeMessage = nil
         synthesizer.stopSpeaking(at: .immediate)
+        currentUtterance = nil
+        if isPlaying { setAudioSessionActive(false) }
         isPlaying = false
     }
 
@@ -521,17 +536,20 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
         utterance.voice = voiceIdentifier.flatMap(AVSpeechSynthesisVoice.init(identifier:))
             .flatMap { $0.language.split(separator: "-").first == language.split(separator: "-").first ? $0 : nil }
             ?? AVSpeechSynthesisVoice(language: language)
+        currentUtterance = ObjectIdentifier(utterance)
         synthesizer.speak(utterance)
     }
 
-    private func finishedChunk() {
-        guard isPlaying else { return }
+    private func finishedChunk(_ utterance: ObjectIdentifier) {
+        guard isPlaying, utterance == currentUtterance else { return }
         chunkIndex += 1
         if chunkIndex < chunks.count {
             speakCurrentChunk()
             return
         }
         isPlaying = false
+        currentUtterance = nil
+        setAudioSessionActive(false)
         markArticleRead(playbackArticleId)
     }
 
@@ -585,7 +603,8 @@ final class ReadingPlayerStore: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.finishedChunk() }
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor in self.finishedChunk(id) }
     }
 
 }
@@ -964,10 +983,11 @@ private struct ReadingWebView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
+        // The reader's scripts and message handlers live in an isolated content
+        // world: the page can neither call nor replace them.
         let controller = WKUserContentController()
-        controller.add(context.coordinator, name: "filoSelection")
-        controller.add(context.coordinator, name: "filoLocation")
-        controller.add(context.coordinator, name: "filoEditing")
+        controller.add(context.coordinator, contentWorld: .defaultClient, name: "filoSelection")
+        controller.add(context.coordinator, contentWorld: .defaultClient, name: "filoEditing")
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -980,7 +1000,8 @@ private struct ReadingWebView: UIViewRepresentable {
             webView.addGestureRecognizer(swipe)
         }
         webView.navigationDelegate = context.coordinator
-        context.coordinator.webView = webView
+        webView.uiDelegate = context.coordinator
+        context.coordinator.attach(webView)
         history.attach(webView)
         if let value = safeHttpURL(url) { webView.load(URLRequest(url: value)) }
         return webView
@@ -991,7 +1012,7 @@ private struct ReadingWebView: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UIGestureRecognizerDelegate {
         weak var webView: WKWebView?
         private let onLoading: () -> Void
         private let onLoaded: (String?, String?) -> Void
@@ -1003,6 +1024,7 @@ private struct ReadingWebView: UIViewRepresentable {
         private var pending: ReadingCaptureRequest?
         private var handledId: Int?
         private var navigationVersion = 0
+        private var urlObservation: NSKeyValueObservation?
 
         private static let swipeDistance: CGFloat = 60
 
@@ -1028,6 +1050,20 @@ private struct ReadingWebView: UIViewRepresentable {
             self.onEditingChanged = onEditingChanged
         }
 
+        // Same-document navigations (pushState, hash changes) only change the
+        // URL. Observing it here, rather than hooking the page's history API,
+        // keeps the page from reporting a location of its choosing. Loads are
+        // reported by the navigation delegate instead.
+        func attach(_ webView: WKWebView) {
+            self.webView = webView
+            urlObservation = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
+                MainActor.assumeIsolated {
+                    guard let self, !webView.isLoading, let url = webView.url?.absoluteString else { return }
+                    self.onLocationChanged(url, webView.title ?? "")
+                }
+            }
+        }
+
         // Edge swipes step through the page history. WKWebView's own gesture
         // does not navigate inside this screen, and without history the swipe
         // falls through to the navigation stack, which closes the screen.
@@ -1042,6 +1078,20 @@ private struct ReadingWebView: UIViewRepresentable {
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
             decisionHandler(isAllowedWebNavigation(navigationAction.request.url?.absoluteString) ? .allow : .cancel)
+        }
+
+        // A link that opens a new window (target="_blank") loads in this
+        // browser, like the Android WebView; without this it does nothing.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if navigationAction.targetFrame == nil, isAllowedWebNavigation(navigationAction.request.url?.absoluteString) {
+                webView.load(navigationAction.request)
+            }
+            return nil
         }
 
         @objc func edgeSwiped(_ swipe: UIScreenEdgePanGestureRecognizer) {
@@ -1078,7 +1128,12 @@ private struct ReadingWebView: UIViewRepresentable {
         }
 
         private static func capture(_ webView: WKWebView, kind: String) async -> (text: String, language: String?)? {
-            let result = try? await webView.evaluateJavaScript("window.__filoCapture ? window.__filoCapture('\(kind)') : null")
+            let result = try? await webView.callAsyncJavaScript(
+                "return window.__filoCapture ? window.__filoCapture(kind) : null",
+                arguments: ["kind": kind],
+                in: nil,
+                contentWorld: .defaultClient,
+            )
             guard let body = result as? [String: Any], let text = body["text"] as? String, !text.isEmpty else { return nil }
             return (text, body["lang"] as? String)
         }
@@ -1097,24 +1152,10 @@ private struct ReadingWebView: UIViewRepresentable {
               document.addEventListener('focusin', editing);
               document.addEventListener('focusout', () => setTimeout(editing, 0));
               editing();
-              if (!window.__filoLocationHook) {
-                window.__filoLocationHook = true;
-                let last = location.href;
-                const changed = () => {
-                  if (last === location.href) return;
-                  last = location.href;
-                  window.webkit.messageHandlers.filoLocation.postMessage({url: last, title: document.title || ''});
-                };
-                for (const name of ['pushState', 'replaceState']) {
-                  const original = history[name];
-                  history[name] = function(...args) { const result = original.apply(this, args); changed(); return result; };
-                }
-                addEventListener('popstate', changed);
-                addEventListener('hashchange', changed);
-              }
             })();
+            true;
             """
-            webView.evaluateJavaScript(script) { [weak self] _, _ in
+            webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { [weak self] _ in
                 guard let self else { return }
                 guard version == navigationVersion else { return }
                 loaded = true
@@ -1144,9 +1185,7 @@ private struct ReadingWebView: UIViewRepresentable {
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "filoLocation", let body = message.body as? [String: String], let url = body["url"] {
-                onLocationChanged(url, body["title"] ?? "")
-            } else if message.name == "filoSelection" {
+            if message.name == "filoSelection" {
                 onSelectionChanged(message.body as? Bool ?? false)
             } else if message.name == "filoEditing" {
                 onEditingChanged(message.body as? Bool ?? false)
