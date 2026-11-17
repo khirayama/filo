@@ -97,7 +97,10 @@ android {
             buildConfigField("String", "API_BASE_URL", asBuildConfigString(productionApiBaseUrl))
             buildConfigField("String", "WEB_BASE_URL", asBuildConfigString(productionWebBaseUrl))
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
+            // R8 shrinks and obfuscates the release; the default rules keep
+            // @JavascriptInterface methods, and libraries ship their own rules.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

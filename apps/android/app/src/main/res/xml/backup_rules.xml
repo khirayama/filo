@@ -1,2 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<full-backup-content />
+<!-- Android 11 and lower. The session token is encrypted with a device-bound
+     Keystore key, so a restored copy could never be read; keep it out. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="auth.xml" />
+</full-backup-content>
