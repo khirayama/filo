@@ -9,24 +9,52 @@ import Security
     @Published var errorMessage: String?
     @Published private(set) var isSubmitting = false
     private init() { token = KeychainToken.get(); statusMessage = nil; errorMessage = nil }
-    func signOut() { token = nil; KeychainToken.remove() }
+    // Ends the session on the server as well, so the token stops working even
+    // if it was copied. Local sign-out never waits for the network.
+    func signOut(notice: String? = nil) {
+        if let current = token { revoke(current) }
+        token = nil
+        KeychainToken.remove()
+        statusMessage = notice
+        errorMessage = nil
+    }
+
+    // The API answered 401 for this token: the session expired or was revoked.
+    // A token issued meanwhile by a new sign-in is kept.
+    func sessionRejected(_ rejected: String) {
+        guard token == rejected else { return }
+        token = nil
+        KeychainToken.remove()
+        errorMessage = L10n.string("サインインが必要です。")
+    }
+
+    private func revoke(_ value: String) {
+        var request = URLRequest(url: endpoint("api/auth/sign-out"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(value)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        Task.detached { _ = try? await URLSession.shared.data(for: request) }
+    }
     // The reset finishes on the Web /reset-password page. A custom URL scheme
     // could be claimed by another app and intercept the reset token.
     func sendPasswordReset(email: String) async throws {
         isSubmitting = true
         defer { isSubmitting = false }
-        var request = URLRequest(url: endpoint("api/auth/request-password-reset")); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "redirectTo": AppConfig.webBaseURL.appendingPathComponent("reset-password").absoluteString]); let (_, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+        var request = URLRequest(url: endpoint("api/auth/request-password-reset")); request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "redirectTo": AppConfig.webBaseURL.appendingPathComponent("reset-password").absoluteString]); let (_, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
     }
     func authenticate(email: String, password: String, signUp: Bool) async throws {
         isSubmitting = true
         defer { isSubmitting = false }
         var request = URLRequest(url: endpoint("api/auth/\(signUp ? "sign-up" : "sign-in")/email"))
         request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password, "name": email.split(separator: "@").first.map(String.init) ?? "Filo user"])
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.userAuthenticationRequired) }
         guard let value = http.value(forHTTPHeaderField: "set-auth-token"), !value.isEmpty else { throw URLError(.userAuthenticationRequired) }
         token = value; KeychainToken.set(value)
+        statusMessage = nil; errorMessage = nil
     }
 
     private func endpoint(_ path: String, query: [String: String] = [:]) -> URL {
@@ -110,6 +138,8 @@ struct BetterAuthView: View {
                         Button {
                             Task {
                                 error = nil
+                                auth.statusMessage = nil
+                                auth.errorMessage = nil
                                 do {
                                     try await auth.authenticate(email: email, password: password, signUp: signUp)
                                 } catch {
@@ -149,7 +179,8 @@ struct BetterAuthView: View {
                                 Task {
                                     do {
                                         try await auth.sendPasswordReset(email: email)
-                                        self.error = L10n.string("パスワードリセットメールを送信しました")
+                                        self.error = nil
+                                        auth.statusMessage = L10n.string("パスワードリセットメールを送信しました")
                                     } catch {
                                         self.error = L10n.string("メールを送信できませんでした")
                                     }

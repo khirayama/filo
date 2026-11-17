@@ -385,7 +385,8 @@ struct AccountDeletionStatusScreen: View {
                 if let result = try? await APIClient.shared.deletionStatus(token: deletionToken) {
                     status = result
                     if result.status == "completed" {
-                        BetterAuth.shared.signOut()
+                        // Signing out leaves this screen, so the sign-in screen carries the result.
+                        BetterAuth.shared.signOut(notice: L10n.string("アカウントの削除が完了しました。ご利用ありがとうございました。"))
                         break
                     }
                     if result.status == "none" { break }

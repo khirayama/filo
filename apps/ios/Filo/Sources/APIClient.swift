@@ -81,8 +81,9 @@ final class APIClient: Sendable {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.httpMethod = method
-        if authorized, let token = await token() {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let sentToken = authorized ? await token() : nil
+        if let sentToken {
+            request.setValue("Bearer \(sentToken)", forHTTPHeaderField: "Authorization")
         }
         if let body {
             request.httpBody = body
@@ -97,6 +98,9 @@ final class APIClient: Sendable {
         }
         guard let http = response as? HTTPURLResponse else { throw APIError.network }
         guard (200 ..< 300).contains(http.statusCode) else {
+            if http.statusCode == 401, let sentToken {
+                await BetterAuth.shared.sessionRejected(sentToken)
+            }
             if let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: data) {
                 throw APIError(status: http.statusCode, code: envelope.error.code)
             }

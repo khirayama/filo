@@ -335,21 +335,3 @@ private extension AppRoute {
         }
     }
 }
-
-struct MissingConfigurationView: View {
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("認証が設定されていません")
-                .font(.title.bold())
-            Text("APIの設定を確認してください。")
-                .font(.body)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
-    }
-}
-
-#Preview {
-    MissingConfigurationView()
-}
