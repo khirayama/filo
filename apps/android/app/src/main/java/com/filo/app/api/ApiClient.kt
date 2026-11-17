@@ -13,6 +13,9 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -38,6 +41,10 @@ object ApiClient {
     private val articleCache = mutableMapOf<String, CacheEntry<ArticlePage>>()
     private val inFlight = mutableMapOf<String, Deferred<Any>>()
     private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Tokens the API answered 401 for: the session expired or was revoked.
+    private val _rejectedTokens = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val rejectedTokens: SharedFlow<String> = _rejectedTokens.asSharedFlow()
 
     private suspend fun token(): String? {
         return com.filo.app.SecureTokenStore.get()
@@ -140,6 +147,7 @@ object ApiClient {
             val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
                 ?.bufferedReader()?.use { it.readText() } ?: ""
             if (status !in 200..299) {
+                if (status == 401 && jwt != null) _rejectedTokens.tryEmit(jwt)
                 val code = runCatching {
                     JSONObject(text).getJSONObject("error").getString("code")
                 }.getOrDefault("internal_error")

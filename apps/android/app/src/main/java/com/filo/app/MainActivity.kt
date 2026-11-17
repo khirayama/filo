@@ -137,31 +137,10 @@ private fun AuthRoot(
 ) {
     val uiState by mainViewModel.uiState.collectAsState()
 
-    if (!uiState.isConfigured) {
-        CenteredMessage(
-            title = tr("認証が設定されていません"),
-            body = tr("APIの設定を確認してください。"),
-        )
-        return
-    }
-
-    if (!uiState.isInitialized) {
-        if (uiState.initializationError) {
-            CenteredMessage(
-                title = tr("Unable to connect"),
-                body = tr("Check your internet connection and try again."),
-                actionLabel = tr("Retry"),
-                onAction = mainViewModel::retryInitialization,
-            )
-        } else {
-            CenteredLoading()
-        }
-        return
-    }
-
     if (uiState.isSignedIn) {
         RssNavigation(
             onSignOut = mainViewModel::signOut,
+            onAccountDeleted = mainViewModel::accountDeleted,
             sharedUrl = sharedUrl,
             onSharedUrlConsumed = onSharedUrlConsumed,
         )
@@ -485,6 +464,7 @@ private fun AuthLink(label: String, onClick: () -> Unit) {
 @Composable
 private fun RssNavigation(
     onSignOut: () -> Unit,
+    onAccountDeleted: () -> Unit,
     sharedUrl: String? = null,
     onSharedUrlConsumed: () -> Unit = {},
 ) {
@@ -743,7 +723,7 @@ private fun RssNavigation(
                     screen("accountDeletion?token={token}") { entry ->
                         com.filo.app.ui.AccountDeletionScreen(
                             deletionToken = entry.arguments?.getString("token"),
-                            onSignOut = onSignOut,
+                            onSignOut = onAccountDeleted,
                             onBackToSettings = { navController.navigateUp() },
                         )
                     }
@@ -793,34 +773,4 @@ private fun NavGraphBuilder.screen(
     content: @Composable (NavBackStackEntry) -> Unit,
 ) = composable(route, arguments) { entry ->
     Box(Modifier.fillMaxSize().background(Filo.colors.bg)) { content(entry) }
-}
-
-@Composable
-private fun CenteredLoading() {
-    Box(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding(),
-        contentAlignment = Alignment.Center,
-    ) {
-        FiloSpinnerMark(size = 24.dp)
-    }
-}
-
-@Composable
-private fun CenteredMessage(
-    title: String,
-    body: String,
-    actionLabel: String? = null,
-    onAction: (() -> Unit)? = null,
-) {
-    Column(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Filo.colors.text)
-        Text(body, fontSize = 14.sp, color = Filo.colors.muted)
-        if (actionLabel != null && onAction != null) {
-            FiloButton(actionLabel, onAction, kind = ButtonKind.Primary, modifier = Modifier.padding(top = 8.dp))
-        }
-    }
 }

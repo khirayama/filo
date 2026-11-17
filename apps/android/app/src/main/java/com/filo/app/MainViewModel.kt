@@ -9,11 +9,12 @@ import kotlinx.coroutines.launch
 import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
+import com.filo.app.api.ApiClient
 import com.filo.app.ui.AppText
 
 // Password reset finishes on the Web /reset-password page, so the app only requests the email.
 enum class AuthMode { SignIn, SignUp, ResetPasswordRequest }
-data class AuthUiState(val isConfigured: Boolean = true, val isInitialized: Boolean = true, val initializationError: Boolean = false, val isSignedIn: Boolean = TokenStore.get() != null, val isSubmitting: Boolean = false, val mode: AuthMode = AuthMode.SignIn, val email: String = "", val password: String = "", val statusMessage: AppText? = null, val errorMessage: AppText? = null)
+data class AuthUiState(val isSignedIn: Boolean = TokenStore.get() != null, val isSubmitting: Boolean = false, val mode: AuthMode = AuthMode.SignIn, val email: String = "", val password: String = "", val statusMessage: AppText? = null, val errorMessage: AppText? = null)
 
 private class AuthMessageException(val text: AppText) : Exception()
 
@@ -23,7 +24,16 @@ class MainViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState = _uiState.asStateFlow()
 
-    fun retryInitialization() = update { copy(isInitialized = true, initializationError = false) }
+    init {
+        // A token issued meanwhile by a new sign-in is kept.
+        viewModelScope.launch {
+            ApiClient.rejectedTokens.collect { rejected ->
+                if (TokenStore.get() != rejected) return@collect
+                TokenStore.clear()
+                _uiState.value = AuthUiState(isSignedIn = false, errorMessage = AppText("サインインが必要です。"))
+            }
+        }
+    }
     fun setEmail(value: String) = update { copy(email = value, errorMessage = null) }
     fun setPassword(value: String) = update { copy(password = value, errorMessage = null) }
     fun setMode(value: AuthMode) = update { copy(mode = value, errorMessage = null) }
@@ -45,8 +55,12 @@ class MainViewModel : ViewModel() {
                 put("name", state.email.substringBefore("@").ifBlank { "Filo user" })
             }.toString()
             val connection = post("/api/auth/$endpoint/email", body)
-            val token = connection.getHeaderField("set-auth-token")
-            if (connection.responseCode !in 200..299) throw AuthMessageException(AppText("認証に失敗しました"))
+            val (status, token) = try {
+                connection.responseCode to connection.getHeaderField("set-auth-token")
+            } finally {
+                connection.disconnect()
+            }
+            if (status !in 200..299) throw AuthMessageException(AppText("認証に失敗しました"))
             if (token.isNullOrBlank()) throw AuthMessageException(AppText("認証トークンを取得できませんでした"))
             TokenStore.set(token)
             update { copy(isSignedIn = true, isSubmitting = false, statusMessage = null) }
@@ -60,19 +74,42 @@ class MainViewModel : ViewModel() {
             val resetUrl = BuildConfig.WEB_BASE_URL.trimEnd('/') + "/reset-password"
             val body = JSONObject().apply { put("email", email); put("redirectTo", resetUrl) }.toString()
             val connection = post("/api/auth/request-password-reset", body)
-            if (connection.responseCode !in 200..299) throw AuthMessageException(AppText("リセットメールを送信できませんでした"))
+            val status = try { connection.responseCode } finally { connection.disconnect() }
+            if (status !in 200..299) throw AuthMessageException(AppText("リセットメールを送信できませんでした"))
             update { copy(isSubmitting = false, statusMessage = AppText("パスワードリセットメールを送信しました")) }
         }
     }
 
-    fun signOut() { TokenStore.clear(); update { AuthUiState() } }
+    // Ends the session on the server as well, so the token stops working even
+    // if it was copied. Local sign-out never waits for the network.
+    fun signOut() = signOut(notice = null)
+
+    // Signing out leaves the deletion screen, so the sign-in screen carries the result.
+    fun accountDeleted() = signOut(AppText("アカウントの削除が完了しました。ご利用ありがとうございました。"))
+
+    private fun signOut(notice: AppText?) {
+        val token = TokenStore.get()
+        TokenStore.clear()
+        _uiState.value = AuthUiState(isSignedIn = false, statusMessage = notice)
+        if (token != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    val connection = request("/api/auth/sign-out", "POST", "{}", bearer = token)
+                    try { connection.responseCode } finally { connection.disconnect() }
+                }
+            }
+        }
+    }
 
     private fun post(path: String, body: String): HttpURLConnection = request(path, "POST", body)
-    private fun request(path: String, method: String, body: String? = null): HttpURLConnection {
+    private fun request(path: String, method: String, body: String? = null, bearer: String? = null): HttpURLConnection {
         val connection = URL(BuildConfig.API_BASE_URL.trimEnd('/') + path).openConnection() as HttpURLConnection
         connection.requestMethod = method
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 30_000
         connection.setRequestProperty("Content-Type", "application/json")
         connection.setRequestProperty("Accept", "application/json")
+        if (bearer != null) connection.setRequestProperty("Authorization", "Bearer $bearer")
         if (body != null) {
             connection.doOutput = true
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
