@@ -201,12 +201,34 @@ function fallbackModels(sourceLanguage: string, targetLanguage: string): string[
   return toEnglish && fromEnglish ? [toEnglish, fromEnglish] : null;
 }
 
+// Transformers.js keeps downloaded files in this Cache Storage bucket, keyed by
+// their Hugging Face URL. A model prepared in an earlier visit is still there,
+// so it counts as installed without asking the user to prepare it again.
+const TRANSFORMERS_CACHE = "transformers-cache";
+
+async function isModelCached(model: string): Promise<boolean> {
+  if (typeof caches === "undefined") return false;
+  try {
+    const cache = await caches.open(TRANSFORMERS_CACHE);
+    const graphs = (await cache.keys()).filter((request) =>
+      request.url.includes(`/${model}/resolve/`) && request.url.endsWith(".onnx"));
+    // Encoder and decoder graphs both have to be there.
+    return graphs.length >= 2;
+  } catch {
+    return false;
+  }
+}
+
 async function fallbackStatus(sourceLanguage: string, targetLanguage: string): Promise<TitleTranslationStatus> {
   if (!wasmTranslationSupported) return "unavailable";
   const models = fallbackModels(sourceLanguage, targetLanguage);
   if (!models) return "unavailable";
-  if (models.every((model) => fallbackModelsReady.has(model))) return "installed";
-  return "downloadable";
+  for (const model of models) {
+    if (fallbackModelsReady.has(model)) continue;
+    if (!await isModelCached(model)) return "downloadable";
+    fallbackModelsReady.add(model);
+  }
+  return "installed";
 }
 
 async function prepareFallback(
@@ -214,7 +236,7 @@ async function prepareFallback(
   targetLanguage: string,
   onProgress?: ProgressListener,
 ): Promise<boolean> {
-  const models = await fallbackModels(sourceLanguage, targetLanguage);
+  const models = fallbackModels(sourceLanguage, targetLanguage);
   if (!models?.length) return false;
 
   const listener = onProgress ? (progress: TitleTranslationProgress) => onProgress(progress) : null;
