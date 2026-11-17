@@ -190,7 +190,7 @@ final class TitleTranslationStore: ObservableObject {
         resumePreparedTitles()
         hasCheckedLanguages = true
         #if DEBUG
-        print("[title-translation] target=\(target) supported=\(isDeviceSupported) installed=\(installedLanguages)")
+        debugLog("[title-translation] target=\(target) supported=\(isDeviceSupported) installed=\(installedLanguages)")
         #endif
     }
 
@@ -229,7 +229,7 @@ final class TitleTranslationStore: ObservableObject {
             pending[source, default: []].append((id: article.id, title: title))
         }
         #if DEBUG
-        print("[title-translation] register: pending=\(pending.mapValues(\.count)) readable=\(readableLanguages)")
+        debugLog("[title-translation] register: pending=\(pending.mapValues(\.count)) readable=\(readableLanguages)")
         #endif
         startNextBatchIfIdle()
     }
@@ -251,7 +251,7 @@ final class TitleTranslationStore: ObservableObject {
                 guard batch?.token == current.token else { return }
                 lastError = error.localizedDescription
                 #if DEBUG
-                print("[title-translation] prepare \(current.source) -> \(current.target): \(error)")
+                debugLog("[title-translation] prepare \(current.source) -> \(current.target): \(error)")
                 #endif
             }
             await refreshLanguages()
@@ -311,7 +311,7 @@ final class TitleTranslationStore: ObservableObject {
             // このバッチは原文のまま残す。黙って落ちると原因が追えないので理由は残す
             lastError = error.localizedDescription
             #if DEBUG
-            print("[title-translation] \(current.source) -> \(current.target): \(error)")
+            debugLog("[title-translation] \(current.source) -> \(current.target): \(error)")
             #endif
         }
         finish(token: current.token)
@@ -533,4 +533,11 @@ struct TitleTranslationSetupView: View {
         .padding(.vertical, 10)
         .overlay(alignment: .bottom) { FiloDivider() }
     }
+}
+
+// Diagnostics for development builds only; release builds log nothing.
+private func debugLog(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    print(message())
+    #endif
 }
