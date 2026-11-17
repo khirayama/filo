@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { authClient } from "../auth-client";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/useApi";
@@ -7,37 +7,62 @@ import { Badge, Button, Spinner, palette } from "../components/ui";
 import { Brand } from "../components/Brand";
 import { useAppData } from "../components/AppDataContext";
 
+const DELETION_TOKEN_KEY = "filo:deletionToken";
+const POLL_INTERVAL_MS = 4000;
+
+function readDeletionToken(): string | undefined {
+  try {
+    return sessionStorage.getItem(DELETION_TOKEN_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function clearDeletionToken(): void {
+  try {
+    sessionStorage.removeItem(DELETION_TOKEN_KEY);
+  } catch {
+    // Nothing to clear when storage is blocked.
+  }
+}
+
 export function AccountDeletionPage() {
   const api = useApi();
   const navigate = useNavigate();
-  const signOut = () => authClient.signOut();
   const { t } = useAppData();
   const [status, setStatus] = useState<DeletionStatus | null>(null);
-  const pollRef = useRef<number | null>(null);
 
+  // Polls until the job settles. Signing out at the end changes `api`, so the
+  // loop keeps its own token and stops itself instead of restarting.
   useEffect(() => {
-    const token = sessionStorage.getItem("filo:deletionToken") ?? undefined;
+    const token = readDeletionToken();
+    let disposed = false;
+    let timer: number | undefined;
 
     const poll = async () => {
       try {
         const result = await api.getDeletionStatus(token);
+        if (disposed) return;
         setStatus(result);
         if (result.status === "completed") {
-          if (pollRef.current) window.clearInterval(pollRef.current);
-          // Deletion done: force logout and show the completion state
-          await signOut().catch(() => undefined);
+          clearDeletionToken();
+          await authClient.signOut().catch(() => undefined);
+          return;
         }
+        if (result.status === "none") return;
       } catch {
-        // keep polling; the session may already be gone
+        // Keep polling; the session may already be gone.
       }
+      if (!disposed) timer = window.setTimeout(() => void poll(), POLL_INTERVAL_MS);
     };
 
     void poll();
-    pollRef.current = window.setInterval(() => void poll(), 4000);
     return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      disposed = true;
+      window.clearTimeout(timer);
     };
-  }, [api, signOut]);
+    // Started once per visit: a sign-out mid-poll must not restart the loop.
+  }, []);
 
   return (
     <main style={{ padding: "48px var(--fl-page-gutter)" }}>

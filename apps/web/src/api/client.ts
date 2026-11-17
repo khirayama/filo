@@ -39,20 +39,23 @@ export class ApiRequestError extends Error {
   }
 }
 
-type TokenGetter = () => Promise<string | null>;
+// The Web client authenticates with the Better Auth session cookie, which is
+// cross-origin to the API, so every request must include credentials.
+async function fetchApi(method: string, path: string, init: { headers?: Record<string, string>; body?: BodyInit } = {}): Promise<Response> {
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, { method, ...init, credentials: "include" });
+  } catch {
+    throw new ApiRequestError(0, "network_error", "Network error");
+  }
+}
 
 async function request<T>(
-  getToken: TokenGetter,
   method: string,
   path: string,
   body?: unknown,
-  options: { formData?: FormData; skipAuth?: boolean } = {}
+  options: { formData?: FormData } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (!options.skipAuth) {
-    const token = await getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-  }
   let requestBody: BodyInit | undefined;
   if (options.formData) {
     requestBody = options.formData;
@@ -61,12 +64,7 @@ async function request<T>(
     requestBody = JSON.stringify(body);
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}${path}`, { method, headers, body: requestBody, credentials: "include" });
-  } catch {
-    throw new ApiRequestError(0, "network_error", "Network error");
-  }
+  const response = await fetchApi(method, path, { headers, body: requestBody });
 
   if (response.status === 204) return undefined as T;
   const json = (await response.json().catch(() => null)) as
@@ -82,10 +80,10 @@ async function request<T>(
   return json as T;
 }
 
-export function createApiClient(getToken: TokenGetter, cacheScope = "default") {
-  const get = <T>(path: string) => request<{ data: T; meta?: ListMeta }>(getToken, "GET", path);
+export function createApiClient(cacheScope = "default") {
+  const get = <T>(path: string) => request<{ data: T; meta?: ListMeta }>("GET", path);
   const send = <T>(method: string, path: string, body?: unknown) =>
-    request<{ data: T }>(getToken, method, path, body);
+    request<{ data: T }>(method, path, body);
   const cacheKey = (path: string) => `${cacheScope}:${path}`;
   const invalidate = (prefixes: readonly string[]) => {
     for (const key of responseCache.keys()) {
@@ -297,17 +295,12 @@ export function createApiClient(getToken: TokenGetter, cacheScope = "default") {
     importOpml: async (file: File) => {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await request<{ data: OpmlImportJob }>(getToken, "POST", "/api/v1/opml/import", undefined, {
-        formData,
-      });
+      const res = await request<{ data: OpmlImportJob }>("POST", "/api/v1/opml/import", undefined, { formData });
       return res.data;
     },
     getOpmlImport: async (jobId: string) => (await get<OpmlImportJob>(`/api/v1/opml/imports/${jobId}`)).data,
     exportOpml: async () => {
-      const token = await getToken();
-      const response = await fetch(`${API_BASE_URL}/api/v1/opml/export`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const response = await fetchApi("GET", "/api/v1/opml/export");
       if (!response.ok) throw new ApiRequestError(response.status, "internal_error", "Export failed");
       return response.blob();
     },
@@ -317,11 +310,7 @@ export function createApiClient(getToken: TokenGetter, cacheScope = "default") {
       const path = deletionToken
         ? `/api/v1/account/deletion-status?deletionToken=${encodeURIComponent(deletionToken)}`
         : "/api/v1/account/deletion-status";
-      return (
-        await request<{ data: DeletionStatus }>(getToken, "GET", path, undefined, {
-          skipAuth: Boolean(deletionToken),
-        })
-      ).data;
+      return (await get<DeletionStatus>(path)).data;
     },
   };
 }

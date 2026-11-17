@@ -99,7 +99,8 @@ export function SettingsPage() {
       a.href = url;
       a.download = "filo-subscriptions.opml";
       a.click();
-      URL.revokeObjectURL(url);
+      // Revoking in the same task can cancel the download in some browsers.
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
       trackEvent("export_opml");
     } catch (e) {
       setError(errorMessage(e, language));
@@ -116,7 +117,11 @@ export function SettingsPage() {
     if (!confirmed) return;
     try {
       const accepted = await api.deleteAccount();
-      sessionStorage.setItem("filo:deletionToken", accepted.deletionToken);
+      try {
+        sessionStorage.setItem("filo:deletionToken", accepted.deletionToken);
+      } catch {
+        // The status page falls back to the session while it lasts.
+      }
       navigate("/settings/account-deletion");
     } catch (e) {
       setError(errorMessage(e, language));

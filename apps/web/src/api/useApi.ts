@@ -5,5 +5,5 @@ import { createApiClient } from "./client";
 export function useApi() {
   const { data: session } = authClient.useSession();
   const userId = session?.user.id ?? "anonymous";
-  return useMemo(() => createApiClient(async () => null, userId), [userId]);
+  return useMemo(() => createApiClient(userId), [userId]);
 }
