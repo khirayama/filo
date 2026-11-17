@@ -58,11 +58,15 @@ Browser Extension（build-time env）:
 
 - `VITE_API_BASE_URL`: API origin
 - `VITE_WEB_APP_URL`: Webアプリ origin
-- Extension は Better Auth bearer token を `chrome.storage.local` に保存する
+- Extension は Better Auth bearer token を拡張機能 origin の IndexedDB に保存する。`chrome.storage.local` は読み上げのために任意ページへ注入する content script からも読めるため、そこには秘密でないサインイン済みフラグ（`filo:signedIn`）だけを置く
+- Extension の background は、popup 以外からのコマンドを受け付けない。例外は Web origin の content script が中継する読み上げ開始（`startFromWeb`）だけ
 - Chrome が 1st party。`npm run build[:production]` は `dist/`、`build:firefox[:production]` は `dist-firefox/`、`build:safari[:production]` は `dist-safari/` へ出力する（Edge は Chrome 用 `dist/` をそのまま使う）
 - ブラウザ差分は manifest（`vite.target.ts`）と音声エンジン（`src/speech.ts`）に閉じる。`chrome.tts` があれば使い、無い Firefox / Safari は background page の Web Speech API で読み上げる。Translator API が無いブラウザは原文で読み上げる
 - Safari は `xcrun safari-web-extension-converter dist-safari` で Xcode プロジェクト化して読み込む
 - iOS は Keychain、Android は Android Keystore で bearer token を保存する
+- Web の CSP（`apps/web/public/_headers`）はインラインスクリプトを許可しない。外部 origin は API、Google Analytics、端末内翻訳の WASM フォールバック（`cdn.jsdelivr.net` の ONNX Runtime、Hugging Face のモデル）に限る。依存先を増やすときは CSP も更新する
+- iOS / Android のアプリ内ブラウザは、ページ内のスクリプトから呼べる経路にアプリが従う情報を載せない。iOS は読み上げ用スクリプトを隔離した content world で動かし、URL の変化は WebView 自身（iOS: `url` の KVO、Android: `doUpdateVisitedHistory`）から取る
+- Android は端末のバックアップ・機種変更転送から認証トークン（`auth.xml`）を除外する
 
 ## Operational Defaults
 
