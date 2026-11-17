@@ -4,6 +4,7 @@
   "packageManager": "npm@11.9.0",
   "engines": { "node": ">=24 <25", "npm": ">=11 <12" },
   "version": "0.1.0",
+  "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development & vite build --watch --mode development --config vite.content.config.ts & wait",
     "build": "rm -rf dist && vite build --mode development && vite build --mode development --config vite.content.config.ts",
