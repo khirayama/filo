@@ -36,6 +36,8 @@ jobs:
           cache-dependency-path: apps/${{ matrix.app }}/package-lock.json
       - run: npm install --global npm@11.9.0
       - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       - run: npm audit
       - run: npm run check
       - name: Bundle API without deploying
