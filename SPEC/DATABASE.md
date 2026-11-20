@@ -110,7 +110,7 @@ account deletion 専用:
 - **行の存在それ自体が「抽出を要求済み」を意味する。** `pending` はジョブが実行中であることを表すので、抽出以外の目的でこの行を作ってはならない（作ると重複起動抑止が誤作動し、抽出が永久に始まらない）
 - `article_contents.status` は `pending -> ready | error` を基本とし、retry 時のみ `error -> pending` を許可する
 - `article_contents` はリーディングパートのための本文抽出結果であり、ユーザーの明示操作を起点に on-demand で生成する
-- `article_contents` は可視ページからの抽出が失敗したときの fallback 専用であり、読み上げの第一経路ではない（`READING.md`）。最終利用から 7 日を過ぎた行は削除してよい
+- `article_contents` は可視ページからの抽出が失敗したときの fallback 専用であり、読み上げの第一経路ではない（`SPEC/APP.md` の読み上げ規則）。最終利用から 7 日を過ぎた行は削除してよい
 - article metadata 更新だけでは既存 `article_contents` を自動 invalidation しない。`article_contents` は stale 許容の shared cache とする
 
 ### 既読
@@ -177,6 +177,6 @@ account deletion 専用:
 
 shared data の自動 retention 削除は `article_contents` を除いて導入していない。D1 は 1 database あたりの容量に上限があり（Workers Free `500MB` / Workers Paid `10GB`）、超えると書き込みが失敗する。database size が上限の `60%`（Free `300MB` / Paid `6GB`）、または月次インフラコストが予算比 `120%` を 2 週連続で超えた場合は、記事の retention（collection に入っていない古い記事の削除と導出カウンターの減算）を次リリース優先事項として扱う。
 
-`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。Hourly cron が `updated_at` を最終利用時刻として扱い、1 回あたり最大 500 行を削除する。
+`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する。Hourly cron が `updated_at` を最終利用時刻として扱い、1 回あたり最大 500 行を削除する。
 
 ## Incident Runbooks

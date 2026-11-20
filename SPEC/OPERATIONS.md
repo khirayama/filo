@@ -152,7 +152,7 @@ cron（毎時）は due な active feed の refresh、失敗した account delet
 
 ### 本文抽出
 
-リーディングパート専用の on-demand 処理で、RSS リーダーの管理 UI からは起動しない。読み上げの第一経路はクライアント側の可視 DOM 抽出であり、このサーバー抽出は fallback として使う（`READING.md`）。
+リーディングパート専用の on-demand 処理で、RSS リーダーの管理 UI からは起動しない。読み上げの第一経路はクライアント側の可視 DOM 抽出であり、このサーバー抽出は fallback として使う（`SPEC/APP.md` の読み上げ規則）。
 
 - `POST /api/v1/articles/{articleId}/content` で起動する
 - `article_contents` の行の存在自体が「抽出を要求済み」を意味する。`pending` 行があれば重複 job を作らない
@@ -215,7 +215,7 @@ database size は Cloudflare ダッシュボードの D1 Metrics、または `wr
 
 Workers Free では row read / row write の日次上限（`500万` / `10万`）がアカウント内の全 D1 database の合計に掛かり、超えると UTC 0 時まで全クエリが失敗する。production の `filo-db` は同じアカウントの他 database（`remo-db`）と枠を共有しているため、他 database の書き込み量で filo の書き込みも止まる。
 
-`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する（`READING.md` D8）。Hourly cron が `updated_at` を最終利用時刻として扱い、1 回あたり最大 500 行を削除する。
+`article_contents` は fallback 専用の短期キャッシュとし、最終利用から 7 日を過ぎた行を削除する。Hourly cron が `updated_at` を最終利用時刻として扱い、1 回あたり最大 500 行を削除する。
 
 ## Incident Runbooks
 
